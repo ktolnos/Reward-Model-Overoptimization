@@ -65,6 +65,7 @@ class GRMDataCollatorWithPadding:
 class GRMRewardTrainer(RewardTrainer):    
     def __init__(self, **kwargs):
         self.reference_free = kwargs.pop('reference_free', True)
+        self.reference_model = kwargs.pop('reference_model', None)
         self.sft_only = kwargs.pop('sft_only', True)
         self.no_logsigmoid_sft = kwargs.pop('no_logsigmoid_sft', False)
         self.weight_ratio = kwargs.pop('weight_ratio', 0.01)

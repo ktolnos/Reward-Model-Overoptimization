@@ -55,6 +55,7 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default="test",)
     save_strategy: Optional[str] = field(default="epoch")
     save_steps: Optional[int] = field(default=1000)
+    debug: Optional[bool] = field(default=False, metadata={'help': 'if debug=True, only train with 100 samples'})
     
 
 
@@ -100,7 +101,7 @@ else:
     tokenizer.pad_token = tokenizer.eos_token
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode)
+train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None)
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 

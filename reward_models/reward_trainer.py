@@ -56,7 +56,7 @@ class SimpleRewardTrainer(RewardTrainer):
     def __init__(self, **kwargs):
         self.loss_type = kwargs.pop('loss_type', 'bt')
         self.weight_ratio = kwargs.pop('weight_ratio', 0.1)
-        super(RewardTrainer_new, self).__init__(**kwargs)
+        super(SimpleRewardTrainer, self).__init__(**kwargs)
 
 
     def compute_loss(self, model, inputs, return_outputs=False):
