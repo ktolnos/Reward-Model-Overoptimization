@@ -169,7 +169,7 @@ def build_dataset_SK(data_path, tokenizer, split='train', size=None, model_name=
 def load_train_eval_dataset(data_path, tokenizer, size=None, mode='', model_name=''):
     if 'Unified' in data_path:
         # mode is only used for loading training data
-        train_dataset = build_dataset_UF(data_path, tokenizer, split='train', mode=mode, model_name=model_name) 
+        train_dataset = build_dataset_UF(data_path, tokenizer, split='train', size=100, mode=mode, model_name=model_name) 
         eval_dataset = build_dataset_UF(data_path, tokenizer, split='val', model_name=model_name)
     elif 'Skywork' in data_path:
         dataset = build_dataset_SK(data_path, tokenizer, split='train', model_name=model_name)

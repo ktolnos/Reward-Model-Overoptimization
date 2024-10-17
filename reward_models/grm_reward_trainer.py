@@ -2,12 +2,14 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 from accelerate import Accelerator
 import numpy as np
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from base_trainer import RewardTrainer
 from transformers.utils import PaddingStrategy
 from transformers import AutoTokenizer
+from utils import get_trainable_weights
 
 
 @dataclass
@@ -169,4 +171,4 @@ class GRMRewardTrainer(RewardTrainer):
             else: # for full training and deepspeed
                 state_dict = get_trainable_weights(model)
                 model.save_pretrained(output_dir, state_dict=state_dict, safe_serialization=False)
-            tokenizer.save_pretrained(output_dir)
+            self.tokenizer.save_pretrained(output_dir)
