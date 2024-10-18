@@ -1,5 +1,5 @@
 # Generalizable-Reward-Model
-Code for NeurIPS 2024 paper "Regularizing Hidden States Enables Learning Generalizable Reward Model for LLMs". 
+Code for NeurIPS 2024 paper "Regularizing Hidden States Enables Learning Generalizable Reward Model for LLMs". Our open-sourced reward models are available at [https://huggingface.co/collections/Ray2333/grm](https://huggingface.co/collections/Ray2333/grm-66882bdf7152951779506c7b).
 
 This repo is under preparation. The evaluation code and BoN/PPO code will be added soon.
 
