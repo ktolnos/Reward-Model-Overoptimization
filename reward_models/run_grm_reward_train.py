@@ -71,7 +71,10 @@ class ScriptArguments:
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 model_name_split = script_args.base_model.split("/")[-1]
-output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_{script_args.learning_rate}"
+if script_args.use_lora:
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
+else:
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
 
 device = Accelerator().local_process_index 
 
@@ -132,6 +135,7 @@ if not script_args.reference_free:
     reference_model.resize_token_embeddings(len(tokenizer))
     reference_model.config.pad_token_id = tokenizer.pad_token_id
 
+
 model = AutoModelForCausalLMWithValueHead.from_pretrained(
     script_args.base_model, device_map=device, 
     torch_dtype=torch.bfloat16,
@@ -162,7 +166,7 @@ print_trainable_parameters(model)
 # Define the trainer parameters
 trainer_params = {
     "model": model,
-    "reference_model": reference_model,
+    "reference_model": reference_model if not script_args.reference_free else None,
     "args": training_args,
     "tokenizer": tokenizer,
     "train_dataset": train_dataset,

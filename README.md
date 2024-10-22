@@ -10,12 +10,16 @@ First set the environment variable.
 export HF_HOME='your HF token'
 ```
 
-Then, train the reward model with the default hyperparameters
+Then, go the `scripts' folder and train the reward model with the default hyperparameters
 ```
-cd reward_models
-CUDA_VISIBLE_DEVICES=0,1 accelerate launch run_reward_models_train.py 
-CUDA_VISIBLE_DEVICES=0,1 accelerate launch run_grm_reward_train.py 
+cd scripts
+sh train_bt_rm_full.sh
+sh train_bt_rm_lora.sh
+sh train_grm_full.sh
+sh train_grm_lora.sh
 ```
+
+
 
 
 
