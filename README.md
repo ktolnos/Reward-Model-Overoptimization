@@ -3,6 +3,26 @@ Code for NeurIPS 2024 paper ["Regularizing Hidden States Enables Learning Genera
 
 This repo is under preparation. The evaluation code and BoN/PPO code will be added soon.
 
+## Models
+
+Check out our GRM series:
+
+
+
+|       Model               | Average       |  Chat     |     Chat Hard      |     Safety      |     Reasoning     |   
+|:-------------------------:|:-------------:|:---------:|:---------:|:--------:|:-----------:|
+|[Ray2333/GRM-Llama3-8B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-Llama3-8B-rewardmodel-ft)**(8B)**|91.5|95.5|86.2|90.8|93.6|
+|[Ray2333/GRM-Llama3.2-3B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-Llama3.2-3B-rewardmodel-ft)**(3B)**|90.9|91.6|84.9|92.7|94.6|
+| [Ray2333/GRM-gemma2-2B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-gemma2-2B-rewardmodel-ft) **(2B)**| 88.4 | 93.0 | 77.2 | 92.2 | 91.2 |
+|[Ray2333/GRM-llama3-8B-sftreg](https://huggingface.co/Ray2333/GRM-llama3-8B-sftreg)**(8B)**|87.0|98.6|67.8|89.2|92.3|
+|[Ray2333/GRM-llama3.2-3B-sftreg](https://huggingface.co/Ray2333/GRM-llama3.2-3B-sftreg)**(3B)**|85.8|96.4|67.1|88.2|91.6|
+|[Ray2333/GRM-Gemma-2B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-Gemma-2B-rewardmodel-ft) **(2B)**|  84.7 | 89.4 | 75.2 | 85.5 | 88.8 |
+|  [Ray2333/GRM-Gemma2-2B-sftreg](https://huggingface.co/Ray2333/GRM-Gemma2-2B-sftreg)**(2B)** | 81.0 |  97.2    |  59.6 | 86.9 |   80.3 |
+|  [Ray2333/GRM-Gemma-2B-sftreg](https://huggingface.co/Ray2333/GRM-Gemma-2B-sftreg)**(2B)** | 75.3    |   95.5  |  48.7 |   80.0 | 76.8     |  
+|  [Ray2333/Gemma-2B-rewardmodel-baseline](https://huggingface.co/Ray2333/Gemma-2B-rewardmodel-baseline)**(2B)** | 73.7    |   94.1  |  46.1 |  79.6 |  75.0   |  
+
+
+
 
 ## Usage 
 First set the environment variable.
