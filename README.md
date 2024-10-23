@@ -5,7 +5,7 @@ This repo is under preparation. The evaluation code and BoN/PPO code will be add
 
 ## Models
 
-Check out our GRM series:
+Check out our GRM series below, which are evlauated on [reward-bench](https://huggingface.co/spaces/allenai/reward-bench).
 
 
 
