@@ -30,7 +30,7 @@ First set the environment variable.
 export HF_HOME='your HF token'
 ```
 
-Then, go the `scripts' folder and train the reward model with the default hyperparameters
+Then, go to the `scripts' folder and train the reward model with the default hyperparameters
 ```
 cd scripts
 sh train_bt_rm_full.sh
@@ -38,9 +38,6 @@ sh train_bt_rm_lora.sh
 sh train_grm_full.sh
 sh train_grm_lora.sh
 ```
-
-
-
 
 
 
@@ -55,3 +52,8 @@ sh train_grm_lora.sh
   year={2024}
 }
 ```
+
+## Acknowledgment
+This repo is built upon [transformers](https://github.com/huggingface/transformers) and [trl](https://github.com/huggingface/trl), with also inspiration from [RLHFlow](https://github.com/RLHFlow/RLHF-Reward-Modeling). 
+
+
