@@ -1,5 +1,7 @@
 # Best-of-N (BoN)  [Under Preparation]
 
+The BoN code is currently being prepared and improved.
+
 ## Overview
 
 For BoN experiment, we use a 20K subset of the Unified-Feedback dataset, labeled by a gold reward model, to train proxy reward models. BoN sampling is then conducted on a held-out 1K test set, where \( N \) responses are generated per prompt. The proxy model ranks these responses, selecting the top responses based on their proxy scores. The selected responses are then evaluated by the gold reward model, and average scores (both proxy and gold) across the test set reflect the quality of responses chosen by the proxy reward model.
