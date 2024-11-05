@@ -17,7 +17,7 @@ from transformers import (
 import argparse
 from load_datasets import build_datasets_inference, prepare_data_loader
 from utils import create_output_directory
-from grm_utils import load_model_withhead
+from reward_models.grm_utils import load_model_withhead
 
 
 @dataclass

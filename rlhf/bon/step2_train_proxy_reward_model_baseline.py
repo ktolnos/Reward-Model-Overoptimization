@@ -13,7 +13,7 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
 )
-from trainer.reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
+from reward_models.reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset
 from utils import print_trainable_parameters, compute_metrics
 

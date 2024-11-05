@@ -13,10 +13,10 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
 )
-from trainer.grm_reward_trainer import GRMDataCollatorWithPadding, GRMRewardTrainer
+from reward_models.grm_reward_trainer import GRMDataCollatorWithPadding, GRMRewardTrainer
 from load_datasets import load_train_eval_dataset
 from utils import print_trainable_parameters, grm_compute_metrics
-from trainer.grm_utils import AutoModelForCausalLMWithValueHead
+from reward_models.grm_utils import AutoModelForCausalLMWithValueHead
 
 
 @dataclass

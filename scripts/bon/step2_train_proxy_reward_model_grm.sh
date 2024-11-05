@@ -1,9 +1,9 @@
 devices=0,1,2,3
 n_gpu=4
-dataset_name='./step1_obtain_gold_score/unified_sampled_gold_score'
+dataset_name='rlhf/bon/step1_obtain_gold_score/unified_sampled_gold_score'
 base_model='google/gemma-2b-it'
 wandb_name="GRM"
-log_dir='../save_reward_models'
+log_dir='rlhf/bon/save_reward_models'
 main_process_port=9994
 
 learning_rate=1e-5
@@ -18,9 +18,9 @@ layer_type='linear'
 sft_only=True
 reference_free=True
 
-cd ../reward_models
+
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} \
-    step2_train_proxy_reward_model_grm.py \
+    rlhf/bon/step2_train_proxy_reward_model_grm.py \
     --base_model ${base_model}  --wandb_name ${wandb_name}   --log_dir ${log_dir} \
     --num_train_epochs ${num_train_epochs} \
     --max_length ${max_length} \
