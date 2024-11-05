@@ -39,7 +39,11 @@ sh train_grm_full.sh
 sh train_grm_lora.sh
 ```
 
-
+Evaluating trained models
+```
+sh eval_bt_rm.sh
+sh eval_grm_rm.sh
+```
 
 
 ## Citation
