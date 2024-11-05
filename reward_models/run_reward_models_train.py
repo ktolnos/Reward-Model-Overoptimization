@@ -15,7 +15,7 @@ from transformers import (
 )
 from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset
-from utils import print_trainable_parameters, compute_metrics
+from utils import print_trainable_parameters, compute_metrics, freeze_trainable_parameters
 
 
 @dataclass
@@ -98,10 +98,11 @@ training_args = TrainingArguments(
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast = False)
 tokenizer.max_length = script_args.max_length
-if 'Llama' in script_args.base_model:
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-else:
-    tokenizer.pad_token = tokenizer.eos_token
+if tokenizer.pad_token == None:
+    if 'Llama' in script_args.base_model:
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    else:
+        tokenizer.pad_token = tokenizer.eos_token
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None)

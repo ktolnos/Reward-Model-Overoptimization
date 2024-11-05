@@ -103,7 +103,7 @@ class GRMRewardTrainer(RewardTrainer):
         logits, _,  rewards = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
         if not self.reference_free:
             with torch.no_grad():
-                ref_logits = reference_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])[0]
+                ref_logits = self.reference_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])[0]
         
         bsz = rewards.size(0)
         jidx = torch.arange(0, bsz, 2) # chosen_ids
@@ -128,8 +128,8 @@ class GRMRewardTrainer(RewardTrainer):
                     ref_logps = self.get_batch_logps(ref_logits, inputs['label'])
                     ref_logratios = ref_logps[jidx] - ref_logps[kidx]
 
-                pi_logratios = pi_logratios.to(device)
-                ref_logratios = ref_logratios.to(device)
+                pi_logratios = pi_logratios.to(rewards[0].device)
+                ref_logratios = ref_logratios.to(rewards[0].device)
                 dpo_loss = -F.logsigmoid(self.beta * (pi_logratios - ref_logratios)).mean()
 
             loss = self.weight_ratio * dpo_loss + (1 - self.weight_ratio) * reward_loss
@@ -137,7 +137,7 @@ class GRMRewardTrainer(RewardTrainer):
             loss = reward_loss
 
         if return_outputs:
-            return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
+            return loss, {}
         return loss
 
 
@@ -149,7 +149,7 @@ class GRMRewardTrainer(RewardTrainer):
             if self.reference_free:
                 dpo_logp_diff = logps
             else:
-                ref_logits = reference_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])[0]
+                ref_logits = self.reference_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])[0]
                 ref_logps = self.get_batch_logps(ref_logits, inputs['label'])
                 dpo_logp_diff = logps - ref_logps
 
