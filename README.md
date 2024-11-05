@@ -39,7 +39,7 @@ sh train_grm_full.sh
 sh train_grm_lora.sh
 ```
 
-Evaluating trained models
+Evaluating trained models on 'llm-blender/Unified-Feedback', 'HuggingFaceH4/hhh_alignment', 'lmsys/mt_bench_human_judgments':
 ```
 sh eval_bt_rm.sh
 sh eval_grm_rm.sh
