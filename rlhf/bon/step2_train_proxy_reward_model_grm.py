@@ -4,19 +4,24 @@ from accelerate import Accelerator
 import evaluate
 import numpy as np
 import os
+import sys
 import torch
 import torch.nn as nn
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
-    AutoModelForSequenceClassification,
+    AutoModelForCausalLM,
     AutoTokenizer,
     HfArgumentParser,
     TrainingArguments,
 )
-from reward_models.grm_reward_trainer import GRMDataCollatorWithPadding, GRMRewardTrainer
 from load_datasets import load_train_eval_dataset
-from utils import print_trainable_parameters, grm_compute_metrics
-from reward_models.grm_utils import AutoModelForCausalLMWithValueHead
+from utils import *
+
+# Add the `./reward_models` path to the system path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
+import base_trainer
+from reward_trainer import GRMRewardTrainer, GRMDataCollatorWithPadding
+from grm_utils import *
 
 
 @dataclass
@@ -129,7 +134,7 @@ if len(script_args.attn_implementation):
 
 
 
-### load model
+## load model
 if not script_args.reference_free:
     reference_model = AutoModelForCausalLM.from_pretrained(script_args.base_model, device_map=device, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
     reference_model.resize_token_embeddings(len(tokenizer))

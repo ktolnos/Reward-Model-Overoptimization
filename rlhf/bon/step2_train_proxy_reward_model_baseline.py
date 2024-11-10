@@ -3,6 +3,7 @@ from typing import List, Optional
 from accelerate import Accelerator
 import evaluate
 import numpy as np
+import sys
 import os
 import torch
 import torch.nn as nn
@@ -13,9 +14,13 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
 )
-from reward_models.reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset
-from utils import print_trainable_parameters, compute_metrics
+from utils import *
+
+# Add the `./reward_models` path to the system path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
+import base_trainer
+from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 
 
 @dataclass
@@ -32,8 +37,8 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[str] = field(default='./data/unified_sampled_gold_score')
-    # dataset_mode: Optional[str] = field(default='', metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},)
+    dataset: Optional[str] = field(default='./data/unified_sampled_gold_score/unified_sampled_gold_score')
+ 
     # lora
     use_lora: Optional[bool] = field(default=True)
     lora_target_modules: Optional[List[str]] = field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
@@ -108,6 +113,7 @@ train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, token
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 
+## load model
 if len(script_args.attn_implementation):
     model_params = {
         "attn_implementation": script_args.attn_implementation,
@@ -136,6 +142,7 @@ if script_args.freeze_pretrained:
 model.resize_token_embeddings(len(tokenizer))
 model.config.pad_token_id = tokenizer.pad_token_id
 print_trainable_parameters(model)
+
 
 # Define the trainer parameters
 trainer_params = {

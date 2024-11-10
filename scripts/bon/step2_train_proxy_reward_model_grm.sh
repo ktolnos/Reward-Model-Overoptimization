@@ -6,9 +6,9 @@ wandb_name="GRM"
 log_dir='rlhf/bon/save_reward_models'
 main_process_port=9994
 
-learning_rate=1e-5
 lora_r=32
 lora_alpha=64
+learning_rate=1e-5
 max_length=1024
 num_train_epochs=2
 gradient_accumulation_steps=16

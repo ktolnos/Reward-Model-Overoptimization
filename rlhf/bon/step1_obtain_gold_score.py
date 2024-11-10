@@ -75,7 +75,7 @@ def generate_and_collect_results(model, data_loader, tokenizer):
 def obtain_gold_score():
     # Parse arguments
     script_args = parse_args()
-
+  
     # Initialize Accelerator
     accelerator = Accelerator()
 
@@ -89,7 +89,7 @@ def obtain_gold_score():
     tokenizer.model_max_length = script_args.max_length
 
     # Prepare dataset and DataLoader
-    dataset = build_datasets_inference(script_args.data_path, tokenizer, split='train', max_length=script_args.max_length)
+    dataset = build_datasets_inference(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
     data_loader = accelerator.prepare(data_loader)
 

@@ -5,8 +5,11 @@ dataset_name='rlhf/bon/step1_obtain_gold_score/unified_sampled_gold_score'
 base_model='google/gemma-2b-it'
 wandb_name="BT_RM"
 log_dir='rlhf/bon/save_reward_models'
-main_process_port=9994
+main_process_port=9995
 
+loss_type='bt'
+lora_r=32
+lora_alpha=64
 learning_rate=5e-6
 max_length=3000
 num_train_epochs=1
