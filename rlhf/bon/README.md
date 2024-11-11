@@ -1,6 +1,4 @@
-# Best-of-N (BoN)  [Under Preparation]
-
-The BoN code is currently being prepared and improved.
+# Best-of-N (BoN) 
 
 ## Overview
 
