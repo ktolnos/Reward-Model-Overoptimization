@@ -27,6 +27,6 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --use_lora True \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --learning_rate ${learning_rate} \
-    --dataset ${dataset_name} --dataset_mode ${dataset_mode} \
+    --dataset ${dataset_name} \
     --weight_ratio ${weight_ratio}  --layer_type ${layer_type} \
     --reference_free ${reference_free} --sft_only ${sft_only}

@@ -136,7 +136,7 @@ def load_data2generate(data_path, tokenizer, N):
         'source': x['source'],
         'input': x['conv_A'][0]['content'],
         'prompt': [
-            {"role": "system", "content": "You are a friendly chatbot."},
+            # {"role": "system", "content": "You are a friendly chatbot."},
             {"role": "user", "content": x['conv_A'][0]['content']}
         ]
     })

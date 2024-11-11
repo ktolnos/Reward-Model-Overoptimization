@@ -20,7 +20,7 @@ from utils import *
 # Add the `./reward_models` path to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
 import base_trainer
-from reward_trainer import GRMRewardTrainer, GRMDataCollatorWithPadding
+from grm_reward_trainer import GRMRewardTrainer, GRMDataCollatorWithPadding
 from grm_utils import *
 
 
@@ -38,8 +38,8 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[str] = field(default='./data/unified_20k_gold_score')
-    # dataset_mode: Optional[str] = field(default='', metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},)
+    dataset: Optional[str] = field(default='rlhf/bon/step1_obtain_gold_score/unified_sampled_gold_score')
+
     # lora
     use_lora: Optional[bool] = field(default=True)
     lora_target_modules: Optional[List[str]] = field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])

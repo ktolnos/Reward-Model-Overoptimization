@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import os
+import sys
 import torch
 import numpy as np
 import pandas as pd
@@ -17,7 +18,11 @@ from transformers import (
 import argparse
 from load_datasets import build_datasets_inference, prepare_data_loader
 from utils import create_output_directory
-from reward_models.grm_utils import load_model_withhead
+
+# Add the `./reward_models` path to the system path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
+from grm_utils import load_model_withhead
+
 
 
 @dataclass
@@ -85,12 +90,19 @@ def obtain_proxy_score():
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.model_type)
 
-    # Load model and tokenizer
+    # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False)
     tokenizer.model_max_length = script_args.max_length
     tokenizer.pad_token = tokenizer.eos_token
+
+    # Prepare dataset and DataLoader
+    dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length)
+    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom')
+    data_loader = accelerator.prepare(data_loader)
+
+    # Load model
     if script_args.model_type == 'grm':
-        model = load_model_withhead(script_args.base_model, script_args.peft_name, tokenizer, device_map=accelerator.local_process_index, layer_type=script_args.layer_type, num_layers=script_args.num_layers)
+        model = load_model_withhead(script_args.base_model, script_args.peft_name, tokenizer, device=accelerator.local_process_index, layer_type=script_args.layer_type, num_layers=script_args.num_layers)
     elif script_args.model_type in ['bt', 'margin', 'labelsmooth', 'pos_reg']:
         model = AutoModelForSequenceClassification.from_pretrained(script_args.base_model, num_labels=1, device_map=accelerator.local_process_index, torch_dtype=torch.bfloat16)
         model.resize_token_embeddings(len(tokenizer))
@@ -99,12 +111,6 @@ def obtain_proxy_score():
             model = PeftModel.from_pretrained(model, script_args.peft_name)
         if hasattr(model, 'merge_and_unload'):
             model = model.merge_and_unload()
-
-
-    # Prepare dataset and DataLoader
-    dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length)
-    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom')
-    data_loader = accelerator.prepare(data_loader)
 
 
     # Run evaluation and gather results

@@ -37,7 +37,7 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[str] = field(default='./data/unified_sampled_gold_score/unified_sampled_gold_score')
+    dataset: Optional[str] = field(default='rlhf/bon/step1_obtain_gold_score/unified_sampled_gold_score')
  
     # lora
     use_lora: Optional[bool] = field(default=True)

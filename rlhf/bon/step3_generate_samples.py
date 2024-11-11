@@ -10,7 +10,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Optional
 
-from utils import create_output_directory, prepare_data_loader, save_results_in_parquet_splits
+from utils import create_output_directory, save_results_in_parquet_splits
 from load_datasets import load_data2generate
 
 # Environment setup
@@ -53,7 +53,7 @@ def inference(model, tokenizer, dataset, batch_size, max_new_tokens):
         prompts = {k: torch.tensor(v, device=model.device) for k, v in batch.items() if k in ['input_ids', 'attention_mask']}
         
         with torch.no_grad():
-            outputs = model.generate(
+            outputs = model.module.generate(
                 **prompts,
                 max_new_tokens=max_new_tokens,
                 pad_token_id=tokenizer.eos_token_id,
@@ -104,7 +104,7 @@ def generate_samples():
 
     # Save results
     if accelerator.is_main_process:
-        save_results_in_parquet_splits(results, num_splits=script_args.num_splits, save_path=script_args.save_path, mode='test')
+        save_results_in_parquet_splits(results, num_splits=script_args.num_splits, save_path=output_dir, mode='test')
 
 # Run main function
 if __name__ == "__main__":
