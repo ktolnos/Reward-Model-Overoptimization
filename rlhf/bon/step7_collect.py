@@ -93,12 +93,12 @@ def collect():
     filtered_results = calculate_kl_values(N_values, kl_min=script_args.kl_min, kl_max=script_args.kl_max)
 
     # Load gold score and BON data
-    df_gold_score = pd.read_csv(script_args.df_gold_score_path)
-    df_proxy_score = pd.read_csv(script_args.df_proxy_score_path)
+    df_gold_score = pd.read_csv(script_args.gold_score_path)
+    df_proxy_score = pd.read_csv(script_args.proxy_score_path)
 
     # Process results and save
     plot_df = process_gold_scores(filtered_results, df_gold_score, df_proxy_score)
-    plot_df.to_csv(script_args.output_path, index=False)
+    plot_df.to_csv('%s/results.csv'%script_args.output_path, index=False)
 
 if __name__ == "__main__":
     collect()

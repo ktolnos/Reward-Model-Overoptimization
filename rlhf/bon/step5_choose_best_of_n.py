@@ -39,7 +39,7 @@ def process_row(data):
     answer_text = data.split("<start_of_turn>model\n")[-1].split("<end_of_turn>")[0]
     answer_text = answer_text.replace('<bos>', '').replace('<eos>', '')
     message = [{'content': input_text, 'role': 'user'}, {'content': answer_text, 'role': 'assistant'}]
-    return pd.Series([input_text, answer_text, message], index=['input', 'answer', 'message'])
+    return pd.Series([input_text, answer_text, message], index=['input', 'output', 'message'])
 
 
 # Process and save results for each method

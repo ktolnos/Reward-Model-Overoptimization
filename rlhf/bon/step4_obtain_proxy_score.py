@@ -21,7 +21,7 @@ from utils import create_output_directory
 
 # Add the `./reward_models` path to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
-from grm_utils import load_model_withhead
+from grm_utils import load_model_withhead, model_withhead_forward
 
 
 
@@ -54,15 +54,20 @@ def parse_args() -> ScriptArguments:
 
 
 # Evaluation function
-def evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, batch_size: int) -> Dict[str, List]:
+def evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, batch_size, model_type) -> Dict[str, List]:
     """Evaluate and return results."""
     full_prompts, full_rewards, full_source_ids, full_id_ids = [], [], [], []
     pbar = tqdm(total=len(data_loader) * batch_size // accelerator.num_processes)
+    device = accelerator.local_process_index
     
     with torch.no_grad():
         for batch in data_loader:
-            reward_tensors = model(batch["input_ids"].to(model.device), attention_mask=batch["attention_mask"].to(model.device)).logits.reshape(-1)
-            full_rewards.extend(reward_tensors.cpu().numpy())
+            if model_type == 'grm':
+                reward_tensors = model_withhead_forward(model, batch["input_ids"], batch["attention_mask"], device, forward_type='reward') 
+            else:
+                reward_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device)).logits.reshape(-1)
+
+            full_rewards.extend(reward_tensors)
             full_prompts.extend(batch['input_ids'])
             full_source_ids.extend(batch['source'])
             full_id_ids.extend(batch['id'])
@@ -114,7 +119,7 @@ def obtain_proxy_score():
 
 
     # Run evaluation and gather results
-    evaluation_result = evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, script_args.per_device_batch_size)
+    evaluation_result = evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, script_args.per_device_batch_size, script_args.model_type)
     
     # Save results to CSV
     if accelerator.is_main_process:

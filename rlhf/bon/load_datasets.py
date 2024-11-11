@@ -80,57 +80,57 @@ def build_dataset_UF(data_path, tokenizer, split='train', size=None, model_name=
 
 
 # Function to load and prepare the dataset
-def build_datasets_inference(data_path, tokenizer, split='', size=None, max_length=1024):
+def build_datasets_inference(data_path, tokenizer, split='', size=None, max_length=1024, w_order=False):
     ds = load_dataset(data_path, split=split)
     if size is not None:
         ds = ds.select(range(size))
-
-    source_dict = {'argilla/ultrafeedback-binarized-preferences-cleaned':0,
-                    'Anthropic/hh-rlhf': 1,
-                    'flan_v2_flan2021': 2,
-                    'ultrachat': 3,
-                    'evol_instruct': 4,
-                    'false_qa': 5,
-                    'Dahoas/synthetic-instruct-gptj-pairwise': 6,
-                    'flan_v2_cot': 7,
-                    'flan_v2_p3': 8,
-                    'truthful_qa': 9,
-                    'lmsys/chatbot_arena_conversations': 10,
-                    'openai/summarize_from_feedback(comparisons)': 11,
-                    'sharegpt': 12,
-                    'flan_v2_niv2': 13,
-                    'berkeley-nest/Nectar': 14,
-                    'openai/webgpt_comparisons': 15}
     
     def formatting_func(example):
         kwargs = {"padding": 'max_length', "truncation": True, "max_length": max_length, "return_tensors": "pt"}
-        example['source_id'] = source_dict.get(example['source'], -1)
         
-        chosen_messages = example['conv_A']
-        rejected_messages = example['conv_B']
-        
-        prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
-        prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
-        return {
-            "input_ids": tokens_chosen["input_ids"][0], 
-            "attention_mask_chosen": tokens_chosen["attention_mask"][0],
-            "input_ids_rejected": tokens_rejected["input_ids"][0], 
-            "attention_mask_rejected": tokens_rejected["attention_mask"][0]
-        }
+        if not isinstance(example['output'], str):
+            answer = ''
+        else:
+            answer = example['output']
+            
+        messages = [{"role": "user", "content": example['input']},
+                {"role": "assistant", "content": answer}]
+      
+        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False)
+        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+
+        if w_order:
+            return {
+            "input_ids": tokens["input_ids"][0], "attention_mask": tokens["attention_mask"][0],
+            "source": example['source'], "id": example['id'], "order": example["order"]}
+
+        else:
+            return {
+            "input_ids": tokens["input_ids"][0], "attention_mask": tokens["attention_mask"][0],
+            "source": example['source'], "id": example['id']}
 
     ds = ds.map(formatting_func, batched=False, num_proc=30)
-    remove_columns = [col for col in ds.column_names if 'input_ids' not in col and 'attention' not in col and 'source_id' not in col]
+    remove_columns = []
+    if w_order:
+        for name in ds.column_names:
+            if 'input_ids' not in name and 'attention' not in name and 'source' not in name and 'id' not in name and 'order' not in name:
+                remove_columns.append(name)
+    else:
+        for name in ds.column_names:
+            if 'input_ids' not in name and 'attention' not in name and 'source' not in name and 'id' not in name:
+                remove_columns.append(name)
     ds = ds.remove_columns(remove_columns)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= max_length and len(x["input_ids_rejected"]) <= max_length, num_proc=30)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= max_length, num_proc=30)
     ds.set_format(type="torch")
+
+
     return ds
 
 
 # Function to load and process dataset
 def load_data2generate(data_path, tokenizer, N):
     dataset = load_dataset(data_path, split='test')
+    dataset = dataset.select(range(2))
     dataset = dataset.map(lambda x: {
         'id': x['id'],
         'source': x['source'],

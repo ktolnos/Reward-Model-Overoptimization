@@ -101,7 +101,7 @@ def obtain_bon_gold_score():
     model.config.pad_token_id = tokenizer.pad_token_id
 
     # Prepare dataset and DataLoader
-    dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length)
+    dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length, w_order=True)
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom_w_order')
     data_loader = accelerator.prepare(data_loader)
 
