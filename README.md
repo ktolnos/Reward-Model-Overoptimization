@@ -11,6 +11,7 @@ Check out our GRM series below, which are evlauated on [reward-bench](https://hu
 
 |       Model               | Average       |  Chat     |     Chat Hard      |     Safety      |     Reasoning     |   
 |:-------------------------:|:-------------:|:---------:|:---------:|:--------:|:-----------:|
+|[GRM_Llama3.1_8B_rewardmodel-ft](https://huggingface.co/Ray2333/GRM_Llama3.1_8B_rewardmodel-ft)| 92.6|95.0 |87.7|91.4|96.4| 
 |[GRM-Llama3-8B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-Llama3-8B-rewardmodel-ft)**(8B)**|91.5|95.5|86.2|90.8|93.6|
 |[GRM-Llama3.2-3B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-Llama3.2-3B-rewardmodel-ft)**(3B)**|90.9|91.6|84.9|92.7|94.6|
 | [GRM-gemma2-2B-rewardmodel-ft](https://huggingface.co/Ray2333/GRM-gemma2-2B-rewardmodel-ft) **(2B)**| 88.4 | 93.0 | 77.2 | 92.2 | 91.2 |
