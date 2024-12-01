@@ -51,6 +51,7 @@ First set the environment variable.
 export HF_HOME='your HF token'
 ```
 
+### Training and evaluation of reward models
 Then, go to the `scripts' folder and train the reward model with the default hyperparameters
 ```
 cd scripts
@@ -64,6 +65,20 @@ Evaluating trained models on 'llm-blender/Unified-Feedback', 'HuggingFaceH4/hhh_
 ```
 sh eval_bt_rm.sh
 sh eval_grm_rm.sh
+```
+
+### RLHF
+To do: BoN shell
+
+
+Go to the `scripts/rlhf/ppo' folder and train the gemma-2b-it model with the default parameters.
+
+**Note: please set the path to your reward model in the corresponding shells.**
+```
+cd scripts/rlhf/ppo
+sh train_ppo.sh
+sh train_ppo.grm.sh
+sh train_ppo_ensemble.sh
 ```
 
 
