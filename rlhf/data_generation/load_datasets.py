@@ -81,3 +81,39 @@ def prepare_data_loader(dataset, tokenizer, batch_size, collate_fn_type='default
     elif collate_fn_type == 'custom_w_order':
         data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate_w_order)
     return data_loader
+
+
+
+def load_dataset_within_maxlength(data_path, tokenizer, split='', size=None, max_length=1024):
+
+    # Load the dataset
+    ds = load_dataset(data_path, split=split)
+
+    # Optionally limit the size
+    if size is not None:
+        ds = ds.select(range(0, size))
+
+    # Define a function to calculate lengths for filtering
+    def calculate_length(example):
+        kwargs = {"padding": 'max_length', "truncation": True, "max_length": max_length}
+        chosen_messages = example['conv_A']
+        rejected_messages = example['conv_B']
+        prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
+        prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)["input_ids"]
+        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)["input_ids"]
+        return {
+            "len_chosen": len(tokens_chosen),
+            "len_rejected": len(tokens_rejected),
+        }
+
+    # Apply the length calculation to the dataset
+    length_ds = ds.map(calculate_length, batched=False, num_proc=30)
+
+    # Filter based on lengths
+    valid_indices = [i for i, row in enumerate(length_ds) if row["len_chosen"] <= max_length and row["len_rejected"] <= max_length]
+
+    # Filter the original dataset using the valid indices
+    filtered_ds = ds.select(valid_indices)
+
+    return filtered_ds

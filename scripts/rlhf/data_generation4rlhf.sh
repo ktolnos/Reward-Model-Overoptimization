@@ -17,6 +17,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --save_path "rlhf/data/obtain_gold_score" \
     --save_name "unified_sampled_gold_score" \
     --mode "train" \
+    --num_splits 6 
     
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
     rlhf/data_generation/obtain_gold_score.py \
@@ -27,3 +28,4 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --save_path "rlhf/data/obtain_gold_score" \
     --save_name "unified_sampled_gold_score" \
     --mode "test" \
+    --num_splits 1
