@@ -73,14 +73,12 @@ def obtain_gold_score(script_args):
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
     data_loader = accelerator.prepare(data_loader)
 
-    print('Size of %s Data Loader: %s'%(script_args.mode, len(data_loader)))
-
     # Generate and collect results
     full_chosen_prompts = []
     full_rejected_prompts = []
     full_rewards_chosen = []
     full_rewards_rejected = []
-    full_source_ids = []
+    full_unique_ids = []
     pbar = tqdm(total=len(dataset) // script_args.per_device_batch_size // accelerator.num_processes)
     with torch.no_grad():
         for i, batch in enumerate(data_loader):
@@ -90,28 +88,27 @@ def obtain_gold_score(script_args):
             full_rewards_rejected.extend(reward_rejected_tensors)
             full_chosen_prompts.extend(batch['input_ids'])
             full_rejected_prompts.extend(batch['input_ids_rejected'])
-            if 'source_id' in batch.keys():
-                full_source_ids.extend(batch['source_id'])
+            if 'unique_id' in batch.keys():
+                full_unique_ids.extend(batch['unique_id'])
             pbar.update(1)
     
     full_chosen_prompts = tokenizer.batch_decode(full_chosen_prompts)
     full_rejected_prompts = tokenizer.batch_decode(full_rejected_prompts)
     full_rewards_chosen = [x.item() for x in full_rewards_chosen]
     full_rewards_rejected = [x.item() for x in full_rewards_rejected]
-    if 'source_id' in batch.keys():
-        full_source_ids = [x.item() for x in full_source_ids]
+    if 'unique_id' in batch.keys():
+        full_unique_ids = [x.item() for x in full_unique_ids]
 
-    print(f'Process {accelerator.local_process_index} processed {len(full_chosen_prompts)} prompts')
+    # print(f'Process {accelerator.local_process_index} processed {len(full_chosen_prompts)} prompts')
     accelerator.wait_for_everyone()
   
     all_chosen_prompts = accelerator.gather_for_metrics(full_chosen_prompts)
     all_rejected_prompts = accelerator.gather_for_metrics(full_rejected_prompts)
     all_rewards_chosen = accelerator.gather_for_metrics(full_rewards_chosen)
     all_rewards_rejected = accelerator.gather_for_metrics(full_rewards_rejected)
-    if 'source_id' in batch.keys():
-        all_source_ids = accelerator.gather_for_metrics(full_source_ids)
-    print('len(all_chosen_prompts)', len(all_chosen_prompts))
-
+    if 'unique_id' in batch.keys():
+        all_unique_ids = accelerator.gather_for_metrics(full_unique_ids)
+    
     if accelerator.is_main_process:
         evaluation_result = {
             'prompts_A': all_chosen_prompts,
@@ -119,16 +116,21 @@ def obtain_gold_score(script_args):
             'rewards_A': all_rewards_chosen,
             'rewards_B': all_rewards_rejected,
         }
-        if 'source_id' in batch.keys():
-            evaluation_result['source_ids'] = all_source_ids
+        if 'unique_id' in batch.keys():
+            evaluation_result['unique_ids'] = all_unique_ids
 
         gold_scores_dataframe = pd.DataFrame(evaluation_result)
-        gold_scores_dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
+        # Sort the DataFrame by 'unique_id'
+        df_sorted_gold_scores_dataframe = gold_scores_dataframe.sort_values(by='unique_ids')
+        df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.drop_duplicates(subset='unique_ids', keep='first')
+        df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.reset_index(drop=True)
+        df_sorted_gold_scores_dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
 
         # Preplace with the gold scores
-        def replace_with_gold_reward(example, idx):
-            example['conv_A_rating'] = gold_scores_dataframe.iloc[idx]['rewards_A']
-            example['conv_B_rating'] = gold_scores_dataframe.iloc[idx]['rewards_B']
+        def replace_with_gold_reward(example):
+            matching_row = gold_scores_dataframe[gold_scores_dataframe['unique_ids'] == example['unique_id']]
+            example['conv_A_rating'] = matching_row.iloc[0]['rewards_A']
+            example['conv_B_rating'] = matching_row.iloc[0]['rewards_B']
             return example
         
         # Apply the replacement function to the dataset
@@ -136,8 +138,10 @@ def obtain_gold_score(script_args):
         dataset_prepared = load_dataset_within_maxlength(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
         if script_args.debug:
             dataset_prepared = dataset_prepared.select(range(0,100))
-        print('len(dataset_prepared)', len(dataset_prepared))
-        dataset_gold_score = dataset_prepared.map(replace_with_gold_reward, with_indices=True)
+        # print('len(dataset_prepared)', len(dataset_prepared))
+        assert len(dataset_prepared) == len(df_sorted_gold_scores_dataframe)
+        dataset_gold_score = dataset_prepared.map(replace_with_gold_reward)
+        dataset_gold_score = dataset_gold_score.remove_columns(['unique_id'])
         save_results_in_parquet_splits(dataset_gold_score, num_splits=script_args.num_splits, save_path=output_dir, mode=script_args.mode)
 
         

@@ -23,10 +23,10 @@ from utils import create_output_directory
 class ScriptArguments:
     per_device_batch_size: Optional[int] = field(default=64, metadata={"help": "The batch size per device during evaluation."})
     max_length: Optional[int] = field(default=1024, metadata={"help": "The maximum sequence length."})
-    data_path: Optional[str] = field(default="./step5_choose_best_of_n/gemma-2b-it/bon_selected_proxy_grm_drop_duplicates", metadata={"help": "Path to the data file."})
+    data_path: Optional[str] = field(default="./step4_choose_best_of_n/gemma-2b-it/bon_selected_proxy_grm_drop_duplicates", metadata={"help": "Path to the data file."})
     method: Optional[str] = field(default="grm", metadata={'help': "use 'grm', 'bt', 'margin', 'labelsmooth', and 'pos_reg'."})
     model_path: Optional[str] = field(default="Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback", metadata={"help": "The gold reward model to use."})
-    save_path: Optional[str] = field(default='./step6_obtain_bon_gold_score/gemma-2b-it', metadata={"help": "Directory to save results."})
+    save_path: Optional[str] = field(default='./step5_obtain_bon_gold_score/gemma-2b-it', metadata={"help": "Directory to save results."})
 
 
 def parse_args() -> ScriptArguments:
@@ -102,6 +102,7 @@ def obtain_bon_gold_score():
 
     # Prepare dataset and DataLoader
     dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length, w_order=True)
+    print('Size of Dataset: %s'%(len(dataset)))
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom_w_order')
     data_loader = accelerator.prepare(data_loader)
 
@@ -111,6 +112,7 @@ def obtain_bon_gold_score():
     # Save results to CSV
     if accelerator.is_main_process:
         df = pd.DataFrame(evaluation_result)
+        df = df.drop_duplicates(subset=["id_ids", "order_ids"])
         df.to_csv(os.path.join(output_dir, 'gold_score.csv'), index=False)
 
 

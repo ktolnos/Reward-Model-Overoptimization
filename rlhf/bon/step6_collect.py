@@ -10,9 +10,9 @@ from utils import create_output_directory, calculate_kl_values
 # Dataclass for Argument Parsing
 @dataclass
 class ScriptArguments:
-    proxy_score_path: str = field(default='./step5_choose_best_of_n/gemma-2b-it/grm/proxy_score.csv', metadata={'help': 'Path to the proxy score CSV'})
-    gold_score_path: str = field(default='./step6_obtain_bon_gold_score/gemma-2b-it/grm/gold_score.csv', metadata={'help': 'Path to the gold score CSV'})
-    output_path: str = field(default='./step7_collect/gemma-2b-it/grm', metadata={'help': 'Path to save the output CSV'})
+    proxy_score_path: str = field(default='./step4_choose_best_of_n/gemma-2b-it/grm/proxy_score.csv', metadata={'help': 'Path to the proxy score CSV'})
+    gold_score_path: str = field(default='./step5_obtain_bon_gold_score/gemma-2b-it/grm/gold_score.csv', metadata={'help': 'Path to the gold score CSV'})
+    output_path: str = field(default='./step6_collect/gemma-2b-it/grm', metadata={'help': 'Path to save the output CSV'})
     
     n_values_start: Optional[int] = field(default=1, metadata={"help": "Starting value of N range to consider."})
     n_values_end: Optional[int] = field(default=406, metadata={"help": "Ending value of N range to consider."})
