@@ -1,4 +1,4 @@
-# Generate Data for RLHF (TBD)
+# Generate Data for RLHF
 
 Obtain Gold Reward for Training & Testing Data.
 

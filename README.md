@@ -72,7 +72,7 @@ sh eval_grm_rm.sh
 
 ### RLHF
 
-#### Data Generation (TBD)
+#### Data Generation
 
 ```
 cd scripts/rlhf
