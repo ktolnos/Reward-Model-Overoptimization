@@ -16,16 +16,17 @@ from transformers import (
 )
 
 
+
 @dataclass
 class ScriptArguments:
     per_device_batch_size: Optional[int] = field(default=4, metadata={"help": "The batch size per device during evaluation."})
     max_length: Optional[int] = field(default=1024, metadata={"help": "The maximum sequence length."})
-    data_path: Optional[str] = field(default="./data/unified_20k", metadata={"help": "Path to the data file."})
+    data_path: Optional[str] = field(default="rlhf/data/unified_sampled", metadata={"help": "Path to the data file."})
     model_path: Optional[str] = field(default="Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback", metadata={"help": "The gold reward model to use."})
-    save_path: Optional[str] = field(default='./step1_obtain_gold_score', metadata={"help": "Directory to save results."})
+    save_path: Optional[str] = field(default='rlhf/data', metadata={"help": "Directory to save results."})
     save_name: Optional[str] = field(default="unified_sampled_gold_score", metadata={"help": "Saved file name."})
     mode: Optional[str] = field(default="train", metadata={"help": "'train', and 'test'"})
-    num_splits: int = field(default=2, metadata={"help": "Number of splits for saving results"})
+    num_splits: int = field(default=1, metadata={"help": "Number of splits for saving results"})
     debug: Optional[bool] = field(default=False)
     
 
@@ -42,45 +43,14 @@ def parse_args() -> ScriptArguments:
     return ScriptArguments(**vars(args))
 
 
-
-def generate_and_collect_results(model, data_loader, tokenizer):
-    full_chosen_prompts, full_rejected_prompts = [], []
-    full_rewards_chosen, full_rewards_rejected = [], []
-    full_source_ids = []
-
-    pbar = tqdm(total=len(data_loader))
-    with torch.no_grad():
-        for batch in data_loader:
-            reward_chosen_tensors = model(batch["input_ids"].to(model.device), attention_mask=batch["attention_mask_chosen"].to(model.device)).logits.reshape(-1)
-            reward_rejected_tensors = model(batch["input_ids_rejected"].to(model.device), attention_mask=batch["attention_mask_rejected"].to(model.device)).logits.reshape(-1)
-
-            full_rewards_chosen.extend(reward_chosen_tensors.cpu().tolist())
-            full_rewards_rejected.extend(reward_rejected_tensors.cpu().tolist())
-            full_chosen_prompts.extend(batch['input_ids'])
-            full_rejected_prompts.extend(batch['input_ids_rejected'])
-            if 'source_id' in batch:
-                full_source_ids.extend(batch['source_id'])
-
-            pbar.update(1)
-
-    # Decode and organize results
-    return {
-        'prompts_A': tokenizer.batch_decode(full_chosen_prompts, skip_special_tokens=True),
-        'prompts_B': tokenizer.batch_decode(full_rejected_prompts, skip_special_tokens=True),
-        'rewards_A': full_rewards_chosen,
-        'rewards_B': full_rewards_rejected,
-        'source_ids': [x.item() for x in full_source_ids] if 'source_id' in batch else []
-    }
-
-
 # Main function
-def obtain_gold_score():
-    # Parse arguments
-    script_args = parse_args()
-  
+def obtain_gold_score(script_args):
+
     # Initialize Accelerator
     accelerator = Accelerator()
     device = Accelerator().local_process_index 
+    print('Curent Device', device)
+    print('Number of processes:', accelerator.num_processes)
 
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.save_name)
@@ -94,32 +64,84 @@ def obtain_gold_score():
 
     # Prepare dataset and DataLoader
     dataset = build_dataset_UF4gold_score(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+    
     if script_args.debug:
         dataset = dataset.select(range(0,100))
+    print('Size of %s Dataset: %s'%(script_args.mode, len(dataset)))
         
+    # Shard the dataset among processes
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
     data_loader = accelerator.prepare(data_loader)
 
+    print('Size of %s Data Loader: %s'%(script_args.mode, len(data_loader)))
+
     # Generate and collect results
-    evaluation_result = generate_and_collect_results(model, data_loader, tokenizer)
+    full_chosen_prompts = []
+    full_rejected_prompts = []
+    full_rewards_chosen = []
+    full_rewards_rejected = []
+    full_source_ids = []
+    pbar = tqdm(total=len(dataset) // script_args.per_device_batch_size // accelerator.num_processes)
+    with torch.no_grad():
+        for i, batch in enumerate(data_loader):
+            reward_chosen_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask_chosen"].to(device)).logits.reshape(-1)
+            reward_rejected_tensors = model(batch["input_ids_rejected"].to(device), attention_mask=batch["attention_mask_rejected"].to(device)).logits.reshape(-1)
+            full_rewards_chosen.extend(reward_chosen_tensors)
+            full_rewards_rejected.extend(reward_rejected_tensors)
+            full_chosen_prompts.extend(batch['input_ids'])
+            full_rejected_prompts.extend(batch['input_ids_rejected'])
+            if 'source_id' in batch.keys():
+                full_source_ids.extend(batch['source_id'])
+            pbar.update(1)
+    
+    full_chosen_prompts = tokenizer.batch_decode(full_chosen_prompts)
+    full_rejected_prompts = tokenizer.batch_decode(full_rejected_prompts)
+    full_rewards_chosen = [x.item() for x in full_rewards_chosen]
+    full_rewards_rejected = [x.item() for x in full_rewards_rejected]
+    if 'source_id' in batch.keys():
+        full_source_ids = [x.item() for x in full_source_ids]
 
-    # # Save results to CSV
+    print(f'Process {accelerator.local_process_index} processed {len(full_chosen_prompts)} prompts')
+    accelerator.wait_for_everyone()
+  
+    all_chosen_prompts = accelerator.gather_for_metrics(full_chosen_prompts)
+    all_rejected_prompts = accelerator.gather_for_metrics(full_rejected_prompts)
+    all_rewards_chosen = accelerator.gather_for_metrics(full_rewards_chosen)
+    all_rewards_rejected = accelerator.gather_for_metrics(full_rewards_rejected)
+    if 'source_id' in batch.keys():
+        all_source_ids = accelerator.gather_for_metrics(full_source_ids)
+    print('len(all_chosen_prompts)', len(all_chosen_prompts))
+
     if accelerator.is_main_process:
-        dataframe = pd.DataFrame(evaluation_result)
-        dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
+        evaluation_result = {
+            'prompts_A': all_chosen_prompts,
+            'prompts_B': all_rejected_prompts,
+            'rewards_A': all_rewards_chosen,
+            'rewards_B': all_rewards_rejected,
+        }
+        if 'source_id' in batch.keys():
+            evaluation_result['source_ids'] = all_source_ids
 
+        gold_scores_dataframe = pd.DataFrame(evaluation_result)
+        gold_scores_dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
+
+        # Preplace with the gold scores
         def replace_with_gold_reward(example, idx):
-            example['conv_A_rating'] = dataframe.iloc[idx]['rewards_A']
-            example['conv_B_rating'] = dataframe.iloc[idx]['rewards_B']
+            example['conv_A_rating'] = gold_scores_dataframe.iloc[idx]['rewards_A']
+            example['conv_B_rating'] = gold_scores_dataframe.iloc[idx]['rewards_B']
             return example
-
-        dataset_prepared = load_dataset_within_maxlength(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+        
         # Apply the replacement function to the dataset
+        tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=False)
+        dataset_prepared = load_dataset_within_maxlength(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+        if script_args.debug:
+            dataset_prepared = dataset_prepared.select(range(0,100))
+        print('len(dataset_prepared)', len(dataset_prepared))
         dataset_gold_score = dataset_prepared.map(replace_with_gold_reward, with_indices=True)
         save_results_in_parquet_splits(dataset_gold_score, num_splits=script_args.num_splits, save_path=output_dir, mode=script_args.mode)
 
-
+        
 
 if __name__ == "__main__":
-    obtain_gold_score()
-
+    script_args = parse_args()
+    obtain_gold_score(script_args)

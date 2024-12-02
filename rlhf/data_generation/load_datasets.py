@@ -72,18 +72,6 @@ def build_dataset_UF4gold_score(data_path, tokenizer, split='', size=None, max_l
     return ds
 
 
-def prepare_data_loader(dataset, tokenizer, batch_size, collate_fn_type='default'):
-    if collate_fn_type == 'default':
-        data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=data_collator)
-    elif collate_fn_type == 'custom':
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate)
-    elif collate_fn_type == 'custom_w_order':
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate_w_order)
-    return data_loader
-
-
-
 def load_dataset_within_maxlength(data_path, tokenizer, split='', size=None, max_length=1024):
 
     # Load the dataset
@@ -117,3 +105,38 @@ def load_dataset_within_maxlength(data_path, tokenizer, split='', size=None, max
     filtered_ds = ds.select(valid_indices)
 
     return filtered_ds
+
+# Custom collate function
+def custom_collate(batch):
+    return {
+        "id": [item["id"] for item in batch],
+        "source": [item["source"] for item in batch],
+        "input_ids": torch.stack([item["input_ids"] for item in batch]),
+        "attention_mask": torch.stack([item["attention_mask"] for item in batch])
+    }
+
+def custom_collate_w_order(batch):
+    id = [item["id"] for item in batch]
+    source = [item["source"] for item in batch]
+    input_ids = torch.stack([item["input_ids"] for item in batch])
+    attention_mask = torch.stack([item["attention_mask"] for item in batch])
+    order = [item["order"] for item in batch]
+
+    return {
+        "id": id,
+        "source": source,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "order": order,
+    }
+
+
+def prepare_data_loader(dataset, tokenizer, batch_size, collate_fn_type='default'):
+    if collate_fn_type == 'default':
+        data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=data_collator)
+    elif collate_fn_type == 'custom':
+        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate)
+    elif collate_fn_type == 'custom_w_order':
+        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate_w_order)
+    return data_loader
