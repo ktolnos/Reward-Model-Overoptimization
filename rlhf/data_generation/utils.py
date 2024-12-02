@@ -106,3 +106,4 @@ def calculate_kl_values(N_values, kl_min=0, kl_max=5):
 # Define function to get highest rewards within N items per group
 def get_highest_within_n(group, n):
     return group.head(n).nlargest(1, 'rewards')
+#

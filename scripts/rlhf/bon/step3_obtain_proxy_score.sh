@@ -3,7 +3,7 @@ n_gpu=4
 main_process_port=9994
 
 
-# Step 4:
+
 # Fill the peft path
 
 # For GRM

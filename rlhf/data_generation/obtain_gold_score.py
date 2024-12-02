@@ -6,8 +6,8 @@ import torch
 from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional
-from utils import create_output_directory
-from load_datasets import build_dataset_UF4gold_score, prepare_data_loader
+from utils import create_output_directory, save_results_in_parquet_splits
+from load_datasets import build_dataset_UF4gold_score, prepare_data_loader, load_dataset_within_maxlength
 from accelerate import Accelerator
 from transformers import (
     AutoModelForSequenceClassification,
@@ -25,6 +25,7 @@ class ScriptArguments:
     save_path: Optional[str] = field(default='./step1_obtain_gold_score', metadata={"help": "Directory to save results."})
     save_name: Optional[str] = field(default="unified_sampled_gold_score", metadata={"help": "Saved file name."})
     mode: Optional[str] = field(default="train", metadata={"help": "'train', and 'test'"})
+    num_splits: int = field(default=2, metadata={"help": "Number of splits for saving results"})
     debug: Optional[bool] = field(default=False)
     
 
@@ -106,6 +107,16 @@ def obtain_gold_score():
     if accelerator.is_main_process:
         dataframe = pd.DataFrame(evaluation_result)
         dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
+
+        def replace_with_gold_reward(example, idx):
+            example['conv_A_rating'] = dataframe.iloc[idx]['rewards_A']
+            example['conv_B_rating'] = dataframe.iloc[idx]['rewards_B']
+            return example
+
+        dataset_prepared = load_dataset_within_maxlength(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+        # Apply the replacement function to the dataset
+        dataset_gold_score = dataset_prepared.map(replace_with_gold_reward, with_indices=True)
+        save_results_in_parquet_splits(dataset_gold_score, num_splits=script_args.num_splits, save_path=output_dir, mode=script_args.mode)
 
 
 

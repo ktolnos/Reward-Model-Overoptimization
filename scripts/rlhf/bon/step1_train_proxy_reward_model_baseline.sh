@@ -16,7 +16,6 @@ num_train_epochs=1
 gradient_accumulation_steps=64
 
 
-# Step 2:
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} \
     rlhf/bon/step2_train_proxy_reward_model_baseline.py \
     --base_model ${base_model}  --wandb_name ${wandb_name}   --log_dir ${log_dir} \

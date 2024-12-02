@@ -2,7 +2,7 @@ devices=0,1,2,3
 n_gpu=4
 main_process_port=9994
 
-# Step 6:
+# Step 5:
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
     rlhf/bon/step6_obtain_bon_gold_score.py \
     --per_device_batch_size 64 \
