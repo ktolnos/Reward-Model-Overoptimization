@@ -80,13 +80,14 @@ def obtain_gold_score():
   
     # Initialize Accelerator
     accelerator = Accelerator()
+    device = Accelerator().local_process_index 
 
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.save_name)
 
     # Load model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=False)
-    model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, torch_dtype=torch.bfloat16)
+    model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, torch_dtype=torch.bfloat16, device_map=device)
     model.resize_token_embeddings(len(tokenizer))
     tokenizer.model_max_length = script_args.max_length
 

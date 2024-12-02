@@ -85,12 +85,13 @@ def generate_samples():
 
     # Initialize Accelerator
     accelerator = Accelerator()
+    device = Accelerator().local_process_index 
 
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.save_name)
 
     # Load model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(script_args.model_path, torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(script_args.model_path, torch_dtype=torch.bfloat16, device_map=device)
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'left'
