@@ -81,8 +81,8 @@ with torch.no_grad():
             full_source_ids.extend(batch['source_id'])
         pbar.update(1)
 
-full_chosen_prompts = tokenizer.batch_decode(full_chosen_prompts)
-full_rejected_prompts = tokenizer.batch_decode(full_rejected_prompts)
+full_chosen_prompts = tokenizer.batch_decode(full_chosen_prompts, skip_special_tokens = True)
+full_rejected_prompts = tokenizer.batch_decode(full_rejected_prompts, skip_special_tokens = True)
 
 # print(full_rewards_chosen)
 full_rewards_chosen = [x.item() for x in full_rewards_chosen]
@@ -115,7 +115,7 @@ if accelerator.is_main_process:
     if not script_args.save_all_data:
         if dataframe.shape[0] > 1000:
             dataframe = dataframe.head(1000)
-    dataframe.to_csv(log_path, 'eval_data.csv')
+    dataframe.to_csv(os.path.join(log_path, 'eval_data.csv'))
     with open(os.path.join(log_path,'accuracy.txt'), 'w+') as f:
         f.write(str(accuracy))
     

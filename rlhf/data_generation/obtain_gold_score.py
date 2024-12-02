@@ -18,7 +18,7 @@ from transformers import (
 
 @dataclass
 class ScriptArguments:
-    per_device_batch_size: Optional[int] = field(default=64, metadata={"help": "The batch size per device during evaluation."})
+    per_device_batch_size: Optional[int] = field(default=4, metadata={"help": "The batch size per device during evaluation."})
     max_length: Optional[int] = field(default=1024, metadata={"help": "The maximum sequence length."})
     data_path: Optional[str] = field(default="./data/unified_20k", metadata={"help": "Path to the data file."})
     model_path: Optional[str] = field(default="Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback", metadata={"help": "The gold reward model to use."})

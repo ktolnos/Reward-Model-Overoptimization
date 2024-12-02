@@ -62,9 +62,9 @@ def build_dataset_UF(data_path, tokenizer, split='train', size=None, mode='', mo
     ds = ds.filter(lambda example: example['conv_A_rating'] != example['conv_B_rating'], num_proc=30)
 
     if len(mode):
-        if mode == '40k':
+        if mode == '40k' or mode == '40K':
             ds = ds.select(range(0, len(ds), 20)) 
-        elif mode == '400k':
+        elif mode == '400k' or mode == '400K':
             ds = ds.select(range(0, len(ds), 2)) 
 
     if size is not None:

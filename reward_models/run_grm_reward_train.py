@@ -125,10 +125,7 @@ model_params = {
     'vhead_num_layers': script_args.num_layers,
 }
 if len(script_args.attn_implementation):
-    model_params = {
-        "attn_implementation": script_args.attn_implementation,
-    }
-
+    model_params["attn_implementation"] = script_args.attn_implementation
 
 
 ### load model

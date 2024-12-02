@@ -31,7 +31,7 @@ class ValueHead(nn.Module):
                     hidden_size = config.decoder.hidden_size
 
         # get vhead config
-        if hasattr(config, "vhead_layer_type"): # config from json first
+        if hasattr(config, "vhead_layer_type"): # try config from json first
             self.layer_type = config.vhead_layer_type
         else:
             self.layer_type = kwargs.pop("vhead_layer_type", 'mlp')
