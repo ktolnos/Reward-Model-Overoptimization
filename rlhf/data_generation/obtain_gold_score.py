@@ -7,7 +7,7 @@ from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional
 from utils import create_output_directory
-from load_datasets import build_datasets_inference, prepare_data_loader, build_dataset_UF
+from load_datasets import build_dataset_UF4gold_score, prepare_data_loader
 from accelerate import Accelerator
 from transformers import (
     AutoModelForSequenceClassification,
@@ -89,7 +89,7 @@ def obtain_gold_score():
     tokenizer.model_max_length = script_args.max_length
 
     # Prepare dataset and DataLoader
-    dataset = build_datasets_inference(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+    dataset = build_dataset_UF4gold_score(script_args.data_path, tokenizer, split=script_args.mode, size=10, max_length=script_args.max_length)
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
     data_loader = accelerator.prepare(data_loader)
 

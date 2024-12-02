@@ -72,9 +72,27 @@ sh eval_grm_rm.sh
 ```
 
 ### RLHF
-To do: BoN shell
 
+#### Data Generation (TBD)
 
+```
+sh scripts/rlhf/data_generation4rlhf.sh
+```
+
+#### BoN
+
+**Note: please set the path to your dataset and reward model in the corresponding shells.**
+```
+sh scripts/rlhf/bon/step1_train_proxy_reward_model_baseline.sh
+sh scripts/rlhf/bon/step1_train_proxy_reward_model_grm.sh
+sh scripts/rlhf/bon/step2_generate_samples.sh
+sh scripts/rlhf/bon/step3_obtain_proxy_score.sh
+sh scripts/rlhf/bon/step4_choose_best_of_n.sh
+sh scripts/rlhf/bon/step5_obtain_bon_gold_score.sh
+sh scripts/rlhf/bon/step6_collect
+```
+
+#### PPO
 Go to the `scripts/rlhf/ppo' folder and train the gemma-2b-it model with the default parameters.
 
 **Note: please set the path to your reward model in the corresponding shells.**
