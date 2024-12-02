@@ -11,8 +11,10 @@ ds_shuffled = ds.shuffle(seed=42)  # Using a seed for reproducibility
 # Select the first 20,000 samples for the larger subset
 subset_20k = ds_shuffled.select(range(20000))
 # Select the next 2,000 samples for the smaller subset
-subset_2k = ds_shuffled.select(range(20000, 21000))
+subset_1k = ds_shuffled.select(range(20000, 21000))
 
+create_output_directory('./rlhf/data', 'unified_20k')
+create_output_directory('./rlhf/data', 'unified_1k')
 # Now subset_20k contains 20,000 unique samples and subset_1k contains 1,000 unique samples
-save_results_in_parquet_splits(subset_20k, num_splits=2, save_path="./data/unified_20k", mode='train')
-save_results_in_parquet_splits(subset_2k, num_splits=1, save_path="./data/unified_1k", mode='test')
+save_results_in_parquet_splits(subset_20k, num_splits=2, save_path="./rlhf/data/unified_20k", mode='train')
+save_results_in_parquet_splits(subset_1k, num_splits=1, save_path="./rlhf/data/unified_1k", mode='test')

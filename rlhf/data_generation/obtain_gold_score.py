@@ -25,6 +25,7 @@ class ScriptArguments:
     save_path: Optional[str] = field(default='./step1_obtain_gold_score', metadata={"help": "Directory to save results."})
     save_name: Optional[str] = field(default="unified_sampled_gold_score", metadata={"help": "Saved file name."})
     mode: Optional[str] = field(default="train", metadata={"help": "'train', and 'test'"})
+    debug: Optional[bool] = field(default=False)
     
 
 def parse_args() -> ScriptArguments:
@@ -63,8 +64,8 @@ def generate_and_collect_results(model, data_loader, tokenizer):
 
     # Decode and organize results
     return {
-        'prompts_A': tokenizer.batch_decode(full_chosen_prompts),
-        'prompts_B': tokenizer.batch_decode(full_rejected_prompts),
+        'prompts_A': tokenizer.batch_decode(full_chosen_prompts, skip_special_tokens=True),
+        'prompts_B': tokenizer.batch_decode(full_rejected_prompts, skip_special_tokens=True),
         'rewards_A': full_rewards_chosen,
         'rewards_B': full_rewards_rejected,
         'source_ids': [x.item() for x in full_source_ids] if 'source_id' in batch else []
@@ -78,25 +79,30 @@ def obtain_gold_score():
   
     # Initialize Accelerator
     accelerator = Accelerator()
+    device = Accelerator().local_process_index 
 
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.save_name)
 
     # Load model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=False)
-    model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, torch_dtype=torch.bfloat16)
-    model.resize_token_embeddings(len(tokenizer))
+    model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, device_map=device, torch_dtype=torch.bfloat16)
+    # model.resize_token_embeddings(len(tokenizer))
+    # model.config.pad_token_id = tokenizer.pad_token_id
     tokenizer.model_max_length = script_args.max_length
 
     # Prepare dataset and DataLoader
-    dataset = build_dataset_UF4gold_score(script_args.data_path, tokenizer, split=script_args.mode, size=10, max_length=script_args.max_length)
+    dataset = build_dataset_UF4gold_score(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
+    if script_args.debug:
+        dataset = dataset.select(range(0,100))
+        
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
     data_loader = accelerator.prepare(data_loader)
 
     # Generate and collect results
     evaluation_result = generate_and_collect_results(model, data_loader, tokenizer)
 
-    # Save results to CSV
+    # # Save results to CSV
     if accelerator.is_main_process:
         dataframe = pd.DataFrame(evaluation_result)
         dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
