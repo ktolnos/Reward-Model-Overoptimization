@@ -128,9 +128,10 @@ def build_datasets_inference(data_path, tokenizer, split='', size=None, max_leng
 
 
 # Function to load and process dataset
-def load_data2generate(data_path, tokenizer, N):
+def load_data2generate(data_path, tokenizer, N, debug=False):
     dataset = load_dataset(data_path, split='test')
-    dataset = dataset.select(range(2))
+    if debug == True:
+        dataset = dataset.select(range(0,2))
     dataset = dataset.map(lambda x: {
         'id': x['id'],
         'source': x['source'],
