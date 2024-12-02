@@ -343,18 +343,19 @@ def load_model_withhead(model_name, peft_name, tokenizer, device, \
         model = PeftModel(model, peft_config)
 
         loaded_state_dict = {}
-        # with safe_open(os.path.join(peft_name, "model.safetensors"), framework="pt", device=device) as f:
-        #     for k in f.keys():
-        #         loaded_state_dict[k] = f.get_tensor(k)
-        
-        loaded_state_dict = torch.load(os.path.join(peft_name, 'pytorch_model.bin'))
-        # Check if the loaded object is a state dict or a complete model
-        if isinstance(loaded_state_dict, dict):
-            # Print the keys
-            print(loaded_state_dict.keys())
+        if os.path.exists(os.path.join(peft_name, "model.safetensors")):
+            with safe_open(os.path.join(peft_name, "model.safetensors"), framework="pt", device=device) as f:
+                for k in f.keys():
+                    loaded_state_dict[k] = f.get_tensor(k)
         else:
-            # If it's a complete model, print the model parameters
-            print([name for name, _ in loaded_state_dict.named_parameters()])
+            loaded_state_dict = torch.load(os.path.join(peft_name, 'pytorch_model.bin'))
+        # # Check if the loaded object is a state dict or a complete model
+        # if isinstance(loaded_state_dict, dict):
+        #     # Print the keys
+        #     print(loaded_state_dict.keys())
+        # else:
+        #     # If it's a complete model, print the model parameters
+        #     print([name for name, _ in loaded_state_dict.named_parameters()])
 
         missing, unexpected = model.base_model.model.pretrained_model.load_state_dict(loaded_state_dict, strict=False)
         missing, unexpected = model.base_model.model.load_state_dict(loaded_state_dict, strict=False)

@@ -85,11 +85,10 @@ class RMEnsemble():
                 reward_tensors = [self.reward_models[i](x['input_ids'].to(self.gpu_ids[i])).logits[0] for x in encoded_prompt_response] 
                 results.append(torch.concat(reward_tensors).view(-1, 1))
 
-        import pdb;pdb.set_trace()
         if self.ensemble_method == 'avg':
             reward_tensors = torch.concat(results, dim=-1).mean(dim=-1)
         elif self.ensemble_method == 'min':
-            reward_tensors = torch.concat(results, dim=-1).min(dim=-1)
+            reward_tensors = torch.concat(results, dim=-1).min(dim=-1)[0]
         else:
             raise NotImplementedError
         return reward_tensors

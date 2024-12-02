@@ -38,6 +38,7 @@ class ScriptArguments:
     eval_every: Optional[int] = field(default=6)
     normalize_rewards: Optional[bool] = field(default=True)
     adap_kl_ctrl: Optional[bool] = field(default=False)
+    debug: Optional[bool] = field(default=False)
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -64,7 +65,6 @@ config = PPOConfig(
     mini_batch_size=script_args.mini_batch_size,
     batch_size=script_args.batch_size,
     gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-    gradient_checkpointing=script_args.gradient_checkpointing, 
     max_grad_norm=5,
     adap_kl_ctrl=script_args.adap_kl_ctrl,
     optimize_cuda_cache=True,
@@ -80,7 +80,10 @@ reward_model, rm_tokenizer, rm_gpu_id = load_reward_model(script_args, gpu_id)
 tokenizer = AutoTokenizer.from_pretrained(tokenier_name, use_fast = False)
 train_dataset = build_dataset_unified(script_args.dataset_path, tokenizer, script_args, split='train')
 eval_dataset = build_dataset_unified(script_args.eval_dataset_path, tokenizer, script_args, split='test')
-print(f"Size of the train set: {len(train_dataset)}.")
+if script_args.debug:
+    train_dataset = train_dataset.select(range(100))
+    eval_dataset = eval_dataset.select(range(40))
+print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
 # load fixed configs 
 lora_config, generation_kwargs, eval_generation_kwargs = get_config(tokenizer)
@@ -190,10 +193,10 @@ for epoch in range(epochs):
         if i % script_args.eval_every == 0 and i != 0:
             name = 'epoch_{}_batch_{}'.format(epoch, i)
             eval_model(ppo_trainer, eval_dataset, tokenizer, accelerator, script_args, name, eval_generation_kwargs)
-            if ppo_trainer.accelerator.is_main_process:
-                save_path = os.path.join(script_args.log_dir, script_args.wandb_name, name)
-                ppo_trainer.save_pretrained(save_path)
-                print("iter {}, batch {}: model saved".format(epoch, i))
+            # if ppo_trainer.accelerator.is_main_process:
+            #     save_path = os.path.join(script_args.log_dir, script_args.wandb_name, name)
+            #     ppo_trainer.save_pretrained(save_path)
+            #     print("iter {}, batch {}: model saved".format(epoch, i))
 
 # save final model
 if i % script_args.eval_every != 0: # not evaluated
