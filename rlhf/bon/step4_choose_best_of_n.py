@@ -11,14 +11,14 @@ from utils import save_results_in_parquet_splits, create_output_directory, calcu
 @dataclass
 class ScriptArguments:
     model_type: Optional[str] = field(default="grm", metadata={'help': "use 'grm', 'bt', 'margin', 'labelsmooth', and 'pos_reg'."})
-    data_path: Optional[str] = field(default="./step4_obtain_proxy_score/gemma-2b-it/grm", metadata={"help": "Path to the data file."})
+    data_path: Optional[str] = field(default="./step3_obtain_proxy_score/gemma-2b-it/grm", metadata={"help": "Path to the data file."})
 
     n_values_start: Optional[int] = field(default=1, metadata={"help": "Starting value of N range to consider."})
     n_values_end: Optional[int] = field(default=406, metadata={"help": "Ending value of N range to consider."})
     kl_min: Optional[float] = field(default=0.0, metadata={"help": "Minimum KL value for filtering."})
     kl_max: Optional[float] = field(default=5.0, metadata={"help": "Maximum KL value for filtering."})
 
-    save_path: Optional[str] = field(default='./step5_choose_best_of_n/gemma-2b-it', metadata={"help": "Directory to save results."})
+    save_path: Optional[str] = field(default='./step4_choose_best_of_n/gemma-2b-it', metadata={"help": "Directory to save results."})
 
 def parse_args() -> ScriptArguments:
     parser = argparse.ArgumentParser(description="Set parameters for model training & evaluation.")

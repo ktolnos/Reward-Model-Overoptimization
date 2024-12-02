@@ -37,7 +37,7 @@ class ScriptArguments:
     # Only for GRM
     layer_type: Optional[str] = field(default='linear') # mlp, linear
     num_layers: Optional[int] = field(default=1)
-    
+    debug: Optional[bool] = field(default=False)
 
 
 def parse_args() -> ScriptArguments:
@@ -53,36 +53,6 @@ def parse_args() -> ScriptArguments:
     return ScriptArguments(**vars(args))
 
 
-# Evaluation function
-def evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, batch_size, model_type) -> Dict[str, List]:
-    """Evaluate and return results."""
-    full_prompts, full_rewards, full_source_ids, full_id_ids = [], [], [], []
-    pbar = tqdm(total=len(data_loader) * batch_size // accelerator.num_processes)
-    device = accelerator.local_process_index
-    
-    with torch.no_grad():
-        for batch in data_loader:
-            if model_type == 'grm':
-                reward_tensors = model_withhead_forward(model, batch["input_ids"], batch["attention_mask"], device, forward_type='reward') 
-            else:
-                reward_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device)).logits.reshape(-1)
-
-            full_rewards.extend(reward_tensors)
-            full_prompts.extend(batch['input_ids'])
-            full_source_ids.extend(batch['source'])
-            full_id_ids.extend(batch['id'])
-            pbar.update(1)
-    
-    accelerator.wait_for_everyone()
-
-    full_prompts = [x.rstrip('</s>') for x in tokenizer.batch_decode(full_prompts)]
-    return {
-        'prompts': full_prompts,
-        'rewards': [float(x) for x in full_rewards],
-        'source_ids': full_source_ids,
-        'id_ids': full_id_ids
-    }
-
 
 # Main execution logic
 def obtain_proxy_score():
@@ -91,7 +61,6 @@ def obtain_proxy_score():
 
     # Initialize Accelerator
     accelerator = Accelerator()
-
     # Create output directory
     output_dir = create_output_directory(script_args.save_path, script_args.model_type)
 
@@ -102,6 +71,10 @@ def obtain_proxy_score():
 
     # Prepare dataset and DataLoader
     dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length)
+    if script_args.debug:
+        dataset = dataset.select(range(0,20))
+    print('Size of Dataset: %s'%(len(dataset)))
+        
     data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom')
     data_loader = accelerator.prepare(data_loader)
 
@@ -119,11 +92,44 @@ def obtain_proxy_score():
 
 
     # Run evaluation and gather results
-    evaluation_result = evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, script_args.per_device_batch_size, script_args.model_type)
+    full_prompts, full_rewards, full_source_ids, full_id_ids = [], [], [], []
+    pbar = tqdm(total=len(data_loader) * script_args.per_device_batch_size // accelerator.num_processes)
+    device = accelerator.local_process_index
     
-    # Save results to CSV
+    with torch.no_grad():
+        for batch in data_loader:
+            if script_args.model_type == 'grm':
+                reward_tensors = model_withhead_forward(model, batch["input_ids"], batch["attention_mask"], device, forward_type='reward') 
+            else:
+                reward_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device)).logits.reshape(-1)
+
+            full_rewards.extend(reward_tensors)
+            full_prompts.extend(batch['input_ids'])
+            full_source_ids.extend(batch['source'])
+            full_id_ids.extend(batch['id'])
+            pbar.update(1)
+    
+
+    full_prompts = [x.rstrip('</s>') for x in tokenizer.batch_decode(full_prompts)]
+    full_rewards = [float(x) for x in full_rewards]
+    # full_source_ids = full_source_ids
+    # full_id_ids = full_id_ids
+    
+    accelerator.wait_for_everyone()
+    # Gather results from all processes
+    all_prompts = accelerator.gather_for_metrics(full_prompts)
+    all_rewards = accelerator.gather_for_metrics(full_rewards)
+    all_source_ids = accelerator.gather_for_metrics(full_source_ids)
+    all_id_ids = accelerator.gather_for_metrics(full_id_ids)
+
     if accelerator.is_main_process:
-        df = pd.DataFrame(evaluation_result)
+        all_results = {
+            'prompts': all_prompts,
+            'rewards': all_rewards,
+            'source_ids': all_source_ids,
+            'id_ids': all_id_ids,
+        }
+        df = pd.DataFrame(all_results)
         df.to_csv(os.path.join(output_dir, 'proxy_score.csv'), index=False)
 
 
