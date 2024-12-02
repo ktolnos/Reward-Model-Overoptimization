@@ -75,20 +75,22 @@ sh eval_grm_rm.sh
 #### Data Generation (TBD)
 
 ```
-sh scripts/rlhf/data_generation4rlhf.sh
+cd scripts/rlhf
+sh data_generation4rlhf.sh
 ```
 
 #### BoN
 
 **Note: please set the path to your dataset and reward model in the corresponding shells.**
 ```
-sh scripts/rlhf/bon/step1_train_proxy_reward_model_baseline.sh
-sh scripts/rlhf/bon/step1_train_proxy_reward_model_grm.sh
-sh scripts/rlhf/bon/step2_generate_samples.sh
-sh scripts/rlhf/bon/step3_obtain_proxy_score.sh
-sh scripts/rlhf/bon/step4_choose_best_of_n.sh
-sh scripts/rlhf/bon/step5_obtain_bon_gold_score.sh
-sh scripts/rlhf/bon/step6_collect
+cd scripts/rlhf/bon
+sh step1_train_proxy_reward_model_baseline.sh
+sh step1_train_proxy_reward_model_grm.sh
+sh step2_generate_samples.sh
+sh step3_obtain_proxy_score.sh
+sh step4_choose_best_of_n.sh
+sh step5_obtain_bon_gold_score.sh
+sh step6_collect.sh
 ```
 
 #### PPO

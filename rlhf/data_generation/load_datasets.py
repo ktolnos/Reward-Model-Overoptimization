@@ -68,6 +68,8 @@ def build_dataset_UF4gold_score(data_path, tokenizer, split='', size=None, max_l
             remove_columns.append(name)
     ds = ds.remove_columns(remove_columns)
     ds = ds.filter(lambda x: len(x["input_ids"]) <= max_length and len(x["input_ids_rejected"]) <= max_length, num_proc=30)
+    # source_ids = list(range(len(ds)))  # Create unique identifiers
+    ds = ds.map(lambda x, idx: {**x, "unique_id": idx}, with_indices=True)
     ds.set_format(type="torch")
     return ds
 
@@ -103,6 +105,7 @@ def load_dataset_within_maxlength(data_path, tokenizer, split='', size=None, max
 
     # Filter the original dataset using the valid indices
     filtered_ds = ds.select(valid_indices)
+    filtered_ds = filtered_ds.map(lambda x, idx: {**x, "unique_id": idx}, with_indices=True)
 
     return filtered_ds
 

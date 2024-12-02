@@ -17,7 +17,7 @@ python rlhf/data_generation/sample_dataset.py \
 
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
    rlhf/data_generation/obtain_gold_score.py \
-    --per_device_batch_size 5 \
+    --per_device_batch_size 10 \
     --max_length 1024 \
     --data_path "rlhf/data/unified_sampled" \
     --model_path "Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback" \
@@ -27,7 +27,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
     rlhf/data_generation/obtain_gold_score.py \
-    --per_device_batch_size 5 \
+    --per_device_batch_size 10 \
     --max_length 1024 \
     --data_path "rlhf/data/unified_sampled" \
     --model_path "Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback" \
