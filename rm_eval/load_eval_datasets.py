@@ -31,7 +31,7 @@ def build_unified_eval_dataset(data_path, tokenizer, split='val', size=None):
 
 
     def formatting_func(example):
-        kwargs = {"padding": True, "truncation": True, "max_length": tokenizer.max_length, "return_tensors": "pt"}
+        kwargs = {"padding": 'max_length', "truncation": True, "max_length": tokenizer.model_max_length, "return_tensors": "pt"}
         example['source_id'] = source_dict[example['source']]
         if example['conv_A_rating'] > example['conv_B_rating']:
             chosen_messages = example['conv_A']
@@ -59,7 +59,7 @@ def build_unified_eval_dataset(data_path, tokenizer, split='val', size=None):
         if 'input_ids' not in name and 'attention' not in name and 'source_id' not in name:
             remove_columns.append(name)
     ds = ds.remove_columns(remove_columns)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= tokenizer.max_length and len(x["input_ids_rejected"]) <= tokenizer.max_length, num_proc=10)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= tokenizer.model_max_length and len(x["input_ids_rejected"]) <= tokenizer.model_max_length, num_proc=10)
     ds.set_format(type="torch")
     return ds
 
@@ -90,7 +90,7 @@ def build_ood_eval_dataset(data_path, tokenizer, split='test', size=None):
         ds = ds.select(range(0, size))
 
     def formatting_func(example):
-        kwargs = {"padding": True, "truncation": True, "max_length": tokenizer.max_length, "return_tensors": "pt"}
+        kwargs = {"padding": 'max_length', "truncation": True, "max_length": tokenizer.model_max_length, "return_tensors": "pt"}
 
         if 'HuggingFaceH4/hhh_alignment' in data_path:
             if '\n\nAssistant:' in example['input'] or '\n\nHuman:' in example['input']:
@@ -160,7 +160,7 @@ def build_ood_eval_dataset(data_path, tokenizer, split='test', size=None):
         if 'input_ids' not in name and 'attention' not in name and 'source_id' not in name:
             remove_columns.append(name)
     ds = ds.remove_columns(remove_columns)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= tokenizer.max_length and len(x["input_ids_rejected"]) <= tokenizer.max_length, num_proc=10)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= tokenizer.model_max_length and len(x["input_ids_rejected"]) <= tokenizer.model_max_length, num_proc=10)
     ds.set_format(type="torch")
     return ds
 

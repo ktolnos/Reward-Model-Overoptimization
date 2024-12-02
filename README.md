@@ -50,6 +50,10 @@ First set the environment variable.
 ```
 export HF_HOME='your HF token'
 ```
+Then install the environment. Note that we found error in transformers==4.46.1, please use early versions.
+```
+pip install -r requirements.txt
+```
 
 ### Training and evaluation of reward models
 Then, go to the `scripts' folder and train the reward model with the default hyperparameters
