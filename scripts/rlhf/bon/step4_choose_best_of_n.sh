@@ -1,4 +1,4 @@
-# Step 5:
+# Step 4:
 python rlhf/bon/step5_choose_best_of_n.py \
     --model_type grm \
     --data_path "rlhf/bon/step4_obtain_proxy_score/gemma-2b-it/grm" \

@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --data_path "rlhf/data_generation/data/unified_20k" \
     --model_path "Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback" \
     --save_path "rlhf/data/obtain_gold_score" \
-    --save_name "unified_20k_gold_score" \
+    --save_name "unified_sampled_gold_score" \
     --mode "train" 
     
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
