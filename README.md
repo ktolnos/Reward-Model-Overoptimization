@@ -80,6 +80,7 @@ sh data_generation4rlhf.sh
 ```
 
 #### BoN
+Go to the `scripts/rlhf/bon` folder and run the scripts. For more information about each step, please refer to `rlhf/bon/README.md` .
 
 **Note: please set the path to your dataset and reward model in the corresponding shells.**
 ```
