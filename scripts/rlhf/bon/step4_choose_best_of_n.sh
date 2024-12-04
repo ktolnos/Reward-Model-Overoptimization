@@ -1,5 +1,6 @@
 cd ../../../
 
+# Replace the model_type and data_path
 python rlhf/bon/step4_choose_best_of_n.py \
     --model_type grm \
     --data_path "rlhf/bon/step3_obtain_proxy_score/gemma-2b-it/grm" \

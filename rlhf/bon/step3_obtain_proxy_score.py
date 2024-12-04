@@ -9,7 +9,7 @@ from accelerate import Accelerator
 from tqdm import tqdm
 from datasets import load_dataset
 from peft import PeftModel
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -72,19 +72,20 @@ def obtain_proxy_score():
     # Prepare dataset and DataLoader
     dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length)
     if script_args.debug:
-        dataset = dataset.select(range(0,20))
+        dataset = dataset.select(range(0,40))
     print('Size of Dataset: %s'%(len(dataset)))
         
-    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom')
-    data_loader = accelerator.prepare(data_loader)
+    sampler = DistributedSampler(dataset, num_replicas=accelerator.num_processes, rank=accelerator.local_process_index, shuffle=False)
+    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, sampler=sampler, collate_fn_type='custom')
+    # data_loader = accelerator.prepare(data_loader)
 
     # Load model
     if script_args.model_type == 'grm':
         model = load_model_withhead(script_args.base_model, script_args.peft_name, tokenizer, device=accelerator.local_process_index, layer_type=script_args.layer_type, num_layers=script_args.num_layers)
     elif script_args.model_type in ['bt', 'margin', 'labelsmooth', 'pos_reg']:
         model = AutoModelForSequenceClassification.from_pretrained(script_args.base_model, num_labels=1, device_map=accelerator.local_process_index, torch_dtype=torch.bfloat16)
-        model.resize_token_embeddings(len(tokenizer))
-        model.config.pad_token_id = tokenizer.pad_token_id
+        # model.resize_token_embeddings(len(tokenizer))
+        # model.config.pad_token_id = tokenizer.pad_token_id
         if os.path.exists(script_args.peft_name):
             model = PeftModel.from_pretrained(model, script_args.peft_name)
         if hasattr(model, 'merge_and_unload'):
@@ -110,7 +111,7 @@ def obtain_proxy_score():
             pbar.update(1)
     
 
-    full_prompts = [x.rstrip('</s>') for x in tokenizer.batch_decode(full_prompts)]
+    full_prompts = [x.rstrip(tokenizer.pad_token) for x in tokenizer.batch_decode(full_prompts)]
     full_rewards = [float(x) for x in full_rewards]
     # full_source_ids = full_source_ids
     # full_id_ids = full_id_ids

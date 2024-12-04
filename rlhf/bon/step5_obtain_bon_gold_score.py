@@ -8,7 +8,7 @@ from accelerate import Accelerator
 from tqdm import tqdm
 from datasets import load_dataset
 from peft import PeftModel
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -61,7 +61,7 @@ def evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, bat
                 full_order_ids.extend(batch['order'])
             pbar.update(1)
 
-    full_prompts = [x.rstrip('</s>') for x in tokenizer.batch_decode(full_prompts)]
+    full_prompts = [x.rstrip(tokenizer.pad_token) for x in tokenizer.batch_decode(full_prompts)]
     full_rewards = [x.item() for x in full_rewards]
     if 'source' in batch.keys():
         full_source_ids = [x for x in full_source_ids]
@@ -97,14 +97,15 @@ def obtain_bon_gold_score():
     tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, device_map=accelerator.local_process_index, torch_dtype=torch.bfloat16)
-    model.resize_token_embeddings(len(tokenizer))
-    model.config.pad_token_id = tokenizer.pad_token_id
+    # model.resize_token_embeddings(len(tokenizer))
+    # model.config.pad_token_id = tokenizer.pad_token_id
 
     # Prepare dataset and DataLoader
     dataset = build_datasets_inference(script_args.data_path, tokenizer, split='test', max_length=script_args.max_length, w_order=True)
     print('Size of Dataset: %s'%(len(dataset)))
-    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, collate_fn_type='custom_w_order')
-    data_loader = accelerator.prepare(data_loader)
+    sampler = DistributedSampler(dataset, num_replicas=accelerator.num_processes, rank=accelerator.local_process_index, shuffle=False)
+    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, sampler=sampler, collate_fn_type='custom_w_order')
+    # data_loader = accelerator.prepare(data_loader)
 
     # Run evaluation and gather results
     evaluation_result = evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, script_args.per_device_batch_size)

@@ -134,12 +134,12 @@ def custom_collate_w_order(batch):
     }
 
 
-def prepare_data_loader(dataset, tokenizer, batch_size, collate_fn_type='default'):
+def prepare_data_loader(dataset, tokenizer, batch_size, sampler, collate_fn_type='default'):
     if collate_fn_type == 'default':
         data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=data_collator)
+        data_loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, drop_last=False, collate_fn=data_collator)
     elif collate_fn_type == 'custom':
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate)
+        data_loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, drop_last=False, collate_fn=custom_collate)
     elif collate_fn_type == 'custom_w_order':
-        data_loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, collate_fn=custom_collate_w_order)
+        data_loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, drop_last=False, collate_fn=custom_collate_w_order)
     return data_loader

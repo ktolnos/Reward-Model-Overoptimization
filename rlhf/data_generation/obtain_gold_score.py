@@ -5,6 +5,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 from dataclasses import dataclass, field
+from torch.utils.data import DataLoader, DistributedSampler
 from typing import Optional
 from utils import create_output_directory, save_results_in_parquet_splits
 from load_datasets import build_dataset_UF4gold_score, prepare_data_loader, load_dataset_within_maxlength
@@ -57,11 +58,12 @@ def obtain_gold_score(script_args):
 
     # Load model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=False)
+    tokenizer.model_max_length = script_args.max_length
+    tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForSequenceClassification.from_pretrained(script_args.model_path, num_labels=1, device_map=device, torch_dtype=torch.bfloat16)
     # model.resize_token_embeddings(len(tokenizer))
     # model.config.pad_token_id = tokenizer.pad_token_id
-    tokenizer.model_max_length = script_args.max_length
-
+    
     # Prepare dataset and DataLoader
     dataset = build_dataset_UF4gold_score(script_args.data_path, tokenizer, split=script_args.mode, max_length=script_args.max_length)
     
@@ -70,16 +72,19 @@ def obtain_gold_score(script_args):
     print('Size of %s Dataset: %s'%(script_args.mode, len(dataset)))
         
     # Shard the dataset among processes
-    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size)
-    data_loader = accelerator.prepare(data_loader)
+    sampler = DistributedSampler(dataset, num_replicas=accelerator.num_processes, rank=accelerator.local_process_index, shuffle=False)
+    data_loader = prepare_data_loader(dataset, tokenizer, script_args.per_device_batch_size, sampler=sampler)
+    # data_loader = accelerator.prepare(data_loader)
 
+    print('Start Inference.')
     # Generate and collect results
     full_chosen_prompts = []
     full_rejected_prompts = []
     full_rewards_chosen = []
     full_rewards_rejected = []
     full_unique_ids = []
-    pbar = tqdm(total=len(dataset) // script_args.per_device_batch_size // accelerator.num_processes)
+    if accelerator.is_main_process:
+        pbar = tqdm(total=len(dataset) // script_args.per_device_batch_size // accelerator.num_processes)
     with torch.no_grad():
         for i, batch in enumerate(data_loader):
             reward_chosen_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask_chosen"].to(device)).logits.reshape(-1)
@@ -90,10 +95,12 @@ def obtain_gold_score(script_args):
             full_rejected_prompts.extend(batch['input_ids_rejected'])
             if 'unique_id' in batch.keys():
                 full_unique_ids.extend(batch['unique_id'])
-            pbar.update(1)
+            if accelerator.is_main_process:
+                pbar.update(1)
     
-    full_chosen_prompts = tokenizer.batch_decode(full_chosen_prompts)
-    full_rejected_prompts = tokenizer.batch_decode(full_rejected_prompts)
+    full_chosen_prompts = [x.rstrip(tokenizer.pad_token) for x in tokenizer.batch_decode(full_chosen_prompts)]
+    full_rejected_prompts = [x.rstrip(tokenizer.pad_token) for x in tokenizer.batch_decode(full_rejected_prompts)]
+
     full_rewards_chosen = [x.item() for x in full_rewards_chosen]
     full_rewards_rejected = [x.item() for x in full_rewards_rejected]
     if 'unique_id' in batch.keys():
@@ -122,7 +129,7 @@ def obtain_gold_score(script_args):
         gold_scores_dataframe = pd.DataFrame(evaluation_result)
         # Sort the DataFrame by 'unique_id'
         df_sorted_gold_scores_dataframe = gold_scores_dataframe.sort_values(by='unique_ids')
-        df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.drop_duplicates(subset='unique_ids', keep='first')
+        # df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.drop_duplicates(subset='unique_ids', keep='first')
         df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.reset_index(drop=True)
         df_sorted_gold_scores_dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
 

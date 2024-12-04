@@ -54,7 +54,7 @@ def processing(method, filtered_results, data_df, output_dir):
         grouped_max_scores = data_df.groupby('id_ids').apply(get_highest_within_n, n)
         grouped_max_scores['N'] = n
         all_grouped_scores.append(grouped_max_scores)
-
+       
     # Concatenate all DataFrames
     final_df = pd.concat(all_grouped_scores).reset_index(drop=True)
     # Apply processing to 'prompts' field
@@ -84,6 +84,7 @@ def choose_best_of_n():
     # Set up N values range and calculate filtered KL values
     N_values = np.arange(script_args.n_values_start, script_args.n_values_end)
     filtered_results = calculate_kl_values(N_values, kl_min=script_args.kl_min, kl_max=script_args.kl_max)
+    print('KL_list', filtered_results)
 
     # Load data
     data = pd.read_csv(f'{script_args.data_path}/proxy_score.csv')
