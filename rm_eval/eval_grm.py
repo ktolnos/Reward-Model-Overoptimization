@@ -21,7 +21,7 @@ class ScriptArguments:
     per_device_eval_batch_size: Optional[int] = field(default=8)
     max_length: Optional[int] = field(default=1024) 
     base_model: Optional[str] = field(default="Ray2333/GRM-llama3-8B-sftreg")
-    peft_name: Optional[str] = field(default='reward_models/gemma-2-2b-it_lora512allmodes_len2048trunc_700kdata_nonlinear_sftreg0.01_lr5e-6_5e-06/logs/checkpoint-181')
+    peft_name: Optional[str] = field(default='')
     layer_type: Optional[str] = field(default='mlp') 
     num_layers: Optional[int] = field(default=1)
     log_dir: Optional[str] = field(default='./eval_reward_grm')

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import os
 from collections import OrderedDict
-from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM
+from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, PreTrainedModel, AutoConfig
 from trl import PreTrainedModelWrapper
 from peft import PeftModel, PeftConfig
 from safetensors import safe_open
@@ -217,6 +217,51 @@ class AutoModelForCausalLMWithValueHead(PreTrainedModelWrapper):
         cls._auto_class = auto_class
 
 
+class GRewardModel(PreTrainedModel):
+    config_class = AutoConfig
+    _no_split_modules = []
+
+    def __init__(self, config):
+        super().__init__(config)
+        model = AutoModelForCausalLM.from_config(config)
+        self.model = model.model
+        self.v_head = ValueHead(self.model.config)
+
+    def forward(
+        self,
+        input_ids=None,
+        past_key_values=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        kwargs["output_hidden_states"] = True
+        kwargs["past_key_values"] = past_key_values
+
+        base_model_output = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            **kwargs,
+        )
+        last_hidden_state = base_model_output.hidden_states[-1]
+
+        if hasattr(self.v_head.summary, "weight") and last_hidden_state.device != self.v_head.summary.weight.device:
+            last_hidden_state = last_hidden_state.to(self.v_head.summary.weight.device)
+        elif not hasattr(self.v_head.summary, "weight") and (
+            last_hidden_state.device != self.v_head.summary[0].weight.device
+        ):
+            last_hidden_state = last_hidden_state.to(self.v_head.summary[0].weight.device)
+
+        # use the last token value as reward
+        if torch.any(attention_mask[:, 0] == 0):
+            # left padding
+            last_index = attention_mask.shape[-1] - 1
+        else:
+            # right padding
+            last_index = attention_mask.sum(dim=-1) - 1
+        value = self.v_head(last_hidden_state).squeeze(-1)[torch.arange(len(last_hidden_state)), last_index]
+        return value
+
+
 
 def load_model_withhead(model_name, peft_name, tokenizer, device, \
         layer_type='linear', num_neurons=1024, num_layers=1, load_in_8bit=False):
@@ -234,9 +279,15 @@ def load_model_withhead(model_name, peft_name, tokenizer, device, \
 
     if 'Mistral' not in model_name:
         model_config['attn_implementation'] = "flash_attention_2"
-        
-    model = AutoModelForCausalLMWithValueHead.from_pretrained(model_name, **model_config)
-    model.pretrained_model.resize_token_embeddings(len(tokenizer))
+    
+    if not len(peft_name):
+        model_config.pop('attn_implementation')
+        model = GRewardModel.from_pretrained(model_name, **model_config)
+        model.model.resize_token_embeddings(len(tokenizer))
+    else:
+        model = AutoModelForCausalLMWithValueHead.from_pretrained(model_name, **model_config)
+        model.pretrained_model.resize_token_embeddings(len(tokenizer))
+    
     model.config.pad_token_id = tokenizer.pad_token_id
     if len(peft_name) and os.path.exists(peft_name):
         peft_config = PeftConfig.from_pretrained(peft_name)
@@ -261,7 +312,9 @@ def load_model_withhead(model_name, peft_name, tokenizer, device, \
     return model
 
 def model_withhead_forward(model, input_ids, attention_mask, device, forward_type='reward', labels=None):
-    if forward_type == 'reward':
+    if isinstance(model, GRewardModel):
+        reward_tensors = model(input_ids.to(device), attention_mask=attention_mask.to(device))
+    elif forward_type == 'reward':
         _, _, reward_tensors = model(input_ids.to(device), attention_mask=attention_mask.to(device))
     elif forward_type == 'dpo':
         res = model(input_ids.to(device), attention_mask=attention_mask.to(device))
