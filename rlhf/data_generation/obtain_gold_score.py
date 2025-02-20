@@ -129,7 +129,7 @@ def obtain_gold_score(script_args):
         gold_scores_dataframe = pd.DataFrame(evaluation_result)
         # Sort the DataFrame by 'unique_id'
         df_sorted_gold_scores_dataframe = gold_scores_dataframe.sort_values(by='unique_ids')
-        # df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.drop_duplicates(subset='unique_ids', keep='first')
+        df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.drop_duplicates(subset='unique_ids', keep='first') # remove duplicated sample if there is any
         df_sorted_gold_scores_dataframe = df_sorted_gold_scores_dataframe.reset_index(drop=True)
         df_sorted_gold_scores_dataframe.to_csv(os.path.join(output_dir, 'gold_score_%s.csv'%script_args.mode))
 

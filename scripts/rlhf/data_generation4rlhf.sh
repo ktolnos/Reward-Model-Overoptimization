@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --model_path "Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback" \
     --save_path "rlhf/data" \
     --save_name "unified_sampled_gold_score" \
-    --mode "train" --debug False
+    --mode "train" 
     
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port}  \
     rlhf/data_generation/obtain_gold_score.py \
@@ -33,4 +33,4 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --model_path "Ray2333/reward-model-Mistral-7B-instruct-Unified-Feedback" \
     --save_path "rlhf/data" \
     --save_name "unified_sampled_gold_score" \
-    --mode "test" --debug False
+    --mode "test" 
