@@ -40,7 +40,7 @@ def build_dataset(data_path, tokenizer, split='train', size=None, model_name='')
                 "input_ids_rejected": tokens_rejected["input_ids"][0], "attention_mask_rejected": tokens_rejected["attention_mask"][0],
             }
 
-    ds = ds.map(formatting_func, batched=False, num_proc=10) 
+    ds = ds.map(formatting_func, batched=False, keep_in_memory=True)
     remove_columns = []
     for col in ds.column_names:
         if 'input' not in col and 'attention' not in col and 'label' not in col:
@@ -177,6 +177,6 @@ def load_train_eval_dataset(data_path, tokenizer, size=None, mode='', model_name
         train_dataset, eval_dataset = dataset_split['train'], dataset_split['test']
     else:
         dataset = build_dataset(data_path, tokenizer, split='train', size=size, model_name=model_name) 
-        dataset_split = dataset.train_test_split(test_size=0.01)
+        dataset_split = dataset.train_test_split(test_size=0.05)
         train_dataset, eval_dataset = dataset_split['train'], dataset_split['test']
     return train_dataset, eval_dataset
