@@ -1,3 +1,4 @@
+from scipy.io.arff.tests.test_arffread import data_path
 from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset, concatenate_datasets
@@ -135,6 +136,9 @@ def build_ood_eval_dataset(data_path, tokenizer, split='test', size=None):
             else:
                 chosen_messages = example['conversation_b']
                 rejected_messages = example['conversation_a']
+        elif 'experimental/data' in data_path:
+            chosen_messages = example['chosen']
+            rejected_messages = example['rejected']
         else:
             chosen_messages = [
                 {'role': 'user', 'content': example['prompt']},
@@ -177,7 +181,9 @@ def load_eval_dataset(task, tokenizer, size=None):
         if 'hhh' in task:
             data_path = 'HuggingFaceH4/hhh_alignment'
         elif 'mt' in task:
-            data_path = 'lmsys/mt_bench_human_judgments' 
+            data_path = 'lmsys/mt_bench_human_judgments'
+        elif 'experimental/data' in task:
+            data_path = task
         else:
             raise NotImplementedError
         
