@@ -50,7 +50,7 @@ class ScriptArguments:
     weight_ratio: Optional[float] = field(default=0.1, metadata={'help': 'the ratio for label smooth or posreg'})
     freeze_pretrained: Optional[bool] = field(default=False)
     # log
-    report_to: Optional[str] = field(default='none', metadata={'help': "use 'none', 'wandb'. "})
+    report_to: Optional[str] = field(default='wandb', metadata={'help': "use 'none', 'wandb'. "})
     log_dir: Optional[str] = field(default='./reward_models_train')
     wandb_name: Optional[str] = field(default="test",)
     save_strategy: Optional[str] = field(default="epoch")
