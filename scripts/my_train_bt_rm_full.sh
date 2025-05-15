@@ -11,7 +11,9 @@ main_process_port=9994
 learning_rate=5e-6
 max_length=3000
 num_train_epochs=5
-gradient_accumulation_steps=64
+gradient_accumulation_steps=16
+per_device_train_batch_size=4
+per_device_eval_batch_size=4
 
 cd ../reward_models
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} run_reward_models_train.py \
@@ -20,5 +22,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --max_length ${max_length} \
     --use_lora False \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
+    --per_device_train_batch_size ${per_device_train_batch_size} \
+    --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
     --dataset ${dataset_name}
