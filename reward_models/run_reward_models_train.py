@@ -28,7 +28,7 @@ class ScriptArguments:
     optim: Optional[str] = field(default="adamw_torch_fused",  metadata={"help": "The optimizer to use."})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "The lr scheduler"},)
     max_length: Optional[int] = field(default=1024) 
-    gradient_checkpointing: Optional[bool] = field(default=True)
+    gradient_checkpointing: Optional[bool] = field(default=False)
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
@@ -104,7 +104,8 @@ if tokenizer.pad_token == None:
     else:
         tokenizer.pad_token = tokenizer.eos_token
 if 'Qwen' in script_args.base_model:
-    tokenizer.padding_side = 'right' # left is not supported in Qwen flash attention
+    print("Using padding side left for Qwen")
+    tokenizer.padding_side = 'left' # left is not supported in Qwen flash attention
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None)
