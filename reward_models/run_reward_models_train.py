@@ -103,6 +103,8 @@ if tokenizer.pad_token == None:
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     else:
         tokenizer.pad_token = tokenizer.eos_token
+if 'Qwen' in script_args.base_model:
+    tokenizer.padding_side = 'right' # left is not supported in Qwen flash attention
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None)
