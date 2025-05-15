@@ -9,7 +9,10 @@ main_process_port=9994
 learning_rate=5e-6
 max_length=3000 
 num_train_epochs=1
-gradient_accumulation_steps=64
+per_device_train_batch_size=4
+gradient_accumulation_steps=16
+per_device_eval_batch_size=4
+
 
 # GRM parameters
 weight_ratio=0.01
@@ -26,5 +29,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --learning_rate ${learning_rate} \
     --dataset ${dataset_name} \
+    --per_device_train_batch_size ${per_device_train_batch_size} \
+    --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --weight_ratio ${weight_ratio}  --layer_type ${layer_type} \
     --reference_free ${reference_free} --sft_only ${sft_only}
