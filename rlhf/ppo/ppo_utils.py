@@ -187,3 +187,42 @@ def build_dataset_unified(data_path, tokenizer, script_args, split='', size=None
     ds.set_format(type="torch")
     return ds
 
+def build_train_eval_datasets(data_path_train, tokenizer, script_args, eval_proportion, size=None):
+    ds = datasets.load_dataset(data_path_train, split="train")
+    if size is not None:
+        ds = ds.select(range(0, size))
+    ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
+    ds_train = ds_dict['train']
+    ds_eval = ds_dict['test']
+    post_process_common_dataset(ds_train, tokenizer, script_args)
+    post_process_common_dataset(ds_eval, tokenizer, script_args)
+    return ds_train, ds_eval
+
+
+def build_dataset_common(data_path, tokenizer, script_args, split='', size=None):
+    ds = datasets.load_dataset(data_path, split=split)
+
+    if size is not None:
+        ds = ds.select(range(0, size))
+
+    ds = post_process_common_dataset(ds, tokenizer, script_args)
+    return ds
+
+def post_process_common_dataset(ds, tokenizer, script_args):
+    def formatting_func(example):
+        kwargs = {"return_tensors": "pt"}
+        # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
+        messages = example['chosen'][:-1]
+        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+
+        return {
+            'query': prompt_plus_response,
+            "input_ids": tokens["input_ids"][0], "attention_mask": tokens["attention_mask"][0],
+            "source": example['source'], "id": example['id']
+        }
+
+    ds = ds.map(formatting_func, batched=False, num_proc=30)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length, num_proc=30)
+    ds.set_format(type="torch")
+    return ds
