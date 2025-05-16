@@ -5,7 +5,8 @@ from accelerate import Accelerator
 import torch
 from tqdm import tqdm
 from transformers import HfArgumentParser, AutoTokenizer
-from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer, set_seed
+from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
+from accelerate.utils import set_seed
 import numpy as np
 import pandas as pd
 
