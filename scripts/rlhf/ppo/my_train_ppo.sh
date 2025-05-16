@@ -27,6 +27,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --main_process_port 9989 --num_pro
     --normalize_rewards True \
     --learning_rate 1e-5
 
+
 # training 7B reward model requires 6 gpus and 4 process (other 2 gpus for reward inference)
 #gpu='1,2,3,4,5,6'
 #num_processes=4
