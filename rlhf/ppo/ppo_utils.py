@@ -222,7 +222,9 @@ def post_process_common_dataset(ds, tokenizer, script_args):
             "attention_mask": tokens["attention_mask"][0],
         }
 
-    ds = ds.map(formatting_func, batched=False, num_proc=30)
+    ds = ds.map(formatting_func,
+                remove_columns=ds.column_names,
+                batched=False, num_proc=30)
     ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length, num_proc=30)
     ds.set_format(type="torch")
     return ds
