@@ -194,8 +194,8 @@ def build_train_eval_datasets(data_path_train, tokenizer, script_args, eval_prop
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
     ds_train = ds_dict['train']
     ds_eval = ds_dict['test']
-    post_process_common_dataset(ds_train, tokenizer, script_args)
-    post_process_common_dataset(ds_eval, tokenizer, script_args)
+    ds_train = post_process_common_dataset(ds_train, tokenizer, script_args)
+    ds_eval = post_process_common_dataset(ds_eval, tokenizer, script_args)
     return ds_train, ds_eval
 
 
