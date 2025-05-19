@@ -28,9 +28,10 @@ wandb_name="ppo_rmQwen06B_lr_kl0.005_helpsteer2_gold"
 #    #    --reward_peft_path "${reward_peft_path}" \
 
 
-CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch rlhf/ppo/my_ppo.py \
+CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision yes \
     --dynamo_backend yes \
+    rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
