@@ -29,6 +29,8 @@ wandb_name="ppo_rmQwen06B_lr_kl0.005_helpsteer2_gold"
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch rlhf/ppo/my_ppo.py \
+    --mixed_precision yes \
+    --dynamo_backend yes \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
