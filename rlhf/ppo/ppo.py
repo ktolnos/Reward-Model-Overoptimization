@@ -114,7 +114,11 @@ model.pretrained_model.resize_token_embeddings(len(tokenizer))
 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.learning_rate)
 
 ppo_trainer = PPOTrainer(
-    config, model, tokenizer=tokenizer, dataset=train_dataset, data_collator=collator, optimizer=optimizer
+    config, model,
+    tokenizer=tokenizer,
+    dataset=train_dataset,
+    data_collator=collator,
+    optimizer=optimizer
 )
 
 print("Training........")
