@@ -29,8 +29,7 @@ wandb_name="ppo_rmQwen06B_lr_kl0.005_helpsteer2_gold"
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
-    --mixed_precision yes \
-    --dynamo_backend yes \
+    --mixed_precision bf16 \
     rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
