@@ -31,16 +31,15 @@ wandb_name="ppo_rmQwen06B_lr_kl0.005"
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --num_ppo_epochs 5 \
+    --num_ppo_epochs 3 \
     --num_mini_batches 1 \
     --learning_rate 3e-6 \
-    --per_device_train_batch_size 1 \
-    --gradient_accumulation_steps 16 \
-    --total_episodes 10000 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 8 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 1 \
+    --local_rollout_forward_batch_size 2 \
     --missing_eos_penalty 1.0 \
     --dbg True \
     --kl_coef 0.05 \
