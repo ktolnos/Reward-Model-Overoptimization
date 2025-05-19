@@ -34,12 +34,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch rlhf/ppo/my_ppo.py \
     --num_ppo_epochs 2 \
     --num_mini_batches 1 \
     --learning_rate 3e-6 \
-    --per_device_train_batch_size 4 \
-    --gradient_accumulation_steps 4 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 8 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 4 \
+    --local_rollout_forward_batch_size 2 \
     --missing_eos_penalty 1.0 \
     --kl_coef 0.05 \
     --save_steps 0.025 \
