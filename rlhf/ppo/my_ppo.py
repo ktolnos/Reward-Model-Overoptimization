@@ -63,7 +63,6 @@ class ScriptArguments:
     # normalize_rewards: Optional[bool] = field(default=True)
     # adap_kl_ctrl: Optional[bool] = field(default=False)
     # use_lora: Optional[bool] = field(default=True)
-    value_model_path: Optional[str] = field(default='')
     dbg: Optional[bool] = field(default=False)
 
 if __name__ == "__main__":
@@ -79,13 +78,13 @@ if __name__ == "__main__":
         model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
     )
     quantization_config = get_quantization_config(model_args)
-    model_kwargs = dict(
-        revision=model_args.model_revision,
-        attn_implementation=model_args.attn_implementation,
-        torch_dtype=torch_dtype,
-        device_map=get_kbit_device_map() if quantization_config is not None else None,
-        quantization_config=quantization_config,
-    )
+    # model_kwargs = dict(
+    #     revision=model_args.model_revision,
+    #     attn_implementation=model_args.attn_implementation,
+    #     torch_dtype=torch_dtype,
+    #     device_map=get_kbit_device_map() if quantization_config is not None else None,
+    #     quantization_config=quantization_config,
+    # )
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
