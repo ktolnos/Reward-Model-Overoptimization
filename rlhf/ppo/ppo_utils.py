@@ -217,7 +217,7 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
 
         return {
-            'query': prompt_plus_response,
+            # 'query': prompt_plus_response,
             "input_ids": tokens["input_ids"][0],
             "attention_mask": tokens["attention_mask"][0],
         }
