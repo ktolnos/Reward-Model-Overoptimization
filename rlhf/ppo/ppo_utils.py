@@ -218,8 +218,8 @@ def post_process_common_dataset(ds, tokenizer, script_args):
 
         return {
             'query': prompt_plus_response,
-            "input_ids": tokens["input_ids"][0], "attention_mask": tokens["attention_mask"][0],
-            "source": example['source'], "id": example['id']
+            "input_ids": tokens["input_ids"][0],
+            "attention_mask": tokens["attention_mask"][0],
         }
 
     ds = ds.map(formatting_func, batched=False, num_proc=30)
