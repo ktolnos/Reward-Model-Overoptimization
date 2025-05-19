@@ -14,7 +14,7 @@ num_processes=1 #4
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
 ### you need set this path
 #reward_peft_path='rlhf/save_reward_models/gemma-2b-it_BT_RM_seed2_len1024_lora32_1e-05_dataUnified-Feedback/logs/checkpoint-3536'
-wandb_name="ppo_rmQwen06B_lr_kl0.005"
+wandb_name="ppo_rmQwen06B_lr_kl0.005_helpsteer2_gold"
 #CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --main_process_port 9989 --num_processes ${num_processes} rlhf/ppo/ppo.py \
 #    --base_model_name ${base_model_name} \
 #    --reward_base_model ${reward_base_model} \
