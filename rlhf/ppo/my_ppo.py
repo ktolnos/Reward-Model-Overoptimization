@@ -30,39 +30,13 @@ from trl import (
     ScriptArguments,
     get_kbit_device_map,
     get_peft_config,
-    get_quantization_config,
 )
 
 
 @dataclass
 class ScriptArguments:
-    # log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
-    # disable_wandb: Optional[str] = field(default=True, metadata={'help': 'Whether to disable wandb or not.'})
-    # log_dir: Optional[str] = field(default='./logs_ppo/')
-    # epochs: Optional[int] = field(default=1, metadata={'help': "Number of training epoches"})
-    # learning_rate: Optional[float] = field(default=1e-5, metadata={"help": "the learning rate"})
-    # mini_batch_size: Optional[int] = field(default=1, metadata={"help": "the PPO minibatch size"})
-    # batch_size: Optional[int] = field(default=64, metadata={"help": "the batch size"})
-    # eval_batch_size: Optional[int] = field(default=1)
-    # load_in_8bit: Optional[bool] = field(default=False, metadata={"help": "loading model in 8 bit or bfloat16"})
-    # gradient_accumulation_steps: Optional[int] = field(default=1,
-    #                                                    metadata={"help": "the number of gradient accumulation steps"})
-    # init_kl_coef: Optional[float] = field(default=0.0, metadata={
-    #     "help": "Initial KL penalty coefficient (used for adaptive and linear control)"}, )
-    # attn_implementation: Optional[str] = field(default="flash_attention_2", metadata={
-    #     'help': "use '' if you don't want attention acceleration or meet error here."})
     max_length: Optional[int] = field(default=1024)
-    # wandb_name: Optional[str] = field(default='ppo_baseline_reward', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
-    # eval_dataset_path: Optional[str] = field(default='')
-    # base_model_name: Optional[str] = field(default='',
-    #                                        metadata={'help': "the path to the sft model; need to merge if using lora"})
-    # reward_base_model: Optional[str] = field(default='')
-    # reward_peft_path: Optional[str] = field(default='')
-    # eval_every: Optional[int] = field(default=6)
-    # normalize_rewards: Optional[bool] = field(default=True)
-    # adap_kl_ctrl: Optional[bool] = field(default=False)
-    # use_lora: Optional[bool] = field(default=True)
     dbg: Optional[bool] = field(default=False)
 
 if __name__ == "__main__":
@@ -77,15 +51,6 @@ if __name__ == "__main__":
     torch_dtype = (
         model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
     )
-    quantization_config = get_quantization_config(model_args)
-    # model_kwargs = dict(
-    #     revision=model_args.model_revision,
-    #     attn_implementation=model_args.attn_implementation,
-    #     torch_dtype=torch_dtype,
-    #     device_map=get_kbit_device_map() if quantization_config is not None else None,
-    #     quantization_config=quantization_config,
-    # )
-
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
     )
@@ -108,6 +73,14 @@ if __name__ == "__main__":
         )
     else:
         ref_policy = None
+
+    # After tokenizer, policy, value_model are loaded
+    print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
+    print(f"Length of tokenizer (after potential special tokens): {len(tokenizer)}")
+    print(f"Policy model config vocab size: {policy.config.vocab_size}")
+    print(f"Policy model embedding matrix size: {policy.get_input_embeddings().weight.shape[0]}")
+    print(f"Value model config vocab size: {value_model.config.vocab_size}")
+    print(f"Value model embedding matrix size: {value_model.get_input_embeddings().weight.shape[0]}")
 
     ################
     # Dataset
