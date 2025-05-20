@@ -14,7 +14,7 @@ num_processes=1 #4
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
 ### you need set this path
 #reward_peft_path='rlhf/save_reward_models/gemma-2b-it_BT_RM_seed2_len1024_lora32_1e-05_dataUnified-Feedback/logs/checkpoint-3536'
-wandb_name="ppo_rmQwen06B_lr_kl0.005_helpsteer2_gold"
+wandb_name="ppo_rmQwen06B_lr5e-7_kl0.1_helpsteer2_gold"
 #CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --main_process_port 9989 --num_processes ${num_processes} rlhf/ppo/ppo.py \
 #    --base_model_name ${base_model_name} \
 #    --reward_base_model ${reward_base_model} \
@@ -35,7 +35,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
     --num_mini_batches 1 \
-    --learning_rate 3e-6 \
+    --learning_rate 5e-7 \
+    --warmup_ratio=0.03 \
+    --lr_scheduler_type=cosine \
     --per_device_train_batch_size 2 \
     --gradient_accumulation_steps 8 \
     --model_name_or_path ${base_model_name} \
@@ -43,7 +45,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --local_rollout_forward_batch_size 2 \
     --missing_eos_penalty 1.0 \
-    --kl_coef 0.05 \
+    --kl_coef 0.1 \
+    --whiten_rewards True \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
 
