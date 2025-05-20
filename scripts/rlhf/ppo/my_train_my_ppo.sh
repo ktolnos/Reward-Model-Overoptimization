@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --num_ppo_epochs 2 \
+    --num_ppo_epochs 4 \
     --num_mini_batches 1 \
     --learning_rate 5e-7 \
     --warmup_ratio=0.03 \
