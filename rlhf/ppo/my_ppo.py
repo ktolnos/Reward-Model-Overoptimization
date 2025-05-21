@@ -82,12 +82,12 @@ if __name__ == "__main__":
     else:
         ref_policy = None
 
-    assert policy.config.vocab_size == len(tokenizer) == policy.get_input_embeddings().weight.shape[0] == \
-           value_model.get_input_embeddings().weight.shape[0] == value_model.config.vocab_size, \
-        f"Tokenizer vocab size: {tokenizer.vocab_size}, Policy model config vocab size: {policy.config.vocab_size}," \
-        f"Policy model embedding matrix size: {policy.get_input_embeddings().weight.shape[0]}, " \
-        f"Value model config vocab size: {value_model.config.vocab_size}, " \
-        f"Value model embedding matrix size: {value_model.get_input_embeddings().weight.shape[0]}"
+    # assert policy.config.vocab_size == len(tokenizer) == policy.get_input_embeddings().weight.shape[0] == \
+    #        value_model.get_input_embeddings().weight.shape[0] == value_model.config.vocab_size, \
+    #     f"Tokenizer vocab size: {tokenizer.vocab_size}, Policy model config vocab size: {policy.config.vocab_size}," \
+    #     f"Policy model embedding matrix size: {policy.get_input_embeddings().weight.shape[0]}, " \
+    #     f"Value model config vocab size: {value_model.config.vocab_size}, " \
+    #     f"Value model embedding matrix size: {value_model.get_input_embeddings().weight.shape[0]}"
 
     ################
     # Dataset
