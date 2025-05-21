@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Optional
-from accelerate import Accelerator
+from accelerate import Accelerator, DeepSpeedPlugin
 import torch
 from tqdm import tqdm
 from accelerate.utils import set_seed
@@ -42,7 +42,10 @@ class ScriptArguments:
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, PPOConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
-    accelerator = Accelerator()
+    deepspeed_plugin = DeepSpeedPlugin(
+        zero_stage=3,
+    )
+    accelerator = Accelerator(deepspeed_plugin=deepspeed_plugin)
     ################
     # Model & Tokenizer
     ################
