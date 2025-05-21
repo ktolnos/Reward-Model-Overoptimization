@@ -28,6 +28,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --missing_eos_penalty 1.0 \
     --whiten_rewards True \
     --save_steps 0.025 \
+    --response_length 512 \
     --run_name ${wandb_name} \
     --exp_name ${wandb_name} \
     
