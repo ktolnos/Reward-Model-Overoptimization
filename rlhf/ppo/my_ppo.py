@@ -32,6 +32,7 @@ from trl import (
     get_peft_config,
 )
 
+accelerator = Accelerator()
 
 @dataclass
 class ScriptArguments:
@@ -42,8 +43,6 @@ class ScriptArguments:
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, PPOConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
-
-    accelerator = Accelerator()
 
     ################
     # Model & Tokenizer
