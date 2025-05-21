@@ -10,7 +10,7 @@ wandb_name="ppo_rmQwen06B_Full_lr5e-7_kl0.1_helpsteer2_gold"
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
-    --mixed_precision bf16 \
+    --config_file scripts/accelerate_configs/deepspeed_zero3.yaml \
     rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
@@ -19,7 +19,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --learning_rate 5e-7 \
     --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 4 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
@@ -31,4 +31,5 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --response_length 512 \
     --run_name ${wandb_name} \
     --exp_name ${wandb_name} \
+    --num_sample_generations 40 \
     
