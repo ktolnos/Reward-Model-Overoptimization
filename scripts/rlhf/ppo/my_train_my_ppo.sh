@@ -1,11 +1,11 @@
 log_dir='rlhf/logs_ppo'
-base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
+base_model_name="Qwen/Qwen3-0.6B" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold"
 
 cd ../../../
 gpu=0 #,1,2,3
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
-wandb_name="ppo_rmQwen06B_lr5e-7_kl0.1_helpsteer2_gold"
+wandb_name="ppo_rmQwen06B_Full_lr5e-7_kl0.1_helpsteer2_gold"
 
 
 
@@ -26,8 +26,6 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --local_rollout_forward_batch_size 2 \
     --missing_eos_penalty 1.0 \
-    --adap_kl_ctrl True \
-    --target 5 \
     --whiten_rewards True \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
