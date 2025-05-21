@@ -32,5 +32,5 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --response_length 512 \
     --run_name ${wandb_name} \
     --exp_name ${wandb_name} \
-    --num_sample_generations 40 \
+    --num_sample_generations 10 \
     
