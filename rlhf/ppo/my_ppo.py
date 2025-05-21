@@ -42,8 +42,8 @@ class ScriptArguments:
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, PPOConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
-    # remove output_dir if exists
-    shutil.rmtree(training_args.output_dir, ignore_errors=True)
+
+    accelerator = Accelerator()
 
     ################
     # Model & Tokenizer
