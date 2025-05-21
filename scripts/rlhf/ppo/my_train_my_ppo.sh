@@ -5,6 +5,7 @@ dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 cd ../../../
 gpu=0 #,1,2,3
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
+# reward_base_model="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 wandb_name="ppo_rmQwen06B_Full_lr5e-7_kl0.1_helpsteer2_gold"
 
 
@@ -20,7 +21,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 16 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
