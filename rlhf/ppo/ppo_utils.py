@@ -213,7 +213,8 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         kwargs = {"return_tensors": "pt"}
         # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
         messages = example['chosen'][:-1]
-        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True,
+                                                             enable_thinking=False)
         tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
 
         return {
