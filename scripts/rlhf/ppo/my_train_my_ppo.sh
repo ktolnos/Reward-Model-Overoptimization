@@ -20,8 +20,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --learning_rate 5e-7 \
     --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
-    --per_device_train_batch_size 4 \
-    --gradient_accumulation_steps 16 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 32 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
