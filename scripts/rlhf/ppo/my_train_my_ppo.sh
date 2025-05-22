@@ -11,7 +11,7 @@ wandb_name="ppo_rmQwen06B_Full_lr5e-7_kl0.1_helpsteer2_gold"
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
-    --config_file scripts/accelerate_configs/deepspeed_zero3.yaml \
+    --mixed_precision bf16 \
     rlhf/ppo/my_ppo.py \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
