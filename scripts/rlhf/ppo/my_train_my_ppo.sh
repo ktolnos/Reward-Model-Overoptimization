@@ -1,5 +1,5 @@
 log_dir='rlhf/logs_ppo'
-base_model_name="Qwen/Qwen3-0.6B" # policy base model
+base_model_name="unsloth/Qwen3-0.6B" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold"
 
 cd ../../../

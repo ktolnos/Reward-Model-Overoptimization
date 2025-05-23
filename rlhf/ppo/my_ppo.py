@@ -21,6 +21,7 @@ from transformers import (
     AutoTokenizer,
     HfArgumentParser,
 )
+from unsloth import FastLanguageModel
 
 from trl import (
     ModelConfig,
@@ -68,21 +69,41 @@ if __name__ == "__main__":
     reward_model = AutoModelForSequenceClassification.from_pretrained(
         training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
     )
-    policy = AutoModelForCausalLM.from_pretrained(
-        training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
+    # policy = AutoModelForCausalLM.from_pretrained(
+    #     training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
+    # )
+    policy, policy_tokenizer = FastLanguageModel.from_pretrained(
+        model_name=training_args.sft_model_path,
+        max_seq_length=2048,  # Context length - can be longer, but uses more memory
+        load_in_4bit=True,  # 4bit uses much less memory
+        load_in_8bit=False,  # A bit more accurate, uses 2x memory
+        full_finetuning=False,  # We have full finetuning now!
+        # token = "hf_...",      # use one if using gated models
     )
-    print(policy.named_modules)
+    policy = FastLanguageModel.get_peft_model(policy,
+        r = 32,           # Choose any number > 0! Suggested 8, 16, 32, 64, 128
+        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
+                          "gate_proj", "up_proj", "down_proj",],
+        lora_alpha = 32,  # Best to choose alpha = rank or rank*2
+        lora_dropout = 0, # Supports any, but = 0 is optimized
+        bias = "none",    # Supports any, but = "none" is optimized
+        # [NEW] "unsloth" uses 30% less VRAM, fits 2x larger batch sizes!
+        use_gradient_checkpointing = "unsloth", # True or "unsloth" for very long context
+        random_state = 3407,
+        use_rslora = False,   # We support rank stabilized LoRA
+        loftq_config = None,  # And LoftQ
+    )
 
     policy.resize_token_embeddings(len(tokenizer))
     policy.config.pad_token_id = tokenizer.pad_token_id
 
     peft_config = get_peft_config(model_args)
-    if peft_config is None:
-        ref_policy = AutoModelForCausalLM.from_pretrained(
-            training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
-        )
-    else:
-        ref_policy = None
+    # if peft_config is None:
+    #     ref_policy = AutoModelForCausalLM.from_pretrained(
+    #         training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
+    #     )
+    # else:
+    ref_policy = None
 
     # assert policy.config.vocab_size == len(tokenizer) == policy.get_input_embeddings().weight.shape[0] == \
     #        value_model.get_input_embeddings().weight.shape[0] == value_model.config.vocab_size, \
@@ -111,7 +132,7 @@ if __name__ == "__main__":
         value_model=value_model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        peft_config=peft_config,
+        # peft_config=peft_config,
     )
     trainer.train()
 
