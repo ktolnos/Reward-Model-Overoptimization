@@ -71,6 +71,7 @@ if __name__ == "__main__":
     policy = AutoModelForCausalLM.from_pretrained(
         training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
     )
+    print(policy.named_modules)
 
     policy.resize_token_embeddings(len(tokenizer))
     policy.config.pad_token_id = tokenizer.pad_token_id
