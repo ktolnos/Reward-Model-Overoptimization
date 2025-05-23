@@ -72,7 +72,7 @@ if __name__ == "__main__":
         training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
     )
 
-    policy.resize_token_embeddings(len(tokenizer))
+    policy.pretrained_model.resize_token_embeddings(len(tokenizer))
     policy.config.pad_token_id = tokenizer.pad_token_id
 
     peft_config = get_peft_config(model_args)
