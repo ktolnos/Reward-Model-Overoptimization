@@ -7,7 +7,7 @@ gpu=0 #,1,2,3
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
 # reward_base_model="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 wandb_name="ppo_rmQwen06B_Full_lr5e-7_kl0.1_helpsteer2_gold"
-
+checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-30"
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 2 \
+    --local_rollout_forward_batch_size 4 \
     --missing_eos_penalty 1.0 \
     --whiten_rewards True \
     --save_steps 0.025 \
@@ -33,4 +33,6 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --run_name ${wandb_name} \
     --exp_name ${wandb_name} \
     --num_sample_generations 40 \
+    --resume_from_checkpoint True \
+
     

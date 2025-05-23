@@ -5,7 +5,6 @@ base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold" # set the train dataset path, refer to the BoN experiments
 eval_dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold" # set the eval dataset
 
-
 cd ../../../
 
 # 4 gpus for 2b rm
@@ -25,6 +24,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --main_process_port 9989 --num_pro
     --wandb_name ${wandb_name} \
     --normalize_rewards True \
     --learning_rate 1e-5 \
+    --resume_from_checkpoint
     #    --reward_peft_path "${reward_peft_path}" \
 
 
