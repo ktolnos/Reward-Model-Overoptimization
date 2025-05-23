@@ -62,13 +62,13 @@ if __name__ == "__main__":
     if tokenizer.chat_template is None:
         tokenizer.chat_template = SIMPLE_CHAT_TEMPLATE
 
-    value_model = AutoModelForSequenceClassification.from_pretrained(
-        training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
-    )
+    # value_model = AutoModelForSequenceClassification.from_pretrained(
+    #     training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
+    # )
     reward_model = AutoModelForSequenceClassification.from_pretrained(
         training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
     )
-    policy = AutoModelForCausalLM.from_pretrained(
+    policy = AutoModelForCausalLMWithValueHead.from_pretrained(
         training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
     )
 
@@ -107,7 +107,7 @@ if __name__ == "__main__":
         model=policy,
         ref_model=ref_policy,
         reward_model=reward_model,
-        value_model=value_model,
+        # value_model=value_model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         peft_config=peft_config,
