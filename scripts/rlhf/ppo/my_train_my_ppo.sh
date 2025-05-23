@@ -36,7 +36,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_peft True \
     --lora_r 32 \
     --lora_alpha 64 \
-    --lora_target_modules="['q_proj', 'k_proj', 'v_proj', 'o_proj']" \
+    --lora_target_modules='q_proj','k_proj','v_proj','o_proj' \
 #    --resume_from_checkpoint True \
 
     
