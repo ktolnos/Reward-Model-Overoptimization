@@ -31,6 +31,7 @@ from trl import (
     get_kbit_device_map,
     get_peft_config,
 )
+from peft import get_peft_model
 
 
 @dataclass
@@ -76,6 +77,10 @@ if __name__ == "__main__":
     policy.config.pad_token_id = tokenizer.pad_token_id
 
     peft_config = get_peft_config(model_args)
+
+    print(policy)
+    print(get_peft_model(policy, peft_config))
+
     if peft_config is None:
         ref_policy = AutoModelForCausalLM.from_pretrained(
             training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
