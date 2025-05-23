@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 4 \
+    --local_rollout_forward_batch_size 8 \
     --missing_eos_penalty 1.0 \
     --whiten_rewards True \
     --save_steps 0.025 \
