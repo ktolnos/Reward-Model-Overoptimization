@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
     --num_mini_batches 1 \
-    --learning_rate 1e-5 \
+    --learning_rate 5e-5 \
     --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 2 \
@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 8 \
+    --local_rollout_forward_batch_size 16 \
     --missing_eos_penalty 1.0 \
     --whiten_rewards True \
     --save_steps 0.025 \
