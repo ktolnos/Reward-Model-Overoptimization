@@ -13,19 +13,20 @@ checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/ppo/my_ppo.py \
+    --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
     --num_mini_batches 1 \
-    --learning_rate 5e-5 \
+    --learning_rate 3e-4 \
     --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
-    --per_device_train_batch_size 2 \
+    --per_device_train_batch_size 4 \
     --gradient_accumulation_steps 8 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
-    --local_rollout_forward_batch_size 16 \
+    --local_rollout_forward_batch_size 32 \
     --missing_eos_penalty 1.0 \
     --whiten_rewards True \
     --save_steps 0.025 \

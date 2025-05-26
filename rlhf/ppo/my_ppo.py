@@ -31,6 +31,7 @@ from trl import (
     get_kbit_device_map,
     get_peft_config,
 )
+from peft import get_peft_model
 
 
 @dataclass
@@ -62,9 +63,11 @@ if __name__ == "__main__":
     if tokenizer.chat_template is None:
         tokenizer.chat_template = SIMPLE_CHAT_TEMPLATE
 
+    peft_config = get_peft_config(model_args)
     value_model = AutoModelForSequenceClassification.from_pretrained(
         training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
     )
+    value_model = get_peft_model(value_model, peft_config)
     reward_model = AutoModelForSequenceClassification.from_pretrained(
         training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
     )
@@ -75,7 +78,6 @@ if __name__ == "__main__":
     policy.resize_token_embeddings(len(tokenizer))
     policy.config.pad_token_id = tokenizer.pad_token_id
 
-    peft_config = get_peft_config(model_args)
     if peft_config is None:
         ref_policy = AutoModelForCausalLM.from_pretrained(
             training_args.sft_model_path, trust_remote_code=model_args.trust_remote_code
@@ -112,6 +114,7 @@ if __name__ == "__main__":
         eval_dataset=eval_dataset,
         peft_config=peft_config,
     )
+
     trainer.train()
 
     # Save and push to hub
