@@ -77,6 +77,8 @@ if __name__ == "__main__":
 
     policy.resize_token_embeddings(len(tokenizer))
     policy.config.pad_token_id = tokenizer.pad_token_id
+    value_model.resize_token_embeddings(len(tokenizer))
+    value_model.config.pad_token_id = tokenizer.pad_token_id
 
     if peft_config is None:
         ref_policy = AutoModelForCausalLM.from_pretrained(
