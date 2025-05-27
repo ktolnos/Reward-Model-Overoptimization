@@ -70,6 +70,9 @@ def load_reward_model(model_path_or_name, device):
         torch_dtype=torch.float16,
         device_map=device
     )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
     model.eval()  # Ensure model is in evaluation mode
     return model, tokenizer
 
@@ -118,7 +121,7 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
-    
+
     # Load the base model
     print(f"Loading {'LoRA' if is_lora else 'full'} model from {checkpoint_path}")
     if is_lora:
