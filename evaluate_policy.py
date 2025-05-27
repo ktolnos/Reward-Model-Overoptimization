@@ -105,56 +105,6 @@ def is_peft_model(model_path):
     """Check if the model at the given path is a PEFT model."""
     return os.path.exists(os.path.join(model_path, "adapter_config.json"))
 
-def load_policy_model(checkpoint_path, device, base_model_name=None):
-    """Load a policy model checkpoint, handling both regular and LoRA models."""
-    is_lora = is_peft_model(checkpoint_path)
-    
-    if is_lora and base_model_name is None:
-        raise ValueError(
-            "Base model name must be provided for LoRA checkpoints. "
-            "Please specify --base_model_name"
-        )
-    
-    # Load the appropriate tokenizer
-    tokenizer_path = base_model_name if is_lora else checkpoint_path
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, padding_side="left")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    # Load the base model
-    print(f"Loading {'LoRA' if is_lora else 'full'} model from {checkpoint_path}")
-    if is_lora:
-        # Load the base model first
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-            torch_dtype=torch.float16,
-            device_map=device
-        )
-        base_model.resize_token_embeddings(len(tokenizer))
-        base_model.config.pad_token_id = tokenizer.pad_token_id
-        
-        # Load and apply the LoRA adapter
-        model = PeftModel.from_pretrained(
-            base_model,
-            checkpoint_path,
-            torch_dtype=torch.float16,
-            device_map=device
-        )
-    else:
-        # Load the full model directly
-        model = AutoModelForCausalLM.from_pretrained(
-            checkpoint_path,
-            torch_dtype=torch.float16,
-            device_map=device
-        )
-        model.resize_token_embeddings(len(tokenizer))
-        model.config.pad_token_id = tokenizer.pad_token_id
-    
-    model.eval()  # Ensure model is in evaluation mode
-    model.config.pad_token_id = tokenizer.pad_token_id
-    return model, tokenizer
-
 def collate_batch(input_ids_list, attention_mask_list, tokenizer, max_length=None):
     """Collate and pad a batch of input sequences."""
     if max_length is None:
@@ -255,6 +205,23 @@ def main():
             "Please provide --base_model_name"
         )
     
+    # Load tokenizer once since it's the same for all checkpoints
+    print("Loading tokenizer...")
+    tokenizer_path = args.base_model_name if args.base_model_name else first_checkpoint_path
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, padding_side="left")
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+    
+    # Process dataset once with the tokenizer
+    print("Processing dataset...")
+    processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+    print(f"Using {len(processed_dataset)} processed prompts for evaluation")
+    
+    # Convert input_ids and attention_mask to lists for processing
+    input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
+    attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
+    
     if args.debug:
         print("Debug mode: using only first checkpoint")
         checkpoints = checkpoints[:1]
@@ -266,25 +233,41 @@ def main():
         print(f"\nEvaluating {checkpoint}")
         
         try:
-            # Load policy model
-            policy_model, policy_tokenizer = load_policy_model(
-                checkpoint_path,
-                args.device,
-                args.base_model_name
-            )
+            # Load model (without tokenizer since we already have it)
+            print(f"Loading {'LoRA' if args.base_model_name else 'full'} model from {checkpoint_path}")
+            if args.base_model_name:
+                # Load the base model first
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    args.base_model_name,
+                    torch_dtype=torch.float16,
+                    device_map=args.device
+                )
+                base_model.resize_token_embeddings(len(tokenizer))
+                base_model.config.pad_token_id = tokenizer.pad_token_id
+                
+                # Load and apply the LoRA adapter
+                model = PeftModel.from_pretrained(
+                    base_model,
+                    checkpoint_path,
+                    torch_dtype=torch.float16,
+                    device_map=args.device
+                )
+            else:
+                # Load the full model directly
+                model = AutoModelForCausalLM.from_pretrained(
+                    checkpoint_path,
+                    torch_dtype=torch.float16,
+                    device_map=args.device
+                )
+                model.resize_token_embeddings(len(tokenizer))
+                model.config.pad_token_id = tokenizer.pad_token_id
             
-            # Process dataset with the policy tokenizer
-            processed_dataset = post_process_common_dataset(dataset, policy_tokenizer, args)
-            print(f"Using {len(processed_dataset)} processed prompts for evaluation")
-            
-            # Convert input_ids and attention_mask to lists for processing
-            input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
-            attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
+            model.eval()
             
             # Generate responses using processed input_ids and attention_mask
             responses = generate_responses(
-                policy_model,
-                policy_tokenizer,
+                model,
+                tokenizer,
                 input_ids_list,
                 attention_mask_list,
                 max_length=args.max_length,
@@ -336,9 +319,11 @@ def main():
             
         finally:
             # Free up memory
-            if 'policy_model' in locals():
-                del policy_model
-                torch.cuda.empty_cache()
+            if 'model' in locals():
+                del model
+            if 'base_model' in locals():
+                del base_model
+            torch.cuda.empty_cache()
     
     # Save results to CSV
     if results:
