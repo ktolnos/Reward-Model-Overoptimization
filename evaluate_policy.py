@@ -37,7 +37,14 @@ class ScriptArguments:
         default=None,
         metadata={"help": "Base model name for LoRA models. Required if using LoRA checkpoints."}
     )
-    max_length: Optional[int] = field(default=1024)
+    max_length: Optional[int] = field(
+        default=1024,
+        metadata={"help": "Maximum sequence length for input processing"}
+    )
+    max_new_tokens: Optional[int] = field(
+        default=512,
+        metadata={"help": "Maximum number of new tokens to generate"}
+    )
     batch_size: Optional[int] = field(default=8)
     device: Optional[str] = field(default="cuda")
     output_file: Optional[str] = field(default="evaluation_results.csv")
@@ -105,10 +112,9 @@ def is_peft_model(model_path):
     """Check if the model at the given path is a PEFT model."""
     return os.path.exists(os.path.join(model_path, "adapter_config.json"))
 
-def collate_batch(input_ids_list, attention_mask_list, tokenizer, max_length=None):
-    """Collate and pad a batch of input sequences."""
-    if max_length is None:
-        max_length = max(len(ids) for ids in input_ids_list)
+def collate_batch(input_ids_list, attention_mask_list, tokenizer):
+    """Collate and pad a batch of input sequences to the longest sequence in the batch."""
+    max_length = max(len(ids) for ids in input_ids_list)
     
     padded_input_ids = []
     padded_attention_mask = []
@@ -123,7 +129,7 @@ def collate_batch(input_ids_list, attention_mask_list, tokenizer, max_length=Non
         torch.tensor(padded_attention_mask)
     )
 
-def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, max_length=1024, batch_size=8, num_responses=1):
+def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, max_new_tokens=512, batch_size=8, num_responses=1):
     """Generate responses for a batch of input_ids."""
     all_responses = []
     
@@ -131,7 +137,7 @@ def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, ma
         batch_input_ids = input_ids_list[i:i + batch_size]
         batch_attention_mask = attention_mask_list[i:i + batch_size]
         
-        # Collate and pad the batch
+        # Collate and pad the batch to the longest sequence in this batch
         batch_input_ids, batch_attention_mask = collate_batch(
             batch_input_ids,
             batch_attention_mask,
@@ -148,7 +154,7 @@ def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, ma
                 outputs = model.generate(
                     input_ids=batch_input_ids,
                     attention_mask=batch_attention_mask,
-                    max_new_tokens=max_length,
+                    max_new_tokens=max_new_tokens,
                     do_sample=True,
                     temperature=0.7,
                     top_p=0.9,
@@ -270,7 +276,7 @@ def main():
                 tokenizer,
                 input_ids_list,
                 attention_mask_list,
-                max_length=args.max_length,
+                max_new_tokens=args.max_new_tokens,
                 batch_size=args.batch_size,
                 num_responses=args.num_responses_per_prompt
             )

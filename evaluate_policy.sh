@@ -25,7 +25,7 @@ WANDB_PROJECT="policy-evaluation"
 WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 
 # Debug mode flag (uncomment to enable)
-DEBUG_MODE="--debug"
+#DEBUG_MODE="--debug"
 
 # Run the evaluation script
 python evaluate_policy.py \
@@ -34,7 +34,7 @@ python evaluate_policy.py \
     --gold_rm_name "$GOLD_RM_NAME" \
     --dataset_name "$DATASET_NAME" \
     --output_file "$OUTPUT_FILE" \
-    --batch_size 64 \
+    --batch_size 128 \
     --max_length 1024 \
     --device "cuda" \
     --num_responses_per_prompt 5 \
