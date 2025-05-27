@@ -123,6 +123,8 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
             torch_dtype=torch.float16,
             device_map=device
         )
+        base_model.resize_token_embeddings(len(tokenizer))
+        base_model.config.pad_token_id = tokenizer.pad_token_id
         
         # Load and apply the LoRA adapter
         model = PeftModel.from_pretrained(
@@ -138,6 +140,8 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
             torch_dtype=torch.float16,
             device_map=device
         )
+        model.resize_token_embeddings(len(tokenizer))
+        model.config.pad_token_id = tokenizer.pad_token_id
     
     model.eval()  # Ensure model is in evaluation mode
     model.config.pad_token_id = tokenizer.pad_token_id
