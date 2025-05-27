@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from peft import PeftModel, PeftConfig
 import wandb
+from rlhf.ppo.ppo_utils import post_process_common_dataset
 
 @dataclass
 class ScriptArguments:
@@ -108,9 +109,10 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
     
     # Load the appropriate tokenizer
     tokenizer_path = base_model_name if is_lora else checkpoint_path
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
     
     # Load the base model
     print(f"Loading {'LoRA' if is_lora else 'full'} model from {checkpoint_path}")
@@ -138,26 +140,22 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
         )
     
     model.eval()  # Ensure model is in evaluation mode
+    model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
-def generate_responses(model, tokenizer, prompts, max_length=1024, batch_size=8, num_responses=1):
-    """Generate responses for a batch of prompts."""
+def generate_responses(model, tokenizer, input_ids, attention_mask, max_length=1024, batch_size=8, num_responses=1):
+    """Generate responses for a batch of input_ids."""
     all_responses = []
-    for i in range(0, len(prompts), batch_size):
-        batch_prompts = prompts[i:i + batch_size]
-        inputs = tokenizer(
-            batch_prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length
-        ).to(model.device)
+    for i in range(0, len(input_ids), batch_size):
+        batch_input_ids = input_ids[i:i + batch_size].to(model.device)
+        batch_attention_mask = attention_mask[i:i + batch_size].to(model.device)
         
         with torch.no_grad():
             # Generate multiple responses per prompt
             for _ in range(num_responses):
                 outputs = model.generate(
-                    **inputs,
+                    input_ids=batch_input_ids,
+                    attention_mask=batch_attention_mask,
                     max_new_tokens=max_length,
                     do_sample=True,
                     temperature=0.7,
@@ -197,8 +195,6 @@ def main():
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
-    prompts = dataset["prompt"]
-    print(f"Using {len(prompts)} prompts for evaluation")
     
     # Get all checkpoint directories
     checkpoints = sorted([
@@ -235,11 +231,16 @@ def main():
                 args.base_model_name
             )
             
-            # Generate responses
+            # Process dataset with the policy tokenizer
+            processed_dataset = post_process_common_dataset(dataset, policy_tokenizer, args)
+            print(f"Using {len(processed_dataset)} processed prompts for evaluation")
+            
+            # Generate responses using processed input_ids and attention_mask
             responses = generate_responses(
                 policy_model,
                 policy_tokenizer,
-                prompts,
+                processed_dataset["input_ids"],
+                processed_dataset["attention_mask"],
                 max_length=args.max_length,
                 batch_size=args.batch_size,
                 num_responses=args.num_responses_per_prompt
