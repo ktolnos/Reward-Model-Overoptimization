@@ -156,8 +156,8 @@ def generate_responses(model, tokenizer, input_ids, attention_mask, max_length=1
     """Generate responses for a batch of input_ids."""
     all_responses = []
     for i in range(0, len(input_ids), batch_size):
-        batch_input_ids = input_ids[i:i + batch_size].to(model.device)
-        batch_attention_mask = attention_mask[i:i + batch_size].to(model.device)
+        batch_input_ids = torch.cat(input_ids[i:i + batch_size]).to(model.device)
+        batch_attention_mask = torch.cat(attention_mask[i:i + batch_size]).to(model.device)
         
         with torch.no_grad():
             # Generate multiple responses per prompt
