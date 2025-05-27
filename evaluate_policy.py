@@ -83,11 +83,16 @@ def get_reward_score(model, tokenizer, texts, device, batch_size=8):
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=1024
-        ).to(device)
+            max_length=1024,
+        )
         
         with torch.no_grad():
-            outputs = model(**inputs)
+            outputs = model(
+                input_ids=inputs["input_ids"].to(device),
+                attention_mask=inputs["attention_mask"].to(device),
+                return_dict=True,
+                output_hidden_states=True,
+            )
             scores = outputs.logits.squeeze(-1)
             all_scores.extend(scores.cpu().numpy())
     
@@ -226,7 +231,7 @@ def main():
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
         print(f"\nEvaluating {checkpoint}")
-        
+
         try:
             # Load policy model
             policy_model, policy_tokenizer = load_policy_model(
@@ -292,9 +297,9 @@ def main():
             
             results.append(checkpoint_results)
             
-        except Exception as e:
-            print(f"Error processing checkpoint {checkpoint}: {str(e)}")
-            continue
+        # except Exception as e:
+        #     print(f"Error processing checkpoint {checkpoint}: {str(e)}")
+        #     continue
         finally:
             # Free up memory
             if 'policy_model' in locals():
