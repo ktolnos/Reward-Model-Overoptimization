@@ -1,20 +1,21 @@
 #!/bin/bash
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="."  # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo"  # Current directory with all checkpoints
 
 # Path to the training reward model
-TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
+TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
 
 # Name of the gold reward model
 GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 
 # Dataset name
-DATASET_NAME="gagan3012/helpsteer2-gold"
+DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold"
+
 
 # Base model name (required for LoRA checkpoints)
 # Uncomment and set this if evaluating LoRA checkpoints
-# BASE_MODEL_NAME="mistralai/Mistral-7B-v0.1"
+BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
 
 # Output file
 OUTPUT_FILE="evaluation_results.csv"
@@ -40,7 +41,7 @@ python evaluate_policy.py \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
     ${DEBUG_MODE:-} \
-    $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME")
+    $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 
 # To disable wandb logging, add: --disable_wandb
 # To enable debug mode, uncomment the DEBUG_MODE line above
