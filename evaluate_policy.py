@@ -152,13 +152,42 @@ def load_policy_model(checkpoint_path, device, base_model_name=None):
     model.config.pad_token_id = tokenizer.pad_token_id
     return model, tokenizer
 
-def generate_responses(model, tokenizer, input_ids, attention_mask, max_length=1024, batch_size=8, num_responses=1):
+def collate_batch(input_ids_list, attention_mask_list, tokenizer, max_length=None):
+    """Collate and pad a batch of input sequences."""
+    if max_length is None:
+        max_length = max(len(ids) for ids in input_ids_list)
+    
+    padded_input_ids = []
+    padded_attention_mask = []
+    
+    for input_ids, attention_mask in zip(input_ids_list, attention_mask_list):
+        padding_length = max_length - len(input_ids)
+        padded_input_ids.append(input_ids + [tokenizer.pad_token_id] * padding_length)
+        padded_attention_mask.append(attention_mask + [0] * padding_length)
+    
+    return (
+        torch.tensor(padded_input_ids),
+        torch.tensor(padded_attention_mask)
+    )
+
+def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, max_length=1024, batch_size=8, num_responses=1):
     """Generate responses for a batch of input_ids."""
     all_responses = []
-    for i in range(0, len(input_ids), batch_size):
-        batch_input_ids = torch.stack(input_ids[i:i + batch_size], dim=0).to(model.device)
-        batch_attention_mask = torch.stack(attention_mask[i:i + batch_size], dim=0).to(model.device)
-        print(batch_input_ids.shape)
+    
+    for i in range(0, len(input_ids_list), batch_size):
+        batch_input_ids = input_ids_list[i:i + batch_size]
+        batch_attention_mask = attention_mask_list[i:i + batch_size]
+        
+        # Collate and pad the batch
+        batch_input_ids, batch_attention_mask = collate_batch(
+            batch_input_ids,
+            batch_attention_mask,
+            tokenizer
+        )
+        
+        # Move to device
+        batch_input_ids = batch_input_ids.to(model.device)
+        batch_attention_mask = batch_attention_mask.to(model.device)
         
         with torch.no_grad():
             # Generate multiple responses per prompt
@@ -232,7 +261,7 @@ def main():
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
         print(f"\nEvaluating {checkpoint}")
-
+        
         try:
             # Load policy model
             policy_model, policy_tokenizer = load_policy_model(
@@ -245,12 +274,16 @@ def main():
             processed_dataset = post_process_common_dataset(dataset, policy_tokenizer, args)
             print(f"Using {len(processed_dataset)} processed prompts for evaluation")
             
+            # Convert input_ids and attention_mask to lists for processing
+            input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
+            attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
+            
             # Generate responses using processed input_ids and attention_mask
             responses = generate_responses(
                 policy_model,
                 policy_tokenizer,
-                processed_dataset["input_ids"],
-                processed_dataset["attention_mask"],
+                input_ids_list,
+                attention_mask_list,
                 max_length=args.max_length,
                 batch_size=args.batch_size,
                 num_responses=args.num_responses_per_prompt
@@ -298,9 +331,6 @@ def main():
             
             results.append(checkpoint_results)
             
-        # except Exception as e:
-        #     print(f"Error processing checkpoint {checkpoint}: {str(e)}")
-        #     continue
         finally:
             # Free up memory
             if 'policy_model' in locals():
