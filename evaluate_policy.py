@@ -280,6 +280,8 @@ def main():
                 batch_size=args.batch_size,
                 num_responses=args.num_responses_per_prompt
             )
+
+            print(responses[:5])  # Print first 5 responses for debugging
             
             # Get reward scores
             training_rm_scores = get_reward_score(

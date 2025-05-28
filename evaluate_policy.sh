@@ -1,5 +1,13 @@
 #!/bin/bash
 
+#SBATCH --job-name=evaluate_policy
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16gb
+#SBATCH --gres=gpu:A100-PCI-80GB:1
+#SBATCH --time=12:00:00
+
+cd /nas/ucb/eop/Reward-Model-Overoptimization
+
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo"  # Current directory with all checkpoints
 
