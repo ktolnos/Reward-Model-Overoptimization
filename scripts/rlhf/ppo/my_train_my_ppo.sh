@@ -39,7 +39,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --local_rollout_forward_batch_size 16 \
     --missing_eos_penalty 1.0 \
-    --whiten_rewards True \
+    --whiten_rewards False \
     --save_steps 0.025 \
     --response_length 512 \
     --run_name ${wandb_name} \
