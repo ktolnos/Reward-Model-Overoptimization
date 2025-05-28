@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lora_r 32 \
     --lora_alpha 64 \
     --lora_target_modules 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
-    --kl_coeff 0.0 \
+    --kl_coef 0.0 \
 #    --resume_from_checkpoint True \
 
     
