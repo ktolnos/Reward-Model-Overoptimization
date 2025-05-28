@@ -26,7 +26,7 @@ DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
 
 # Output file
-OUTPUT_FILE="evaluation_results.csv"
+OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json"
 
 # WandB settings
 WANDB_PROJECT="policy-evaluation"

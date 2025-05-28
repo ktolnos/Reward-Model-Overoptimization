@@ -43,10 +43,6 @@ class ScriptArguments:
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, PPOConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
-    # deepspeed_plugin = DeepSpeedPlugin(
-    #     zero_stage=3,
-    # )
-    # accelerator = Accelerator(deepspeed_plugin=deepspeed_plugin)
     ################
     # Model & Tokenizer
     ################
