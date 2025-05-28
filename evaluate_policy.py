@@ -189,7 +189,7 @@ def main():
     
     # Load evaluation dataset
     print("Loading evaluation dataset...")
-    dataset = load_dataset(args.dataset_name, split="train")
+    dataset = load_dataset(args.dataset_name, split="test")
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))

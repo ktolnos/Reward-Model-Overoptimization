@@ -1,4 +1,4 @@
-log_dir='rlhf/logs_ppo'
+log_dir="rlhf/logs_ppo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold"
 
