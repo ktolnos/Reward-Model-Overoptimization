@@ -30,7 +30,6 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --max_completion_length 512 \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.6 \
-    --vllm_max_model_len 1536 \
     --vllm_mode "colocate" \
     --beta 0.01 \
     --log_completions True \
@@ -50,13 +49,10 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
-    --exp_name ${wandb_name} \
-    --num_sample_generations 40 \
     --use_peft True \
     --lora_r 32 \
     --lora_alpha 64 \
     --lora_target_modules 'all-linear' \
-    --stop_token "eos" \
 
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
