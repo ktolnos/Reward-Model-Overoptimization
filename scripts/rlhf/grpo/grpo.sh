@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --temperature 0.9 \
     --max_completion_length 512 \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.6 \
+    --vllm_gpu_memory_utilization 0.3 \
     --vllm_mode "colocate" \
     --beta 0.01 \
     --log_completions True \
@@ -52,8 +52,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --learning_rate 1e-5 \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
-    --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 4 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 8 \
     --model_name_or_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
     --save_steps 0.025 \
