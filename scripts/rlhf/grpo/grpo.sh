@@ -22,6 +22,7 @@ wandb_name="grpo_rmQwen06B_Full_lr5e-7_kl0.0_helpsteer2_gold"
 echo $SLURM_JOB_ID
 
 export RANK=0
+export LOCAL_RANK=0
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
