@@ -23,7 +23,7 @@ echo $SLURM_JOB_ID
 
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
-    --mixed_precision bf1 6 \
+    --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
     --num_generations 8 \
     --temperature 0.9 \
