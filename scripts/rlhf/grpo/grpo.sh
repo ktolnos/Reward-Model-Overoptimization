@@ -21,6 +21,8 @@ wandb_name="grpo_rmQwen06B_Full_lr5e-7_kl0.0_helpsteer2_gold"
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
+export RANK=0
+
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
