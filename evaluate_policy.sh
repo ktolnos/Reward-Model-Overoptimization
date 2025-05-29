@@ -9,7 +9,7 @@
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo"  # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/20250528_183842"  # Current directory with all checkpoints
 
 # Path to the training reward model
 TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
