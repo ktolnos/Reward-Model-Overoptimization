@@ -121,8 +121,8 @@ def collate_batch(input_ids_list, attention_mask_list, tokenizer):
     
     for input_ids, attention_mask in zip(input_ids_list, attention_mask_list):
         padding_length = max_length - len(input_ids)
-        padded_input_ids.append(input_ids + [tokenizer.pad_token_id] * padding_length)
-        padded_attention_mask.append(attention_mask + [0] * padding_length)
+        padded_input_ids.append([tokenizer.pad_token_id] * padding_length + input_ids)
+        padded_attention_mask.append([0] * padding_length + attention_mask)
     
     return (
         torch.tensor(padded_input_ids),

@@ -30,8 +30,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_ppo_epochs 2 \
     --num_train_epochs 4 \
     --num_mini_batches 1 \
-    --learning_rate 5e-5 \
-    --warmup_ratio=0.03 \
+    --learning_rate 1e-5 \
+    --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 4 \
     --gradient_accumulation_steps 4 \
