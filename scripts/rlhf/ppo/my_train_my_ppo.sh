@@ -28,12 +28,13 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
     --num_ppo_epochs 2 \
+    --num_train_epochs 4 \
     --num_mini_batches 1 \
-    --learning_rate 1e-5 \
-    --warmup_ratio=0.1 \
+    --learning_rate 5e-5 \
+    --warmup_ratio=0.03 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 4 \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --model_name_or_path ${base_model_name} \
     --sft_model_path ${base_model_name} \
     --reward_model_path ${reward_base_model} \
@@ -48,10 +49,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_peft True \
     --lora_r 32 \
     --lora_alpha 64 \
-    --lora_target_modules 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
+    --lora_target_modules 'all-linear' \
     --kl_coef 0.0 \
     --stop_token "eos" \
 
 #    --resume_from_checkpoint True \
-
-    
+# 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
