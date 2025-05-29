@@ -45,7 +45,7 @@ if __name__ == "__main__":
     ################
     peft_config = get_peft_config(model_args)
     reward_model = AutoModelForSequenceClassification.from_pretrained(
-        training_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
+        script_args.reward_model_path, trust_remote_code=model_args.trust_remote_code, num_labels=1
     )
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
