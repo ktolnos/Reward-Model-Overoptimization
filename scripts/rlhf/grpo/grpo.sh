@@ -62,6 +62,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lora_r 32 \
     --lora_alpha 64 \
     --lora_target_modules 'all-linear' \
+    --max_prompt_length 3000 \
 
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
