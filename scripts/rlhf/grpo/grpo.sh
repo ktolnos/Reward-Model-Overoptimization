@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --temperature 0.9 \
     --max_completion_length 512 \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.3 \
+    --vllm_gpu_memory_utilization 0.6 \
     --vllm_mode "colocate" \
     --beta 0.01 \
     --log_completions True \
@@ -63,6 +63,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lora_alpha 64 \
     --lora_target_modules 'all-linear' \
     --max_prompt_length 3000 \
+    --logging_steps 0.005 \
 
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
