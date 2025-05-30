@@ -57,12 +57,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --run_name ${wandb_name} \
     --max_prompt_length 3000 \
     --logging_steps 0.005 \
-    --learning_rate 1e-6 \
-    --per_device_train_batch_size 1 \
-    --gradient_accumulation_steps 16 \
-#    --use_peft True \
-#    --lora_r 32 \
-#    --lora_alpha 64 \
-#    --lora_target_modules 'all-linear' \
-#    --resume_from_checkpoint True \
+    --learning_rate 5e-5 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 8 \
+    --use_peft True \
+    --lora_r 32 \
+    --lora_alpha 64 \
+    --lora_target_modules 'all-linear' \
+    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
