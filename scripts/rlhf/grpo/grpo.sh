@@ -40,7 +40,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.6 \
     --vllm_mode "colocate" \
-    --beta 0.01 \
+    --beta 0.0 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --mask_truncated_completions True \
@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --learning_rate 1e-5 \
+    --learning_rate 5e-5 \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 2 \
