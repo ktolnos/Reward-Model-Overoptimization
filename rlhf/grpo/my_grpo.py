@@ -51,12 +51,16 @@ if __name__ == "__main__":
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
     )
 
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
+    )
+
     ################
     # Dataset
     ################
 
     train_dataset, eval_dataset = build_train_eval_datasets(
-        script_args.dataset_path, script_args, eval_proportion=0.1, size=100 if script_args.dbg else None)
+        script_args.dataset_path, tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None)
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
     ################
