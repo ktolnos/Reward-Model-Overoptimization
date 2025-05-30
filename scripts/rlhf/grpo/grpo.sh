@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --learning_rate 5e-5 \
+    --learning_rate 1e-6 \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --per_device_train_batch_size 2 \
@@ -58,12 +58,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
-    --use_peft True \
-    --lora_r 32 \
-    --lora_alpha 64 \
-    --lora_target_modules 'all-linear' \
     --max_prompt_length 3000 \
     --logging_steps 0.005 \
 
+#    --use_peft True \
+#    --lora_r 32 \
+#    --lora_alpha 64 \
+#    --lora_target_modules 'all-linear' \
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
