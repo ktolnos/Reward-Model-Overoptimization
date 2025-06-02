@@ -54,7 +54,7 @@ class ScriptArguments:
     log_dir: Optional[str] = field(default='./reward_models_train')
     wandb_name: Optional[str] = field(default="test",)
     save_strategy: Optional[str] = field(default="epoch")
-    save_steps: Optional[int] = field(default=1000)
+    save_steps: Optional[int] = field(default=0.1)
     debug: Optional[bool] = field(default=False, metadata={'help': 'if debug=True, only train with 100 samples'})
     
 
