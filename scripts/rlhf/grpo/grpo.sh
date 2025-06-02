@@ -17,7 +17,11 @@ cd ../../../
 gpu=0 #,1,2,3
 reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
 # reward_base_model="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
-wandb_name="grpo_rmQwen06B_Full_lr5e-7_kl0.0_helpsteer2_gold"
+learning_rate="5e-7"
+per_device_train_batch_size=1
+gradient_accumulation_steps=16
+# shellcheck disable=SC2004
+wandb_name="$(date +%Y%m%d_%H%M%S)_lr${learning_rate}_batch$(($per_device_train_batch_size * $gradient_accumulation_steps))_rmQwen06B_Full_helpsteer2_gold"
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
@@ -35,6 +39,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
     --num_generations 8 \
+    --num_train_epochs 2 \
     --temperature 0.9 \
     --max_completion_length 512 \
     --epsilon_high 0.28 \
@@ -59,9 +64,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --run_name ${wandb_name} \
     --max_prompt_length 3000 \
     --logging_steps 0.005 \
-    --learning_rate 1e-6 \
-    --per_device_train_batch_size 1 \
-    --gradient_accumulation_steps 8 \
+    --learning_rate ${learning_rate} \
+    --per_device_train_batch_size ${per_device_train_batch_size} \
+    --gradient_accumulation_steps ${gradient_accumulation_steps} \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \
