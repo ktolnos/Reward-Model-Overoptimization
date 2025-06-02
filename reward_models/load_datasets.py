@@ -15,8 +15,8 @@ def build_dataset(data_path, tokenizer, split='train', size=None, model_name='')
         kwargs = {"padding": True, "truncation": True, "max_length": tokenizer.max_length, "return_tensors": "pt"}
         chosen_messages = example['chosen']
         rejected_messages = example['rejected']
-        prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
-        prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+        prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
         tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
         tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
 

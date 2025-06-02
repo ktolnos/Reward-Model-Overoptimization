@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=train_ppo
+#SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1

@@ -1,19 +1,27 @@
+#!/bin/bash
+
+#SBATCH --job-name=train_rm
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16gb
+#SBATCH --gres=gpu:A100-PCI-80GB:1
+#SBATCH --time=24:00:00
+
 devices=0
 n_gpu=1
 # export NCCL_P2P_DISABLE=1
 # dataset_name='hendrydong/preference_700K'
 dataset_name='../experimental/data/helpsteer2_gold/'
-base_model='Qwen/Qwen3-0.6B-Base'
-wandb_name="BT_RM"
+base_model='Qwen/Qwen3-0.6B'
+wandb_name="BT_RM_Qwen3-0.6B"
 log_dir='../save_reward_models'
 main_process_port=9994
 
-learning_rate=5e-6
+learning_rate=1e-5
 max_length=3000
 num_train_epochs=5
-gradient_accumulation_steps=16
-per_device_train_batch_size=4
-per_device_eval_batch_size=4
+gradient_accumulation_steps=4
+per_device_train_batch_size=16
+per_device_eval_batch_size=16
 
 cd ../reward_models
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} run_reward_models_train.py \
