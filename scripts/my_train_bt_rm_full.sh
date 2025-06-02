@@ -12,7 +12,7 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 dataset_name='../experimental/data/helpsteer2_gold/'
 base_model='Qwen/Qwen3-0.6B'
-wandb_name="BT_RM_Qwen3-0.6B"
+wandb_name="BT_RM_Qwen3-0.6B_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
 
