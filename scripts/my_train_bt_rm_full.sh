@@ -16,7 +16,7 @@ wandb_name="BT_RM_Qwen3-0.6B"
 log_dir='../save_reward_models'
 main_process_port=9994
 
-learning_rate=1e-5
+learning_rate=3e-6
 max_length=3000
 num_train_epochs=5
 gradient_accumulation_steps=16

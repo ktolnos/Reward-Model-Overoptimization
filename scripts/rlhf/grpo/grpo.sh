@@ -15,7 +15,7 @@ dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 
 cd ../../../
 gpu=0 #,1,2,3
-reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
+reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-128/"
 # reward_base_model="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 learning_rate="5e-7"
 per_device_train_batch_size=1
