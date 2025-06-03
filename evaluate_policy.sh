@@ -12,7 +12,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250602_221746"  # Current directory with all checkpoints
 
 # Path to the training reward model
-TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B-Base_BT_RM_len3000_fulltrain_5e-06_data/logs/checkpoint-1280/"
+TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 
 # Name of the gold reward model
 GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
@@ -23,7 +23,7 @@ DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 
 # Base model name (required for LoRA checkpoints)
 # Uncomment and set this if evaluating LoRA checkpoints
-BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
+#BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
 
 # Output file
 OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json"
