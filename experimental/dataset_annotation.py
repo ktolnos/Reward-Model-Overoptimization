@@ -106,8 +106,8 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
             chosen_idx = j * 2  # Even indices are chosen responses
             rejected_idx = j * 2 + 1  # Odd indices are rejected responses
 
-            chosen_reward = float(all_rewards[chosen_idx, 0])
-            rejected_reward = float(all_rewards[rejected_idx, 0])
+            chosen_reward = float(all_rewards[chosen_idx])
+            rejected_reward = float(all_rewards[rejected_idx])
             does_gold_agree_with_original = chosen_reward > rejected_reward
             if does_gold_agree_with_original:
                 chosen = batch["chosen"][j]
