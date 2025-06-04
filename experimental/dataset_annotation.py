@@ -99,7 +99,7 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
+            all_rewards = outputs.score.squeeze(-1).cpu().numpy()
 
         # Process the results
         for j in range(batch_size_actual):
@@ -223,7 +223,7 @@ def annotate_dataset(model_name,
 
 @dataclass
 class ScriptArguments:
-    model_name: str = field(default="LxzGordon/URM-LLaMa-3.1-8B",
+    model_name: str = field(default="nicolinho/QRM-Gemma-2-27B",
                             metadata={"help": "Name of the reward model"})
     batch_size: int = field(default=1, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=1024, metadata={"help": "Maximum sequence length"})
