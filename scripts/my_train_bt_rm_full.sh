@@ -16,9 +16,9 @@ wandb_name="BT_RM_Qwen3-0.6B_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
 
-learning_rate=5e-6
+learning_rate=1e-5
 max_length=3000
-num_train_epochs=5
+num_train_epochs=1
 gradient_accumulation_steps=16
 per_device_train_batch_size=4
 per_device_eval_batch_size=4
