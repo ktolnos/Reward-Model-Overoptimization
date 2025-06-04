@@ -228,7 +228,7 @@ class ScriptArguments:
     batch_size: int = field(default=1, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=1024, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="data/helpsteer2_gold/", metadata={"help": "Path to save the dataset"})
-    debug: bool = field(default=True, metadata={"help": "If True, only use 100 samples for debugging"})
+    debug: bool = field(default=False, metadata={"help": "If True, only use 100 samples for debugging"})
 
 
 if __name__ == "__main__":
