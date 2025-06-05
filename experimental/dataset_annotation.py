@@ -94,7 +94,7 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         inputs = tokenizer(
             formatted_texts,
             padding='longest',
-            truncation=True,
+            truncation=False,
             max_length=max_length,
             return_tensors="pt",
             padding_side="left",
