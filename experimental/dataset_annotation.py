@@ -92,16 +92,13 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         # Tokenize all conversations in a single batch
         inputs = tokenizer(
             formatted_texts,
-            padding='longest',
-            truncation=True,
-            max_length=max_length,
             return_tensors="pt",
         ).to(device)
 
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            print(outputs, type(outputs))
+            print(outputs)
             all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
 
         # Process the results
