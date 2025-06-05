@@ -227,7 +227,7 @@ def annotate_dataset(model_name,
 
 @dataclass
 class ScriptArguments:
-    model_name: str = field(default="nicolinho/QRM-Gemma-2-27B",
+    model_name: str = field(default="Ray2333/GRM-Gemma2-2B-rewardmodel-ft",
                             metadata={"help": "Name of the reward model"})
     batch_size: int = field(default=1, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=1024, metadata={"help": "Maximum sequence length"})
