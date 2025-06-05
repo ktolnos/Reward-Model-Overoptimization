@@ -46,6 +46,7 @@ def load_reward_model(model_name="Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", devic
     print(f"Loading reward model {model_name} on {device}")
     model = AutoModelForSequenceClassification.from_pretrained(model_name, torch_dtype=torch.float16,
                                                                device_map=device)
+    print(model)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     model.eval()
@@ -99,7 +100,7 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            print(outputs.score)
+            print(outputs, type(outputs))
             all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
 
         # Process the results
