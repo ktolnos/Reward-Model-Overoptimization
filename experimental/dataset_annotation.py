@@ -45,7 +45,7 @@ def load_reward_model(model_name="Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", devic
 
     print(f"Loading reward model {model_name} on {device}")
     model = AutoModelForSequenceClassification.from_pretrained(model_name,
-                                                               torch_dtype=torch.bfloat16,
+                                                               torch_dtype=torch.float16,
                                                                attn_implementation="flash_attention_2",
                                                                device_map=device, trust_remote_code=True)
     print(model)
