@@ -44,9 +44,10 @@ def load_reward_model(model_name="Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", devic
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     print(f"Loading reward model {model_name} on {device}")
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, torch_dtype=torch.float16,
-                                                               device_map=device,
-                                                               trust_remote_code=True)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name,
+                                                               torch_dtype=torch.bfloat16,
+                                                               attn_implementation="flash_attention_2",
+                                                               device_map=device, trust_remote_code=True)
     print(model)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -92,13 +93,17 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         # Tokenize all conversations in a single batch
         inputs = tokenizer(
             formatted_texts,
+            padding='longest',
+            truncation=True,
+            max_length=max_length,
             return_tensors="pt",
+            padding_side="left",
         ).to(device)
 
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            print(outputs)
+            print(outputs, type(outputs))
             all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
 
         # Process the results
@@ -196,7 +201,7 @@ def annotate_dataset(model_name,
         str: Path to the saved dataset
     """
     # Load reward model
-    model, tokenizer = load_reward_model(model_name)
+    model, tokenizer = load_reward_model(model_name, device="cuda" if torch.cuda.is_available() else "cpu")
 
     # Evaluate dataset
     results = evaluate_with_reward_model(dataset, model, tokenizer, batch_size, max_length)
