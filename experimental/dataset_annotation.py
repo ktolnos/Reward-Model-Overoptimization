@@ -103,7 +103,6 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            print(outputs, type(outputs))
             all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
 
         # Process the results
