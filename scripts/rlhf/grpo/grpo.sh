@@ -7,7 +7,7 @@
 #SBATCH --time=24:00:00
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
-
+export HF_HOME="/nas/ucb/eop/cache"
 
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B" # policy base model
@@ -16,7 +16,7 @@ dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 cd ../../../
 gpu=0 #,1,2,3
 #reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
-reward_base_model="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
+reward_base_model="nicolinho/QRM-Gemma-2-27B"
 learning_rate="5e-7"
 per_device_train_batch_size=1
 gradient_accumulation_steps=16
