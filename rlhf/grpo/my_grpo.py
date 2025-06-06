@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union, List
 from accelerate import Accelerator, DeepSpeedPlugin
 import torch
 from tqdm import tqdm
@@ -8,6 +8,10 @@ from accelerate.utils import set_seed
 import numpy as np
 import pandas as pd
 import shutil
+
+from transformers.tokenization_utils_base import TextInput, PreTokenizedInput, EncodedInput, TruncationStrategy
+from transformers.utils import PaddingStrategy
+
 tqdm.pandas()
 from grpo_utils import (build_train_eval_datasets)
 
@@ -15,7 +19,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
     AutoTokenizer,
-    HfArgumentParser,
+    HfArgumentParser, PreTrainedTokenizerBase, TensorType, BatchEncoding,
 )
 
 from trl import (
@@ -56,6 +60,43 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
     )
+    reward_tokenizer = AutoTokenizer.from_pretrained(script_args.reward_model_path,
+                                                     trust_remote_code=model_args.trust_remote_code,
+                                                     padding_side="left")
+    if reward_tokenizer.pad_token is None:
+        reward_tokenizer.pad_token = reward_tokenizer.eos_token
+    reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
+
+    class TokenizerWrapper(PreTrainedTokenizerBase):
+        def __init__(self, tokenizer: PreTrainedTokenizerBase):
+            self.tokenizer = tokenizer
+            self.pad_token_id = tokenizer.pad_token_id
+            self.eos_token_id = tokenizer.eos_token_id
+            self.bos_token_id = tokenizer.bos_token_id
+
+        def __call__(self, *args, **kwargs):
+            print("call")
+            return self.tokenizer(*args, **kwargs)
+
+        def apply_chat_template(self, *args, **kwargs):
+            return self.tokenizer.apply_chat_template(*args, **kwargs)
+
+        def encode(self, *args, **kwargs) -> List[int]:
+            print("encode")
+            return tokenizer.encode(*args, **kwargs)
+
+        def encode_plus(self, *args, **kwargs) -> BatchEncoding:
+            print("encode_plus")
+            return tokenizer.encode_plus(*args, **kwargs)
+
+        def batch_encode_plus(self, *args, **kwargs) -> BatchEncoding:
+            print("batch_encode_plus")
+            return tokenizer.batch_encode_plus(*args, **kwargs)
+
+        def tokenize(self, *args, **kwargs) -> List[str]:
+            print("tokenize")
+            return tokenizer.tokenize(*args, **kwargs)
+
 
     ################
     # Dataset
