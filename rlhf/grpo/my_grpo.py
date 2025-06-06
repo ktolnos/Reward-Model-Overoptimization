@@ -127,7 +127,7 @@ if __name__ == "__main__":
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
     for prompt in train_dataset['prompt'][:5]:
-        print(f"Sample prompt: {prompt}")
+        print(f"Sample prompt: \n{prompt}")
 
     avg_len = np.mean([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
     max_len = max([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])

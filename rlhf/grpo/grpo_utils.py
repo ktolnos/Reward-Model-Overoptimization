@@ -33,7 +33,12 @@ def build_dataset_common(data_path, tokenizer, split='', size=None):
 def post_process_common_dataset(ds, tokenizer):
     def formatting_func(example):
         messages = example['chosen'][:-1]
-        chat = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, enable_thinking=False, max_length=512)
+        chat = tokenizer.apply_chat_template(messages, tokenize=True,
+                                             add_generation_prompt=True,
+                                             enable_thinking=False,
+                                             truncation=True,
+                                             max_length=512
+                                             )
         prompt = tokenizer.decode(chat, skip_special_tokens=False)
         return {
             "prompt": prompt,
