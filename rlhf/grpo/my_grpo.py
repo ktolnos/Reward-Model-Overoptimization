@@ -96,6 +96,7 @@ if __name__ == "__main__":
         def tokenize(self, *args, **kwargs) -> List[str]:
             print("tokenize")
             return tokenizer.tokenize(*args, **kwargs)
+    reward_tokenizer = TokenizerWrapper(reward_tokenizer)
 
 
     ################
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     ################
     trainer = GRPOTrainer(
         args=training_args,
-        # processing_class=tokenizer,
+        processing_class=reward_tokenizer,
         model=policy,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
