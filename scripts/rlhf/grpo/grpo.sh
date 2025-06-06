@@ -45,7 +45,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.2 \
+    --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
     --beta 0.0 \
     --log_completions True \
