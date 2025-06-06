@@ -123,7 +123,9 @@ if __name__ == "__main__":
     ################
 
     train_dataset, eval_dataset = build_train_eval_datasets(
-        script_args.dataset_path, tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None)
+        script_args.dataset_path, tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None,
+        max_length=training_args.max_prompt_length,
+    )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
     for prompt in train_dataset['prompt'][:5]:

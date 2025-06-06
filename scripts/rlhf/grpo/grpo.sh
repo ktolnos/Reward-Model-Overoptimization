@@ -41,11 +41,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_generations 8 \
     --num_train_epochs 2 \
     --temperature 0.9 \
+    --max_prompt_length 512 \
     --max_completion_length 256 \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.1 \
+    --vllm_gpu_memory_utilization 0.08 \
     --vllm_mode "colocate" \
     --beta 0.0 \
     --log_completions True \
@@ -62,7 +63,6 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
-    --max_prompt_length 600 \
     --logging_steps 0.005 \
     --learning_rate ${learning_rate} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
