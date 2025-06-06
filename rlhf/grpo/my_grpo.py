@@ -99,6 +99,11 @@ if __name__ == "__main__":
         def tokenize(self, *args, **kwargs) -> List[str]:
             print("tokenize")
             return tokenizer.tokenize(*args, **kwargs)
+
+        def decode(self, *args, **kwargs) -> str:
+            print("decode")
+            return tokenizer.decode(*args, **kwargs)
+
     reward_tokenizer = TokenizerWrapper(reward_tokenizer)
 
 
