@@ -120,7 +120,7 @@ if __name__ == "__main__":
     ################
     trainer = GRPOTrainer(
         args=training_args,
-        processing_class=reward_tokenizer,
+        reward_processing_classes=reward_tokenizer,
         model=policy,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
