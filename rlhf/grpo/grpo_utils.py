@@ -34,7 +34,7 @@ def post_process_common_dataset(ds, tokenizer):
     def formatting_func(example):
         messages = example['chosen'][:-1]
         chat = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, enable_thinking=False, max_length=512)
-        prompt = tokenizer.decode(chat['input_ids'], skip_special_tokens=False)
+        prompt = tokenizer.decode(chat, skip_special_tokens=False)
         return {
             "prompt": prompt,
         }
