@@ -65,6 +65,7 @@ if __name__ == "__main__":
                                                      padding_side="left")
     if reward_tokenizer.pad_token is None:
         reward_tokenizer.pad_token = reward_tokenizer.eos_token
+    reward_tokenizer.max_length = script_args.max_length
     reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
 
     class TokenizerWrapper(PreTrainedTokenizerBase):
@@ -124,6 +125,15 @@ if __name__ == "__main__":
     train_dataset, eval_dataset = build_train_eval_datasets(
         script_args.dataset_path, tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None)
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
+
+    for prompt in train_dataset['prompt'][:5]:
+        print(f"Sample prompt: {prompt}")
+
+    avg_len = np.mean([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
+    max_len = max([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
+    print(f"Average length of prompts: {avg_len}, Max length of prompts: {max_len}")
+
+
 
     ################
     # Training
