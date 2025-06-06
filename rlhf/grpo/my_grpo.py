@@ -79,6 +79,16 @@ if __name__ == "__main__":
 
         def __call__(self, *args, **kwargs):
             print("call")
+            text = kwargs['text']
+            pattern = "<end_of_turn>\n<start_of_turn>model\n"
+            if pattern not in text:
+                if isinstance(text, str):
+                    kwargs['text'] = text + pattern
+                elif isinstance(text, list):
+                    kwargs['text'] = [t + pattern for t in text]
+                else:
+                    raise ValueError(f"Unsupported type for text: {type(text)}")
+
             return self.tokenizer(*args, **kwargs)
 
         def apply_chat_template(self, *args, **kwargs):
