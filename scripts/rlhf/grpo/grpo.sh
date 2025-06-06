@@ -62,7 +62,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reward_model_path ${reward_base_model} \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
-    --max_prompt_length 3000 \
+    --max_prompt_length 600 \
     --logging_steps 0.005 \
     --learning_rate ${learning_rate} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
