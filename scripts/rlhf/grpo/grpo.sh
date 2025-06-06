@@ -45,7 +45,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.3 \
+    --vllm_gpu_memory_utilization 0.2 \
     --vllm_mode "colocate" \
     --beta 0.0 \
     --log_completions True \
@@ -68,6 +68,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --scale_rewards False \
+    --trust_remote_code True \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \
