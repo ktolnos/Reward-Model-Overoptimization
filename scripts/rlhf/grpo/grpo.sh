@@ -41,7 +41,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_generations 8 \
     --num_train_epochs 2 \
     --temperature 0.9 \
-    --max_completion_length 512 \
+    --max_completion_length 256 \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
