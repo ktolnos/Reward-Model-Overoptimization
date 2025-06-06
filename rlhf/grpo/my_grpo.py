@@ -73,6 +73,9 @@ if __name__ == "__main__":
             self.pad_token_id = tokenizer.pad_token_id
             self.eos_token_id = tokenizer.eos_token_id
             self.bos_token_id = tokenizer.bos_token_id
+            self.pad_token = tokenizer.pad_token
+            self.eos_token = tokenizer.eos_token
+            self.bos_token = tokenizer.bos_token
 
         def __call__(self, *args, **kwargs):
             print("call")
