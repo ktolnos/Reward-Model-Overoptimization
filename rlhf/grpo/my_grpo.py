@@ -153,7 +153,7 @@ if __name__ == "__main__":
             reward = rewards.min(dim=1)
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
-        return reward
+        return reward.tolist()
 
 
     ################
