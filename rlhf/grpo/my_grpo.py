@@ -150,7 +150,7 @@ if __name__ == "__main__":
         if script_args.ensemble_aggregation == 'mean':
             reward = rewards.mean(dim=1)
         elif script_args.ensemble_aggregation == 'min':
-            reward = rewards.min(dim=1)
+            reward = rewards.min(dim=1).values
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
         return reward.tolist()
