@@ -4,7 +4,6 @@ from transformers import PreTrainedTokenizerBase, BatchEncoding
 
 class TokenizerWrapper(PreTrainedTokenizerBase):
     def __init__(self, tokenizer: PreTrainedTokenizerBase, **kwargs):
-        super().__init__(**kwargs)
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
         self.eos_token_id = tokenizer.eos_token_id
@@ -14,7 +13,6 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         self.bos_token = tokenizer.bos_token
 
     def __call__(self, *args, **kwargs):
-        print("call")
         text = kwargs['text']
         pattern = "<end_of_turn>\n<start_of_turn>model\n"
         if pattern not in text:
