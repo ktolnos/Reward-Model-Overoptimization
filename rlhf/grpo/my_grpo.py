@@ -14,7 +14,6 @@ from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
-from rlhf.ppo.ppo_rm_ensemble import policy_kl
 
 tqdm.pandas()
 from grpo_utils import (build_train_eval_datasets)
