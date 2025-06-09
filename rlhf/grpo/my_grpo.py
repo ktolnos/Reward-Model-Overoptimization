@@ -71,7 +71,7 @@ if __name__ == "__main__":
     reward_tokenizer.max_length = script_args.max_length
     reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
 
-    if 'QRM' in model_args.reward_model_path:
+    if 'QRM' in script_args.reward_model_path:
         reward_tokenizer = TokenizerWrapper(reward_tokenizer)
 
 
