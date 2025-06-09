@@ -34,11 +34,12 @@ def post_process_common_dataset(ds, tokenizer, max_length):
             "prompt": prompt,
         }
 
-    columns = ds.column_names
-    columns.remove('reference_reward')
-    print(columns, " will be removed")
+    columns_to_remove = ds.column_names
+    if 'reference_reward' in columns_to_remove:
+        columns_to_remove.remove('reference_reward')
+    print(columns_to_remove, " will be removed")
     ds = ds.map(formatting_func,
-                remove_columns=columns,
+                remove_columns=columns_to_remove,
                 batched=False, num_proc=30)
     ds.set_format(type="torch")
     return ds
