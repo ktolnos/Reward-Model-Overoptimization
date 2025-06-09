@@ -11,6 +11,9 @@ import shutil
 
 from transformers.tokenization_utils_base import TextInput, PreTokenizedInput, EncodedInput, TruncationStrategy
 from transformers.utils import PaddingStrategy
+from trl.models import prepare_deepspeed
+
+from qrm_gemma_tokenizer import TokenizerWrapper
 
 tqdm.pandas()
 from grpo_utils import (build_train_eval_datasets)
@@ -68,54 +71,8 @@ if __name__ == "__main__":
     reward_tokenizer.max_length = script_args.max_length
     reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
 
-    class TokenizerWrapper(PreTrainedTokenizerBase):
-        def __init__(self, tokenizer: PreTrainedTokenizerBase):
-            self.tokenizer = tokenizer
-            self.pad_token_id = tokenizer.pad_token_id
-            self.eos_token_id = tokenizer.eos_token_id
-            self.bos_token_id = tokenizer.bos_token_id
-            self.pad_token = tokenizer.pad_token
-            self.eos_token = tokenizer.eos_token
-            self.bos_token = tokenizer.bos_token
-
-        def __call__(self, *args, **kwargs):
-            print("call")
-            text = kwargs['text']
-            pattern = "<end_of_turn>\n<start_of_turn>model\n"
-            if pattern not in text:
-                if isinstance(text, str):
-                    kwargs['text'] = text + pattern
-                elif isinstance(text, list):
-                    kwargs['text'] = [t + pattern for t in text]
-                else:
-                    raise ValueError(f"Unsupported type for text: {type(text)}")
-
-            return self.tokenizer(*args, **kwargs)
-
-        def apply_chat_template(self, *args, **kwargs):
-            return self.tokenizer.apply_chat_template(*args, **kwargs)
-
-        def encode(self, *args, **kwargs) -> List[int]:
-            print("encode")
-            return tokenizer.encode(*args, **kwargs)
-
-        def encode_plus(self, *args, **kwargs) -> BatchEncoding:
-            print("encode_plus")
-            return tokenizer.encode_plus(*args, **kwargs)
-
-        def batch_encode_plus(self, *args, **kwargs) -> BatchEncoding:
-            print("batch_encode_plus")
-            return tokenizer.batch_encode_plus(*args, **kwargs)
-
-        def tokenize(self, *args, **kwargs) -> List[str]:
-            print("tokenize")
-            return tokenizer.tokenize(*args, **kwargs)
-
-        def decode(self, *args, **kwargs) -> str:
-            print("decode")
-            return tokenizer.decode(*args, **kwargs)
-
-    reward_tokenizer = TokenizerWrapper(reward_tokenizer)
+    if 'QRM' in model_args.reward_model_path:
+        reward_tokenizer = TokenizerWrapper(reward_tokenizer)
 
 
     ################
@@ -136,20 +93,34 @@ if __name__ == "__main__":
     print(f"Average length of prompts: {avg_len}, Max length of prompts: {max_len}")
 
 
+    def model_reward_func(prompts, completions, **kwargs):
+        texts = [p + c for p, c in zip(prompts, completions)]
+        reward_inputs = reward_tokenizer(
+            text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+        )
+        with torch.inference_mode():
+           reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+        return reward
+
 
     ################
     # Training
     ################
     trainer = GRPOTrainer(
         args=training_args,
-        reward_processing_classes=reward_tokenizer,
+        # reward_processing_classes=reward_tokenizer,
         model=policy,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         peft_config=peft_config,
-        reward_funcs=reward_model,
+        reward_funcs=model_reward_func,
     )
-
+    if trainer.is_deepspeed_enabled:
+        prepare_deepspeed(reward_model, trainer.accelerator)
+    else:
+        trainer.accelerator.prepare_model(
+            reward_model, evaluation_mode=True, device_placement=True
+        )
     trainer.train()
 
     # Save and push to hub
