@@ -65,7 +65,7 @@ if __name__ == "__main__":
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2",
         )
-        reward_tokenizer = AutoTokenizer.from_pretrained(script_args.reward_model_path,
+        reward_tokenizer = AutoTokenizer.from_pretrained(reward_model_path,
                                                          trust_remote_code=model_args.trust_remote_code,
                                                          padding_side="left",
                                                          )
