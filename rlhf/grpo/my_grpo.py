@@ -98,8 +98,11 @@ if __name__ == "__main__":
         print("Completions:\n", completions)
         texts = [p + c for p, c in zip(prompts, completions)]
         reward_inputs = reward_tokenizer(
-            text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+            text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
+            device=reward_model.device, truncation=True, max_length=script_args.max_length
         )
+        print(reward_model)
+        print(reward_inputs)
         with torch.inference_mode():
            reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
         return reward
