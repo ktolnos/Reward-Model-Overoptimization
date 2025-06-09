@@ -61,7 +61,7 @@ if __name__ == "__main__":
     reward_tokenizers = []
     for reward_model_path in script_args.reward_model_paths:
         reward_model = AutoModelForSequenceClassification.from_pretrained(
-            script_args.reward_model_path, trust_remote_code=model_args.trust_remote_code,
+            reward_model_path, trust_remote_code=model_args.trust_remote_code,
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2",
         )
@@ -77,6 +77,9 @@ if __name__ == "__main__":
         reward_models.append(reward_model)
         reward_tokenizers.append(reward_tokenizer)
 
+        if 'QRM' in reward_model_path:
+            reward_tokenizer = TokenizerWrapper(reward_tokenizer)
+
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
     )
@@ -85,9 +88,6 @@ if __name__ == "__main__":
         model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
     )
 
-
-    if 'QRM' in script_args.reward_model_path:
-        reward_tokenizer = TokenizerWrapper(reward_tokenizer)
 
 
     ################
