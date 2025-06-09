@@ -9,7 +9,7 @@ tqdm.pandas()
 import matplotlib.pyplot as plt
 
 
-def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512):
+def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
         ds = ds.select(range(0, size))
@@ -19,16 +19,6 @@ def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=
     ds_train = post_process_common_dataset(ds_train, tokenizer, max_length)
     ds_eval = post_process_common_dataset(ds_eval, tokenizer, max_length)
     return ds_train, ds_eval
-
-
-def build_dataset_common(data_path, tokenizer, split='', size=None):
-    ds = datasets.load_dataset(data_path, split=split)
-
-    if size is not None:
-        ds = ds.select(range(0, size))
-
-    ds = post_process_common_dataset(ds, tokenizer)
-    return ds
 
 def post_process_common_dataset(ds, tokenizer, max_length):
     def formatting_func(example):
@@ -44,8 +34,11 @@ def post_process_common_dataset(ds, tokenizer, max_length):
             "prompt": prompt,
         }
 
+    columns = ds.column_names
+    columns.remove('reference_reward')
+    print(columns, " will be removed")
     ds = ds.map(formatting_func,
-                remove_columns=ds.column_names,
+                remove_columns=columns,
                 batched=False, num_proc=30)
     ds.set_format(type="torch")
     return ds

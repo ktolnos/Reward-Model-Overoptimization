@@ -14,6 +14,7 @@ from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
+from rlhf.ppo.ppo_rm_ensemble import policy_kl
 
 tqdm.pandas()
 from grpo_utils import (build_train_eval_datasets)
@@ -42,7 +43,12 @@ class ScriptArguments:
     max_length: Optional[int] = field(default=1024)
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
-    reward_model_path: Optional[str] = field(default='google/gemma-2b-it', metadata={'help': 'path to the reward model'})
+    reward_model_paths: list[str] = field(default='google/gemma-2b-it', metadata={'help': 'path to the reward model'})
+    sigmoid_rewards: Optional[bool] = field(default=False, metadata={'help': 'if True, use sigmoid to normalize rewards'})
+    reference_rewards: Optional[bool] = field(default=False, metadata={'help': 'if True, subtract reference policy rewards during training. sigmoid_rewards + reference_rewards = PAR'})
+    ensemble_aggregation: Optional[str] = field(default='min',
+        metadata={'help': 'how to aggregate rewards from multiple reward models. Options: mean, min'}
+    )
 
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, GRPOConfig, ModelConfig))
@@ -51,26 +57,35 @@ if __name__ == "__main__":
     # Model & Tokenizer
     ################
     peft_config = get_peft_config(model_args)
-    reward_model = AutoModelForSequenceClassification.from_pretrained(
-        script_args.reward_model_path, trust_remote_code=model_args.trust_remote_code,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-    )
+
+    reward_models = []
+    reward_tokenizers = []
+    for reward_model_path in script_args.reward_model_paths:
+        reward_model = AutoModelForSequenceClassification.from_pretrained(
+            script_args.reward_model_path, trust_remote_code=model_args.trust_remote_code,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+        )
+        reward_tokenizer = AutoTokenizer.from_pretrained(script_args.reward_model_path,
+                                                         trust_remote_code=model_args.trust_remote_code,
+                                                         padding_side="left",
+                                                         )
+        if reward_tokenizer.pad_token is None:
+            reward_tokenizer.pad_token = reward_tokenizer.eos_token
+        reward_tokenizer.max_length = script_args.max_length
+        reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
+
+        reward_models.append(reward_model)
+        reward_tokenizers.append(reward_tokenizer)
+
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(
+    policy_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
     )
-    reward_tokenizer = AutoTokenizer.from_pretrained(script_args.reward_model_path,
-                                                     trust_remote_code=model_args.trust_remote_code,
-                                                     padding_side="left",
-                                                     )
-    if reward_tokenizer.pad_token is None:
-        reward_tokenizer.pad_token = reward_tokenizer.eos_token
-    reward_tokenizer.max_length = script_args.max_length
-    reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
+
 
     if 'QRM' in script_args.reward_model_path:
         reward_tokenizer = TokenizerWrapper(reward_tokenizer)
@@ -81,7 +96,7 @@ if __name__ == "__main__":
     ################
 
     train_dataset, eval_dataset = build_train_eval_datasets(
-        script_args.dataset_path, tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None,
+        script_args.dataset_path, policy_tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None,
         max_length=training_args.max_prompt_length,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
@@ -89,8 +104,8 @@ if __name__ == "__main__":
     for prompt in train_dataset['prompt'][:5]:
         print(f"Sample prompt: \n{prompt}")
 
-    avg_len = np.mean([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
-    max_len = max([len(tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
+    avg_len = np.mean([len(policy_tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
+    max_len = max([len(policy_tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
     print(f"Average length of prompts: {avg_len}, Max length of prompts: {max_len}")
 
 
@@ -106,7 +121,7 @@ if __name__ == "__main__":
         elif isinstance(data, (tuple, list)):
             return type(data)(prepare_input(v) for v in data)
         elif isinstance(data, torch.Tensor):
-            kwargs = {"device": reward_model.device}
+            kwargs = {"device": reward_models[0].device}
             if trainer.is_deepspeed_enabled and (torch.is_floating_point(data) or torch.is_complex(data)):
                 # NLP models inputs are int/uint and those get adjusted to the right dtype of the
                 # embedding. Other models such as wav2vec2's inputs are already float and thus
@@ -118,12 +133,27 @@ if __name__ == "__main__":
 
     def model_reward_func(prompts, completions, **kwargs):
         texts = [p + c for p, c in zip(prompts, completions)]
-        reward_inputs = reward_tokenizer(
-            text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
-        )
-        reward_inputs = prepare_input(reward_inputs)
-        with torch.inference_mode():
-           reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+        rewards = []
+        for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
+            reward_inputs = reward_tokenizer(
+                text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
+            )
+            reward_inputs = prepare_input(reward_inputs)
+            with torch.inference_mode():
+               reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+            if script_args.reference_rewards:
+                raise NotImplementedError("Reference rewards are not implemented yet.")
+            if script_args.sigmoid_rewards:
+                reward = torch.sigmoid(reward)
+            rewards.append(reward)
+
+        rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
+        if script_args.ensemble_aggregation == 'mean':
+            reward = rewards.mean(dim=1)
+        elif script_args.ensemble_aggregation == 'min':
+            reward = rewards.min(dim=1)
+        else:
+            raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
         return reward
 
 
@@ -140,11 +170,13 @@ if __name__ == "__main__":
         reward_funcs=model_reward_func,
     )
     if trainer.is_deepspeed_enabled:
-        prepare_deepspeed(reward_model, trainer.accelerator)
+        for reward_model in reward_models:
+            prepare_deepspeed(reward_model, trainer.accelerator)
     else:
-        trainer.accelerator.prepare_model(
-            reward_model, evaluation_mode=True, device_placement=True
-        )
+        for reward_model in reward_models:
+            trainer.accelerator.prepare_model(
+                reward_model, evaluation_mode=True, device_placement=True
+            )
     trainer.train()
 
     # Save and push to hub
