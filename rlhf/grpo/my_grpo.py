@@ -117,15 +117,11 @@ if __name__ == "__main__":
 
 
     def model_reward_func(prompts, completions, **kwargs):
-        print("Prompts:\n", prompts)
-        print("Completions:\n", completions)
         texts = [p + c for p, c in zip(prompts, completions)]
         reward_inputs = reward_tokenizer(
             text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
         )
         reward_inputs = prepare_input(reward_inputs)
-        print(reward_model)
-        print(reward_inputs)
         with torch.inference_mode():
            reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
         return reward
