@@ -199,7 +199,7 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reward model"):
         prompts = []
         swaps = []
-        for j in range(len(batch["chosen"])):
+        for j in range(min(len(dataset) - i, batch_size)):
             sample = dataset[i+j]
 
             # Process all examples in the batch at once
