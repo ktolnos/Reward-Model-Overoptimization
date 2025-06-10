@@ -399,9 +399,9 @@ class ScriptArguments:
     model_name: str = field(default="Reward-Reasoning/RRM-7B",
                             metadata={"help": "Name of the reward model"})
     batch_size: int = field(default=1, metadata={"help": "Batch size for evaluation"})
-    max_length: int = field(default=1024, metadata={"help": "Maximum sequence length"})
+    max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="data/helpsteer2_gold/", metadata={"help": "Path to save the dataset"})
-    reasoning: bool = field(default=False, metadata={"help": "If True, use reasoning reward model"})
+    reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model"})
     debug: bool = field(default=False, metadata={"help": "If True, only use 100 samples for debugging"})
 
 
