@@ -194,47 +194,49 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
     Returns:
         list: List of dictionaries with chosen and rejected rewards
     """
-    batch_size = 1  # Reasoning reward model is only supported for batch size 1
-
     results = []
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reward model"):
-        batch = dataset[i]
+        batch = dataset[i:i + batch_size]
 
-        # Process all examples in the batch at once
+        prompts = []
+        swaps = []
+        for sample in batch:
 
-        query = batch["chosen"][:-1]
-        answer1 = batch["chosen"][-1:]
-        answer2 = batch["rejected"][-1:]
+            # Process all examples in the batch at once
 
-        query = tokenizer.apply_chat_template(query, tokenize=False)
-        answer1 = tokenizer.apply_chat_template(answer1, tokenize=False)
-        answer2 = tokenizer.apply_chat_template(answer2, tokenize=False)
+            query = sample["chosen"][:-1]
+            answer1 = sample["chosen"][-1:]
+            answer2 = sample["rejected"][-1:]
 
-        swap = random.random() > 0.5
+            query = tokenizer.apply_chat_template(query, tokenize=False)
+            answer1 = tokenizer.apply_chat_template(answer1, tokenize=False)
+            answer2 = tokenizer.apply_chat_template(answer2, tokenize=False)
 
-        if swap:
-            answer1, answer2 = answer2, answer1  # Randomly swap answers to avoid bias
+            swap = random.random() > 0.5
+            swaps.append(swap)  # Store whether we swapped answers for this sample
 
-        system_prompt = Skywork_SYSTEM_PROMPT
+            if swap:
+                answer1, answer2 = answer2, answer1  # Randomly swap answers to avoid bias
 
-        user_prompt = Skywork_PROMPT.format(
-            question=query, answer1=answer1, answer2=answer2
-        ) + Skywork_ASSISTANT_PROMPT
+            system_prompt = Skywork_SYSTEM_PROMPT
 
-        messages = [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {"role": "user", "content": user_prompt},
-        ]
+            user_prompt = Skywork_PROMPT.format(
+                question=query, answer1=answer1, answer2=answer2
+            ) + Skywork_ASSISTANT_PROMPT
 
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            messages = [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {"role": "user", "content": user_prompt},
+            ]
 
-        print("Prompt:")
-        print(prompt)
-        inputs = tokenizer(prompt,
+            prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            prompts.append(prompt)
+
+        inputs = tokenizer(prompts,
                            padding='longest',
                            truncation=True,
                            max_length=max_length,
@@ -252,38 +254,36 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         }
         torch.cuda.empty_cache()
         with torch.no_grad():
-            output = model.generate(**inputs, **generation_args)
+            outputs = model.generate(**inputs, **generation_args)
 
-        generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
-        print("Generated text:")
-        print(generated_text)
+        for output, sample, swap in zip(outputs, batch, swaps):
+            generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
 
-        reward = extract_reward_from_response(generated_text)
-        print("Extracted reward:", reward)
-        if swap:
-            reward = -reward
+            reward = extract_reward_from_response(generated_text)
+            if swap:
+                reward = -reward
 
-        chosen_reward = reward
-        rejected_reward = -reward
+            chosen_reward = reward
+            rejected_reward = -reward
 
-        does_gold_agree_with_original = chosen_reward > rejected_reward
-        if does_gold_agree_with_original:
-            chosen = batch["chosen"]
-            rejected = batch["rejected"]
-        else:
-            chosen = batch["rejected"]
-            rejected = batch["chosen"]
-            chosen_reward, rejected_reward = rejected_reward, chosen_reward
+            does_gold_agree_with_original = chosen_reward > rejected_reward
+            if does_gold_agree_with_original:
+                chosen = sample["chosen"]
+                rejected = sample["rejected"]
+            else:
+                chosen = sample["rejected"]
+                rejected = sample["chosen"]
+                chosen_reward, rejected_reward = rejected_reward, chosen_reward
 
-        results.append({
-            "preference_strength": batch["preference_strength"],
-            "chosen": chosen,
-            "rejected": rejected,
-            "chosen_reward": chosen_reward,
-            "rejected_reward": rejected_reward,
-            "does_gold_agree_with_original": does_gold_agree_with_original,
-            "generated_text": generated_text,
-        })
+            results.append({
+                "preference_strength": sample["preference_strength"],
+                "chosen": chosen,
+                "rejected": rejected,
+                "chosen_reward": chosen_reward,
+                "rejected_reward": rejected_reward,
+                "does_gold_agree_with_original": does_gold_agree_with_original,
+                "generated_text": generated_text,
+            })
 
     return results
 
@@ -404,7 +404,7 @@ def annotate_dataset(model_name,
 class ScriptArguments:
     model_name: str = field(default="Reward-Reasoning/RRM-7B",
                             metadata={"help": "Name of the reward model"})
-    batch_size: int = field(default=1, metadata={"help": "Batch size for evaluation"})
+    batch_size: int = field(default=4, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="data/helpsteer2_gold/", metadata={"help": "Path to save the dataset"})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model"})
@@ -420,7 +420,7 @@ if __name__ == "__main__":
         # Load a small subset of the dataset for debugging
 
         dataset = dataset.select(range(100))
-    random.seed(42)
+    random.seed(0)
     annotate_dataset(
         model_name=script_args.model_name,
         batch_size=script_args.batch_size,
