@@ -259,6 +259,7 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         print(generated_text)
 
         reward = extract_reward_from_response(generated_text)
+        print("Extracted reward:", reward)
         if swap:
             reward = -reward
 
@@ -275,7 +276,7 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
             chosen_reward, rejected_reward = rejected_reward, chosen_reward
 
         results.append({
-            "preference_strength": batch["preference_strength"][0],
+            "preference_strength": batch["preference_strength"],
             "chosen": chosen,
             "rejected": rejected,
             "chosen_reward": chosen_reward,
