@@ -12,6 +12,7 @@ from datasets import load_dataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, HfArgumentParser, AutoModelForCausalLM
 from tqdm import tqdm
 import json
+import random
 
 
 Skywork_SYSTEM_PROMPT = """You are a helpful assistant in evaluating the quality of the responses for a given instruction. Your goal is to select the best response for the given instruction.
@@ -414,6 +415,7 @@ if __name__ == "__main__":
         # Load a small subset of the dataset for debugging
 
         dataset = dataset.select(range(100))
+    random.seed(42)
     annotate_dataset(
         model_name=script_args.model_name,
         batch_size=script_args.batch_size,
