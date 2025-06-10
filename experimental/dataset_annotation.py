@@ -212,10 +212,6 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         if swap:
             answer1, answer2 = answer2, answer1  # Randomly swap answers to avoid bias
 
-        query = tokenizer.apply_chat_template(query, tokenize=False)
-        answer1 = tokenizer.apply_chat_template(answer1, tokenize=False)
-        answer2 = tokenizer.apply_chat_template(answer2, tokenize=False)
-
         system_prompt = Skywork_SYSTEM_PROMPT
 
         user_prompt = Skywork_PROMPT.format(
@@ -231,6 +227,9 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         ]
 
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+        print("Prompt:")
+        print(prompt)
         inputs = tokenizer(prompt,
                            padding='longest',
                            truncation=True,
@@ -252,6 +251,7 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
             output = model.generate(**inputs, **generation_args)
 
         generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+        print("Generated text:")
         print(generated_text)
 
         reward = extract_reward_from_response(generated_text)
