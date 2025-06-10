@@ -201,7 +201,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
 
         prompts = []
         swaps = []
-        for sample in batch:
+        for i in range(len(batch["chosen"])):
+            sample = batch[i]
 
             # Process all examples in the batch at once
 
