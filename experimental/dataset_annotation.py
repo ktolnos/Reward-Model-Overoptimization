@@ -9,7 +9,7 @@ from dataclasses import field, dataclass
 import torch
 import pandas as pd
 from datasets import load_dataset
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, HfArgumentParser
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, HfArgumentParser, AutoModelForCausalLM
 from tqdm import tqdm
 import json
 
