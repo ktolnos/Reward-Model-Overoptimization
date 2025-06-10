@@ -17,6 +17,8 @@ cd ../../../
 gpu=0 #,1,2,3
 #reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
+#reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
+#reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 learning_rate="5e-7"
 per_device_train_batch_size=1
 gradient_accumulation_steps=16
