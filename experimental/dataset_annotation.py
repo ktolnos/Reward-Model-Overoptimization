@@ -259,8 +259,6 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
             generated_text = tokenizer.decode(outputs[j], skip_special_tokens=True)
 
             reward = extract_reward_from_response(generated_text)
-            print(generated_text)
-            print(reward)
             if swap:
                 reward = -reward
 
