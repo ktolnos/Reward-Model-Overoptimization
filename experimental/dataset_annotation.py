@@ -201,11 +201,6 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         swaps = []
         for j in range(min(len(dataset) - i, batch_size)):
             sample = dataset[i+j]
-
-            # Process all examples in the batch at once
-
-            print("chosen", sample["chosen"])
-
             query = sample["chosen"][:-1]
             answer1 = sample["chosen"][-1:]
             answer2 = sample["rejected"][-1:]
@@ -259,9 +254,9 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
 
         print("outputs\n\n", outputs)
 
-        for output, j, swap in zip(outputs, range(len(swaps)), swaps):
+        for j, swap in zip(outputs, range(len(swaps)), swaps):
             sample = dataset[i + j]
-            generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+            generated_text = tokenizer.decode(outputs[j], skip_special_tokens=True)
 
             reward = extract_reward_from_response(generated_text)
             print(generated_text)
