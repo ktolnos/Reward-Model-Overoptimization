@@ -197,12 +197,10 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
     results = []
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reward model"):
-        batch = dataset[i:i + batch_size]
-
         prompts = []
         swaps = []
-        for i in range(len(batch["chosen"])):
-            sample = batch[i]
+        for j in range(len(batch["chosen"])):
+            sample = dataset[i+j]
 
             # Process all examples in the batch at once
 
@@ -257,7 +255,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         with torch.no_grad():
             outputs = model.generate(**inputs, **generation_args)
 
-        for output, sample, swap in zip(outputs, batch, swaps):
+        for output, j, swap in zip(outputs, range(len(swaps)), swaps):
+            sample = dataset[i + j]
             generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
 
             reward = extract_reward_from_response(generated_text)
