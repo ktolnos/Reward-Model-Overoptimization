@@ -199,13 +199,17 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
     results = []
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reward model"):
-        batch = dataset[i:i + batch_size]
+        batch = dataset[i]
 
         # Process all examples in the batch at once
 
         query = batch["chosen"][:-1]
         answer1 = batch["chosen"][-1:]
         answer2 = batch["rejected"][-1:]
+
+        query = tokenizer.apply_chat_template(query, tokenize=False)
+        answer1 = tokenizer.apply_chat_template(answer1, tokenize=False)
+        answer2 = tokenizer.apply_chat_template(answer2, tokenize=False)
 
         swap = random.random() > 0.5
 
@@ -263,15 +267,15 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
 
         does_gold_agree_with_original = chosen_reward > rejected_reward
         if does_gold_agree_with_original:
-            chosen = batch["chosen"][j]
-            rejected = batch["rejected"][j]
+            chosen = batch["chosen"]
+            rejected = batch["rejected"]
         else:
-            chosen = batch["rejected"][j]
-            rejected = batch["chosen"][j]
+            chosen = batch["rejected"]
+            rejected = batch["chosen"]
             chosen_reward, rejected_reward = rejected_reward, chosen_reward
 
         results.append({
-            "preference_strength": batch["preference_strength"][j],
+            "preference_strength": batch["preference_strength"][0],
             "chosen": chosen,
             "rejected": rejected,
             "chosen_reward": chosen_reward,
