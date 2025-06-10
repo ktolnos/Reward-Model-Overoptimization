@@ -204,6 +204,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
 
             # Process all examples in the batch at once
 
+            print("chosen", sample["chosen"])
+
             query = sample["chosen"][:-1]
             answer1 = sample["chosen"][-1:]
             answer2 = sample["rejected"][-1:]
@@ -254,6 +256,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model.generate(**inputs, **generation_args)
+
+        print("outputs\n\n", outputs)
 
         for output, j, swap in zip(outputs, range(len(swaps)), swaps):
             sample = dataset[i + j]
