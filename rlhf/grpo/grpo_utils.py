@@ -1,4 +1,6 @@
 import os
+from typing import Union, Any, Mapping
+
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -7,6 +9,9 @@ import numpy as np
 import pandas as pd
 tqdm.pandas()
 import matplotlib.pyplot as plt
+from reward_utils import get_reward_reasoning, is_reasoning
+
+
 
 
 def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
@@ -43,3 +48,74 @@ def post_process_common_dataset(ds, tokenizer, max_length):
                 batched=False, num_proc=30)
     ds.set_format(type="torch")
     return ds
+
+def prepare_input(data: Union[torch.Tensor, Any], device) -> Union[torch.Tensor, Any]:
+        """
+        Prepares one `data` before feeding it to the model, be it a tensor or a nested list/dictionary of tensors.
+        Mainly moves tensors to the correct device and dtype.
+        """
+        if isinstance(data, Mapping):
+            return type(data)({k: prepare_input(v) for k, v in data.items()})
+        elif isinstance(data, (tuple, list)):
+            return type(data)(prepare_input(v) for v in data)
+        elif isinstance(data, torch.Tensor):
+            kwargs = {"device": device}
+            # if trainer.is_deepspeed_enabled and (torch.is_floating_point(data) or torch.is_complex(data)):
+            #     # NLP models inputs are int/uint and those get adjusted to the right dtype of the
+            #     # embedding. Other models such as wav2vec2's inputs are already float and thus
+            #     # may need special handling to match the dtypes of the model
+            #     kwargs.update({"dtype": torch.accelerator.state.deepspeed_plugin.hf_ds_config.dtype()})
+            return data.to(**kwargs)
+        return data
+
+
+def build_reward_function(reward_models, reward_tokenizers, script_args):
+    def model_reward_func(prompts, completions, **kwargs):
+        texts = [p + c for p, c in zip(prompts, completions)]
+        rewards = []
+        for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
+            if is_reasoning(reward_model):
+                rew = get_reward_rm(reward_model, reward_tokenizer, texts, script_args)
+            else:
+                rew = get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions)
+            if script_args.reference_rewards:
+                raise NotImplementedError("Reference rewards are not implemented yet.")
+            if script_args.sigmoid_rewards:
+                rew = torch.sigmoid(rew)
+            rewards.append(rew)
+        rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
+        if script_args.ensemble_aggregation == 'mean':
+            reward = rewards.mean(dim=1)
+        elif script_args.ensemble_aggregation == 'min':
+            reward = rewards.min(dim=1).values
+        else:
+            raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
+        return reward.tolist()
+
+    return model_reward_func
+
+def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
+    reward_inputs = reward_tokenizer(
+        text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
+    )
+    reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
+    with torch.inference_mode():
+        reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+    return reward
+
+
+def extract_reward_from_response(response):
+    lower_response = response.lower()
+    pos_assistant1 = lower_response.rfind("assistant 1")
+    pos_assistant2 = lower_response.rfind("assistant 2")
+
+    # If neither phrase is found, rfind() returns -1 for both.
+    if pos_assistant1 == -1 and pos_assistant2 == -1:
+        return 0
+
+    # The one with the greater index appeared later in the text and is the likely choice.
+    # This comparison works even if one of them is -1.
+    if pos_assistant1 > pos_assistant2:
+        return 1
+    else:
+        return -1

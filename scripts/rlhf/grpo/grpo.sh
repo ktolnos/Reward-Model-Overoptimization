@@ -35,7 +35,8 @@ export MASTER_PORT=9991
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
-
+#  "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
+#  "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
@@ -62,7 +63,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/" "Ray2333/GRM-gemma2-2B-rewardmodel-ft" \
+    --reward_model_paths "Reward-Reasoning/RRM-7B" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
