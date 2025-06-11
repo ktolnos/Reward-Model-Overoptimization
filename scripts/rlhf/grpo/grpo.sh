@@ -12,6 +12,7 @@ export HF_HOME="/nas/ucb/eop/cache"
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
+export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 
 cd ../../../
 gpu=0 #,1,2,3
