@@ -18,7 +18,7 @@ from reward_utils import get_reward_reasoning, is_reasoning
 
 @dataclass
 class RewardController:
-    trainer: GRPOTrainer
+    trainer: GRPOTrainer = None
     logging_steps: float = 0.005
 
 
