@@ -19,7 +19,7 @@ from reward_utils import get_reward_reasoning, is_reasoning
 @dataclass
 class RewardController:
     trainer: GRPOTrainer = None
-    logging_steps: float = 0.005
+    logging_steps: float = 1
 
 
 def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
