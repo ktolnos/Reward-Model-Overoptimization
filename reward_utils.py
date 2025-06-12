@@ -52,14 +52,14 @@ def is_reasoning(reward_model):
     else:
         raise ValueError(f"{reward_model} is not a recognized model.")
 
-def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, script_args):
+def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None):
     if is_reasoning(reward_model):
-        return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, texts, script_args)
+        return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=reward_controller)
     else:
-        return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, script_args)
+        return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, script_args):
+def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
     if texts is None:
         texts = [p + c for p, c in zip(prompts, completions)]
     reward_inputs = reward_tokenizer(
@@ -68,10 +68,6 @@ def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, s
     reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
     with torch.inference_mode():
         reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
-    if script_args.reference_rewards:
-        raise NotImplementedError("Reference rewards are not implemented yet.")
-    if script_args.sigmoid_rewards:
-        reward = torch.sigmoid(reward)
     return reward
 
 
@@ -312,16 +308,17 @@ def get_reward_reasoning(
             final_rewards[original_idx] = group_rewards[i]
 
     if reward_controller is not None:
-        if wandb.run is not None and reward_controller.trainer.state.global_step % reward_controller.log_interval == 0:
+        if reward_controller.trainer.state.global_step % reward_controller.log_interval == 0:
             winner_id = np.argmax(final_rewards.cpu().numpy()[:max_num_players])
             winner_generations = tournaments_data[0]['group_info'][winner_id]['generations']
             df = pd.DataFrame({
                 'prompt': [tournaments_data[0]['prompt']] * len(winner_generations),
                 'generation': winner_generations,
             })
-            wandb.log({
-                "winner_generations": wandb.Table(dataframe=df),
-            }, step=reward_controller.trainer.state.global_step)
+            if wandb.run is not None:
+                wandb.log({
+                    "winner_generations": wandb.Table(dataframe=df),
+                }, step=reward_controller.trainer.state.global_step)
             print(df)
 
     return final_rewards.to(reward_model.device)

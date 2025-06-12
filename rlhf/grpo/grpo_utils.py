@@ -14,7 +14,7 @@ import wandb
 
 tqdm.pandas()
 import matplotlib.pyplot as plt
-from reward_utils import get_reward_reasoning, is_reasoning
+from reward_utils import get_reward, is_reasoning
 
 @dataclass
 class RewardController:
@@ -82,10 +82,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
-            if is_reasoning(reward_model):
-                rew = get_reward_rm(reward_model, reward_tokenizer, texts)
-            else:
-                rew = get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=controller)
+            rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
             if script_args.reference_rewards:
                 raise NotImplementedError("Reference rewards are not implemented yet.")
             if script_args.sigmoid_rewards:
@@ -107,14 +104,6 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
 
     return model_reward_func
 
-def get_reward_rm(reward_model, reward_tokenizer, texts):
-    reward_inputs = reward_tokenizer(
-        text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
-    )
-    reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
-    with torch.inference_mode():
-        reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
-    return reward
 
 
 

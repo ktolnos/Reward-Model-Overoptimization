@@ -134,6 +134,8 @@ if __name__ == "__main__":
         reward_funcs=reward_fn,
     )
     reward_controller.trainer = trainer
+    print("Logging steps:", trainer.state.logging_steps)
+    reward_controller.logging_steps = 1 # trainer.state.logging_steps
     if trainer.is_deepspeed_enabled:
         for reward_model in reward_models:
             prepare_deepspeed(reward_model, trainer.accelerator)
