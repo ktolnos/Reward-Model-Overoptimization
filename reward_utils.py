@@ -347,9 +347,9 @@ def prepare_input(data: Union[torch.Tensor, Any], device) -> Union[torch.Tensor,
         Mainly moves tensors to the correct device and dtype.
         """
         if isinstance(data, Mapping):
-            return type(data)({k: prepare_input(v) for k, v in data.items()})
+            return type(data)({k: prepare_input(v, device) for k, v in data.items()})
         elif isinstance(data, (tuple, list)):
-            return type(data)(prepare_input(v) for v in data)
+            return type(data)(prepare_input(v, device) for v in data)
         elif isinstance(data, torch.Tensor):
             kwargs = {"device": device}
             # if trainer.is_deepspeed_enabled and (torch.is_floating_point(data) or torch.is_complex(data)):
