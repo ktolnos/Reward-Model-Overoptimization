@@ -1,6 +1,6 @@
 import random
 from collections import defaultdict
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Union, Mapping
 import torch
 import math
 import numpy as np
