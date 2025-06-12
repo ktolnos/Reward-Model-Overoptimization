@@ -234,7 +234,7 @@ def get_reward_reasoning(
             'prompt': prompt,
             'group_info': group,
             'num_players': num_players,
-            'players_state': [{'id': i, 'score': 0, 'opponents': set()} for i in range(num_players)],
+            'players_state': [{'id': i, 'score': 0, 'opponents': set(), 'generations': []} for i in range(num_players)],
             'all_matches': [],
         })
 
