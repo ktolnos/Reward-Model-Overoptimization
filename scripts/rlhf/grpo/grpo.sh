@@ -55,7 +55,6 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --beta 0.0 \
     --log_completions True \
     --loss_type "dr_grpo" \
-    --report_to "none" \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
@@ -91,4 +90,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #    --reward_model_paths "Reward-Reasoning/RRM-7B" \
 #    --mask_truncated_completions False \
 
-
+#     --report_to "none" \
