@@ -72,7 +72,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
                 wandb.log({
                     f"reward/{reward_model.config._name_or_path}": rew.mean().item(),
-                }, step=controller.trainer.state.global_step)
+                }, step=wandb.run.step)
 
         rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
         if script_args.ensemble_aggregation == 'mean':

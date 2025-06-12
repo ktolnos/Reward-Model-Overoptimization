@@ -318,7 +318,7 @@ def get_reward_reasoning(
             if wandb.run is not None:
                 wandb.log({
                     "winner_generations": wandb.Table(dataframe=df),
-                }, step=reward_controller.trainer.state.global_step)
+                }, step=wandb.run.step)
             print(df)
 
     return final_rewards.to(reward_model.device)
