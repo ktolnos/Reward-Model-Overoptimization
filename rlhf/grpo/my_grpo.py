@@ -16,7 +16,7 @@ from trl.models import prepare_deepspeed
 from qrm_gemma_tokenizer import TokenizerWrapper
 
 tqdm.pandas()
-from grpo_utils import (build_train_eval_datasets, build_reward_function)
+from grpo_utils import (build_train_eval_datasets, build_reward_function, RewardController)
 
 from transformers import (
     AutoModelForCausalLM,
@@ -119,7 +119,8 @@ if __name__ == "__main__":
 
     trainer = None
 
-    reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args)
+    reward_controller = RewardController()
+    reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller)
     ################
     # Training
     ################
@@ -132,6 +133,7 @@ if __name__ == "__main__":
         peft_config=peft_config,
         reward_funcs=reward_fn,
     )
+    reward_controller.trainer = trainer
     if trainer.is_deepspeed_enabled:
         for reward_model in reward_models:
             prepare_deepspeed(reward_model, trainer.accelerator)

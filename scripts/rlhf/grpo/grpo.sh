@@ -46,16 +46,15 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_train_epochs 2 \
     --temperature 0.9 \
     --max_prompt_length 512 \
-    --max_completion_length 256 \
+    --max_completion_length 1024 \
     --epsilon_high 0.28 \
-    --mask_truncated_completions True \
+    --mask_truncated_completions False \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.08 \
+    --vllm_gpu_memory_utilization 0.3 \
     --vllm_mode "colocate" \
     --beta 0.0 \
     --log_completions True \
     --loss_type "dr_grpo" \
-    --mask_truncated_completions True \
     --report_to "none" \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
@@ -73,7 +72,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --learning_rate ${learning_rate} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
-    --gradient_checkpointing True \
+    --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
 #    --use_peft True \
@@ -82,3 +81,14 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #    --lora_target_modules 'all-linear' \
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
+
+# For 27B:
+#    --gradient_checkpointing True \
+#    --max_completion_length 256 \
+#     --vllm_gpu_memory_utilization 0.08 \
+
+# For RRM:
+#    --reward_model_paths "Reward-Reasoning/RRM-7B" \
+#    --mask_truncated_completions False \
+
+

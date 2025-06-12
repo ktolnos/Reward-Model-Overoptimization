@@ -1,17 +1,25 @@
 import os
+from dataclasses import dataclass
 from typing import Union, Any, Mapping
 
 import torch
+from accelerate.test_utils.scripts.test_sync import step_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import datasets
 import numpy as np
 import pandas as pd
+from trl import GRPOTrainer
+import wandb
+
 tqdm.pandas()
 import matplotlib.pyplot as plt
 from reward_utils import get_reward_reasoning, is_reasoning
 
-
+@dataclass
+class RewardController:
+    trainer: GRPOTrainer
+    logging_steps: float = 0.005
 
 
 def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
@@ -69,20 +77,25 @@ def prepare_input(data: Union[torch.Tensor, Any], device) -> Union[torch.Tensor,
         return data
 
 
-def build_reward_function(reward_models, reward_tokenizers, script_args):
+def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
     def model_reward_func(prompts, completions, **kwargs):
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
             if is_reasoning(reward_model):
-                rew = get_reward_rm(reward_model, reward_tokenizer, texts, script_args)
+                rew = get_reward_rm(reward_model, reward_tokenizer, texts)
             else:
-                rew = get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions)
+                rew = get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=controller)
             if script_args.reference_rewards:
                 raise NotImplementedError("Reference rewards are not implemented yet.")
             if script_args.sigmoid_rewards:
                 rew = torch.sigmoid(rew)
             rewards.append(rew)
+            if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
+                wandb.log({
+                    f"reward/{reward_model.config._name_or_path}": rew.mean().item(),
+                }, step=controller.trainer.state.global_step)
+
         rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
         if script_args.ensemble_aggregation == 'mean':
             reward = rewards.mean(dim=1)
@@ -94,7 +107,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args):
 
     return model_reward_func
 
-def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
+def get_reward_rm(reward_model, reward_tokenizer, texts):
     reward_inputs = reward_tokenizer(
         text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
     )
@@ -102,4 +115,6 @@ def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
     with torch.inference_mode():
         reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
     return reward
+
+
 

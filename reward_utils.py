@@ -130,14 +130,14 @@ def _run_batched_pairwise_comparisons(
         max_length: int = 4096,
         max_new_tokens: int = 8192,
         generation_batch_size: int = 16,
-) -> List[float]:
+) -> Tuple[List[float], List[str]]:
     """
     Runs all pairwise comparisons for a given round in a batched manner.
     This function internally handles random swapping of completions to mitigate
     positional bias and returns the corrected preference scores.
     """
     if not comparison_requests:
-        return []
+        return [], []
 
     all_preferences = []
 
@@ -198,7 +198,7 @@ def _run_batched_pairwise_comparisons(
                 preference *= -1
             all_preferences.append(preference)
 
-    return all_preferences
+    return all_preferences, generated_texts
 
 
 def get_reward_reasoning(
@@ -207,6 +207,7 @@ def get_reward_reasoning(
         prompts: List[str],
         completions: List[str],
         generation_batch_size: int = 16,
+        reward_controller: Any = None,
 ) -> torch.Tensor:
     """
     Computes rewards for completions using a Swiss-system tournament.
@@ -277,7 +278,7 @@ def get_reward_reasoning(
         if not requests_this_round:
             break
 
-        preferences = _run_batched_pairwise_comparisons(
+        preferences, generations = _run_batched_pairwise_comparisons(
             reward_model, reward_tokenizer, requests_this_round, generation_batch_size=generation_batch_size
         )
 
@@ -292,6 +293,9 @@ def get_reward_reasoning(
 
             player1_state['opponents'].add(p2_id)
             player2_state['opponents'].add(p1_id)
+
+            player1_state['generations'].append(generations[i])
+            player2_state['generations'].append(generations[i])
 
             if preference > 0:
                 player1_state['score'] += 1
@@ -309,10 +313,18 @@ def get_reward_reasoning(
             original_idx = tournament['group_info'][i]['original_idx']
             final_rewards[original_idx] = group_rewards[i]
 
-    print("Tournaments data:")
-    print(tournaments_data)
-    print("Final rewards:")
-    print(final_rewards)
+    if reward_controller is not None:
+        if wandb.run is not None and reward_controller.trainer.state.global_step % reward_controller.log_interval == 0:
+            winner_id = np.argmax(final_rewards.cpu().numpy()[:max_num_players])
+            winner_generations = tournaments_data[0]['group_info'][winner_id]['generations']
+            df = pd.DataFrame({
+                'prompt': [tournaments_data[0]['prompt']] * len(winner_generations),
+                'generation': winner_generations,
+            })
+            wandb.log({
+                "winner_generations": wandb.Table(dataframe=df),
+            }, step=reward_controller.trainer.state.global_step)
+            print(df)
 
     return final_rewards.to(reward_model.device)
 
