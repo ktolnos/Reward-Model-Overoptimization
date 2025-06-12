@@ -54,7 +54,7 @@ def is_reasoning(reward_model):
 
 def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None):
     if is_reasoning(reward_model):
-        return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=reward_controller)
+        return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
     else:
         return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts)
 
