@@ -310,7 +310,7 @@ def get_reward_reasoning(
     if reward_controller is not None:
         if reward_controller.trainer.state.global_step % reward_controller.logging_steps == 0:
             winner_id = np.argmax(final_rewards.cpu().numpy()[:max_num_players])
-            winner_generations = tournaments_data[0]['group_info'][winner_id]['generations']
+            winner_generations = tournaments_data[0]['players_state'][winner_id]['generations']
             df = pd.DataFrame({
                 'prompt': [tournaments_data[0]['prompt']] * len(winner_generations),
                 'generation': winner_generations,
