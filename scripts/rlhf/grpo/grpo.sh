@@ -56,6 +56,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --log_completions True \
     --loss_type "dr_grpo" \
     --mask_truncated_completions True \
+    --report_to "none" \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
