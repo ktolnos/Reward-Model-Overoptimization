@@ -103,19 +103,3 @@ def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
         reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
     return reward
 
-
-def extract_reward_from_response(response):
-    lower_response = response.lower()
-    pos_assistant1 = lower_response.rfind("assistant 1")
-    pos_assistant2 = lower_response.rfind("assistant 2")
-
-    # If neither phrase is found, rfind() returns -1 for both.
-    if pos_assistant1 == -1 and pos_assistant2 == -1:
-        return 0
-
-    # The one with the greater index appeared later in the text and is the likely choice.
-    # This comparison works even if one of them is -1.
-    if pos_assistant1 > pos_assistant2:
-        return 1
-    else:
-        return -1
