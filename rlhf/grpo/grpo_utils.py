@@ -14,7 +14,7 @@ import wandb
 
 tqdm.pandas()
 import matplotlib.pyplot as plt
-from reward_utils import get_reward, is_reasoning
+from reward_utils import get_reward
 
 @dataclass
 class RewardController:

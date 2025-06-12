@@ -46,9 +46,9 @@ Let's analyze this step by step and decide which assistant is better, and then a
 
 def is_reasoning(reward_model):
     if hasattr(reward_model, 'classifier'):
-        return True
-    elif hasattr(reward_model, 'lm_head'):
         return False
+    elif hasattr(reward_model, 'lm_head'):
+        return True
     else:
         raise ValueError(f"{reward_model} is not a recognized model.")
 
