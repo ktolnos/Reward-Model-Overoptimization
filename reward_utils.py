@@ -127,14 +127,14 @@ def _run_batched_pairwise_comparisons(
         max_length: int = 4096,
         max_new_tokens: int = 8192,
         generation_batch_size: int = 16,
-) -> Tuple[List[float], List[str]]:
+) -> Tuple[List[float], List[str], List[str]]:
     """
     Runs all pairwise comparisons for a given round in a batched manner.
     This function internally handles random swapping of completions to mitigate
     positional bias and returns the corrected preference scores.
     """
     if not comparison_requests:
-        return [], []
+        return [], [], []
 
     all_preferences = []
 
@@ -192,7 +192,7 @@ def _run_batched_pairwise_comparisons(
                 preference *= -1
             all_preferences.append(preference)
 
-    return all_preferences, generated_texts
+    return all_preferences, prompts_for_model, generated_texts
 
 
 def get_reward_reasoning(
@@ -228,7 +228,7 @@ def get_reward_reasoning(
             'prompt': prompt,
             'group_info': group,
             'num_players': num_players,
-            'players_state': [{'id': i, 'score': 0, 'opponents': set(), 'generations': []} for i in range(num_players)],
+            'players_state': [{'id': i, 'score': 0, 'opponents': set(), 'generations': [], 'prompts': []} for i in range(num_players)],
             'all_matches': [],
         })
 
@@ -272,7 +272,7 @@ def get_reward_reasoning(
         if not requests_this_round:
             break
 
-        preferences, generations = _run_batched_pairwise_comparisons(
+        preferences, prompts_for_rm, generations = _run_batched_pairwise_comparisons(
             reward_model, reward_tokenizer, requests_this_round, generation_batch_size=generation_batch_size
         )
 
@@ -290,6 +290,9 @@ def get_reward_reasoning(
 
             player1_state['generations'].append(generations[i])
             player2_state['generations'].append(generations[i])
+
+            player1_state['prompts'].append(prompts_for_rm[i])
+            player2_state['prompts'].append(prompts_for_rm[i])
 
             if preference > 0:
                 player1_state['score'] += 1
@@ -311,8 +314,10 @@ def get_reward_reasoning(
         if reward_controller.trainer.state.global_step % reward_controller.logging_steps == 0:
             winner_id = np.argmax(final_rewards.cpu().numpy()[:max_num_players])
             winner_generations = tournaments_data[0]['players_state'][winner_id]['generations']
+            winner_completions = tournaments_data[0]['players_state'][winner_id]['prompts']
             df = pd.DataFrame({
                 'prompt': [tournaments_data[0]['prompt']] * len(winner_generations),
+                'completions': winner_completions,
                 'generation': winner_generations,
             })
             if wandb.run is not None:
