@@ -466,10 +466,10 @@ class ScriptArguments:
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=8, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="data/annotated_dataset/",
+    output_path: str = field(default="data/annotated_dataset/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
-    debug: bool = field(default=True, metadata={"help": "If True, only use 100 samples for debugging."})
+    debug: bool = field(default=True, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
@@ -506,7 +506,7 @@ if __name__ == "__main__":
         print("--- Running in GOLD annotation mode ---")
         dataset = load_helpsteer2_dataset(split="train")
         if script_args.debug:
-            dataset = dataset.select(range(100))
+            dataset = dataset.select(range(25))
 
         annotate_dataset(
             model_name=script_args.model_name,
@@ -521,7 +521,7 @@ if __name__ == "__main__":
         print("--- Running in REFERENCE POLICY annotation mode ---")
         dataset = load_annotated_dataset(script_args.input_path)
         if script_args.debug:
-            dataset = dataset[:100]
+            dataset = dataset[:25]
 
         # Load reference policy model (as a causal LM)
         policy_model, policy_tokenizer = load_reward_model(
@@ -542,7 +542,7 @@ if __name__ == "__main__":
 
         dataset = load_annotated_dataset(script_args.input_path)
         if script_args.debug:
-            dataset = dataset[:100]
+            dataset = dataset[:25]
 
         # Load reference reward model (as a sequence classification model)
         reward_model, reward_tokenizer = load_reward_model(
