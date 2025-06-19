@@ -9,7 +9,7 @@ from typing import List, Dict, Any
 
 import torch
 import pandas as pd
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, HfArgumentParser, AutoModelForCausalLM
 from tqdm import tqdm
 import json
@@ -257,13 +257,13 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
 
 
 def generate_with_reference_policy(
-    dataset, policy_model, tokenizer, batch_size, max_length, num_responses=2, device=None
+    dataset: List[Dict], policy_model, tokenizer, batch_size, max_length, num_responses=2, device=None
 ) -> List[Dict[str, Any]]:
     """
     Generates responses for each prompt in the dataset using a reference policy model.
 
     Args:
-        dataset: A HuggingFace dataset or a list of dictionaries.
+        dataset: A HuggingFace dataset object.
         policy_model: The causal language model to use for generation.
         tokenizer: The tokenizer for the policy model.
         batch_size (int): The batch size for generation.
@@ -285,8 +285,8 @@ def generate_with_reference_policy(
         print(batch_size, len(batch_data))
 
         prompts = [
-            tokenizer.apply_chat_template(batch_data['chosen'][j, :-1], tokenize=False, add_generation_prompt=True)
-            for j in range(len(batch_data))
+            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True)
+            for item in batch_data
         ]
 
         inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
@@ -519,9 +519,9 @@ if __name__ == "__main__":
 
     elif script_args.annotation_mode == "reference_policy":
         print("--- Running in REFERENCE POLICY annotation mode ---")
-        dataset = load_helpsteer2_dataset(split="train")
+        dataset = load_annotated_dataset(script_args.input_path)
         if script_args.debug:
-            dataset = dataset.select(range(100))
+            dataset = dataset[:100]
 
         # Load reference policy model (as a causal LM)
         policy_model, policy_tokenizer = load_reward_model(
