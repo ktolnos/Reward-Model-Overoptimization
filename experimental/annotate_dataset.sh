@@ -8,5 +8,6 @@
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/experimental/
 export HF_HOME="/nas/ucb/eop/cache"
+export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 
 srun python dataset_annotation.py
