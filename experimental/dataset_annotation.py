@@ -469,7 +469,7 @@ class ScriptArguments:
     output_path: str = field(default="data/annotated_dataset/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
-    debug: bool = field(default=True, metadata={"help": "If True, only use 25 samples for debugging."})
+    debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
