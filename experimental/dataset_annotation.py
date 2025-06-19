@@ -282,10 +282,11 @@ def generate_with_reference_policy(
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Generating with reference policy"):
         batch_data = dataset[i:i + batch_size]
+        print(batch_size, len(batch_data))
 
         prompts = [
-            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True)
-            for item in batch_data
+            tokenizer.apply_chat_template(batch_data['chosen'][j, :-1], tokenize=False, add_generation_prompt=True)
+            for j in range(len(batch_data))
         ]
 
         inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
