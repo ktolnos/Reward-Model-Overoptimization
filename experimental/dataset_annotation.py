@@ -5,6 +5,7 @@ evaluating it with a reward model, and saving the augmented dataset.
 
 import os
 from dataclasses import field, dataclass
+from typing import List, Dict, Any
 
 import torch
 import pandas as pd
@@ -14,6 +15,7 @@ from tqdm import tqdm
 import json
 import random
 from reward_utils import Skywork_SYSTEM_PROMPT, Skywork_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
+
 
 def load_helpsteer2_dataset(split="train"):
     """
@@ -36,6 +38,7 @@ def load_reward_model(model_name, reasoning, device=None):
     
     Args:
         model_name (str): Name of the reward model on Hugging Face
+        reasoning (bool): If True, loads AutoModelForCausalLM, else AutoModelForSequenceClassification.
         device (str): Device to load the model on ('cuda', 'cpu', or None for auto-detection)
         
     Returns:
@@ -44,7 +47,7 @@ def load_reward_model(model_name, reasoning, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    print(f"Loading reward model {model_name} on {device}")
+    print(f"Loading model {model_name} on {device}")
     if reasoning:
         model = AutoModelForCausalLM.from_pretrained(model_name,
                                                      torch_dtype=torch.bfloat16,
@@ -58,6 +61,9 @@ def load_reward_model(model_name, reasoning, device=None):
                                                                    device_map=device, trust_remote_code=True)
     print(model)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
 
     model.eval()
     return model, tokenizer
@@ -250,6 +256,120 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
     return results
 
 
+def generate_with_reference_policy(
+    dataset, policy_model, tokenizer, batch_size, max_length, num_responses=2, device=None
+) -> List[Dict[str, Any]]:
+    """
+    Generates responses for each prompt in the dataset using a reference policy model.
+
+    Args:
+        dataset: A HuggingFace dataset or a list of dictionaries.
+        policy_model: The causal language model to use for generation.
+        tokenizer: The tokenizer for the policy model.
+        batch_size (int): The batch size for generation.
+        max_length (int): The maximum length for the generated sequence.
+        num_responses (int): The number of responses to generate per prompt.
+        device (str): The device to run generation on.
+
+    Returns:
+        A list of dictionaries, where each item is augmented with generated reference responses.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    results = []
+    tokenizer.padding_side = "left"
+
+    for i in tqdm(range(0, len(dataset), batch_size), desc="Generating with reference policy"):
+        batch_data = dataset[i:i + batch_size]
+
+        prompts = [
+            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True)
+            for item in batch_data
+        ]
+
+        inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
+
+        with torch.no_grad():
+            outputs = policy_model.generate(
+                **inputs,
+                max_new_tokens=1024,
+                num_return_sequences=num_responses,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+
+        input_len = inputs.input_ids.shape[1]
+        for j, item in enumerate(batch_data):
+            new_item = dict(item)
+            item_outputs = outputs[j * num_responses : (j + 1) * num_responses]
+            new_tokens = item_outputs[:, input_len:]
+            clean_responses = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+
+            for k in range(num_responses):
+                new_item[f'reference_response_{k+1}'] = clean_responses[k]
+            results.append(new_item)
+
+    return results
+
+
+def evaluate_with_reference_reward_model(
+    dataset: List[Dict], reward_model, tokenizer, batch_size, max_length, num_responses=2, device=None
+) -> List[Dict[str, Any]]:
+    """
+    Evaluates generated reference responses with a reference reward model.
+
+    Args:
+        dataset: A list of dictionaries, each containing reference responses.
+        reward_model: The reward model to use for evaluation.
+        tokenizer: The tokenizer for the reward model.
+        batch_size (int): The batch size for evaluation.
+        max_length (int): The maximum sequence length.
+        num_responses (int): The number of reference responses per item.
+        device (str): The device to run evaluation on.
+
+    Returns:
+        A list of dictionaries, augmented with the mean reference reward.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    results = []
+
+    for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reference reward model"):
+        batch_data = dataset[i:i + batch_size]
+        all_conversations = []
+
+        for item in batch_data:
+            prompt_conv = item['chosen'][:-1]
+            for k in range(num_responses):
+                response_text = item.get(f'reference_response_{k+1}')
+                if response_text:
+                    full_conv = prompt_conv + [{'role': 'assistant', 'content': response_text}]
+                    all_conversations.append(full_conv)
+
+        formatted_texts = [tokenizer.apply_chat_template(conv, tokenize=False) for conv in all_conversations]
+        inputs = tokenizer(
+            formatted_texts, padding='longest', truncation=True, max_length=max_length, return_tensors="pt"
+        ).to(device)
+
+        with torch.no_grad():
+            outputs = reward_model(**inputs)
+            all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
+
+        reward_idx = 0
+        for item in batch_data:
+            new_item = dict(item)
+            item_rewards = [all_rewards[reward_idx + k] for k in range(num_responses) if f'reference_response_{k+1}' in item]
+            reward_idx += len(item_rewards)
+
+            new_item['reference_reward'] = sum(item_rewards) / len(item_rewards) if item_rewards else None
+            results.append(new_item)
+
+    return results
 
 
 def save_annotated_dataset(results, output_path="data/helpsteer2_gold.json"):
@@ -266,18 +386,18 @@ def save_annotated_dataset(results, output_path="data/helpsteer2_gold.json"):
     # Convert to DataFrame for easier analysis
     df = pd.DataFrame(results)
 
-    # Calculate some statistics
-    reward_gap = df["chosen_reward"] - df["rejected_reward"]
-    accuracy = df["does_gold_agree_with_original"].mean()
+    # Calculate some statistics if gold rewards are present
+    if "chosen_reward" in df.columns and "rejected_reward" in df.columns:
+        reward_gap = df["chosen_reward"] - df["rejected_reward"]
+        accuracy = df["does_gold_agree_with_original"].mean()
 
-    print(f"Reward model accuracy: {accuracy:.4f}")
-    print(f"Average reward gap: {reward_gap.mean():.4f}")
-    print(f"Min reward gap: {reward_gap.min():.4f}")
-    print(f"Max reward gap: {reward_gap.max():.4f}")
+        print(f"Reward model accuracy: {accuracy:.4f}")
+        print(f"Average reward gap: {reward_gap.mean():.4f}")
 
     # Save as JSON
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
-        json.dump(results, f)
+        json.dump(results, f, indent=4)
 
     print(f"Saved annotated dataset to {output_path}")
     return output_path
@@ -302,78 +422,139 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json"):
 
 def annotate_dataset(model_name,
                      batch_size, max_length, output_path,
-                     reasoning=False,  # If True, use reasoning reward model
+                     reasoning=False,
                      dataset=None,
                      test_split_size=0.05):
     """
     Main function to load dataset, evaluate with reward model, and save results.
     
     Args:
-        split (str): Dataset split to load (used only if custom_dataset is None)
         model_name (str): Name of the reward model
         batch_size (int): Batch size for evaluation
         max_length (int): Maximum sequence length
-        output_path (str): Path to save the dataset
-        custom_dataset: Optional pre-loaded dataset to use instead of loading from HF
+        output_path (str): Path to save the dataset directory
+        reasoning (bool): If true, use reasoning reward model
+        dataset: Optional pre-loaded dataset to use
+        test_split_size (float): Proportion of dataset to use for the test split.
         
     Returns:
         str: Path to the saved dataset
     """
-    # Load reward model
     model, tokenizer = load_reward_model(model_name, reasoning, device="cuda" if torch.cuda.is_available() else "cpu")
 
-    # Evaluate dataset
     if reasoning:
         results = evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size, max_length)
     else:
         results = evaluate_with_reward_model(dataset, model, tokenizer, batch_size, max_length)
 
-    # split dataset if needed
     if test_split_size > 0:
-        # Split the dataset into train and test sets
         train_size = int((1 - test_split_size) * len(results))
-        train_results = results[:train_size]
-        test_results = results[train_size:]
+        train_results, test_results = results[:train_size], results[train_size:]
 
-        # Save the test set separately
-        test_output_path = output_path + "test.json"
-        os.makedirs(os.path.dirname(test_output_path), exist_ok=True)
+        test_output_path = os.path.join(output_path, "test.json")
         save_annotated_dataset(test_results, test_output_path)
+
         results = train_results
-        output_path += "train.json"
+        output_path = os.path.join(output_path, "train.json")
 
-    # make dirs for output path
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    # Save results
     return save_annotated_dataset(results, output_path)
 
 @dataclass
 class ScriptArguments:
     model_name: str = field(default="Reward-Reasoning/RRM-7B",
-                            metadata={"help": "Name of the reward model"})
-    batch_size: int = field(default=16, metadata={"help": "Batch size for evaluation"})
+                            metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
+    batch_size: int = field(default=8, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="data/helpsteer2_gold/", metadata={"help": "Path to save the dataset"})
-    reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model"})
-    debug: bool = field(default=False, metadata={"help": "If True, only use 100 samples for debugging"})
+    output_path: str = field(default="data/annotated_dataset/",
+                             metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
+    reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
+    debug: bool = field(default=True, metadata={"help": "If True, only use 100 samples for debugging."})
+
+    # Arguments for different annotation modes
+    annotation_mode: str = field(
+        default="reference_policy",
+        metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
+    )
+    input_path: str = field(
+        default='data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/train.json',
+        metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
+    )
+    reference_policy_name: str = field(
+        default="Qwen/Qwen3-0.6B",
+        metadata={"help": "Name of the causal LLM to use as the reference policy."}
+    )
+    reference_reward_model_name: str = field(
+        default="Ray2333/GRM-gemma2-2B-rewardmodel-ft",
+        metadata={"help": "Name of the reward model for evaluating reference responses."}
+    )
+    num_reference_responses: int = field(
+        default=2,
+        metadata={"help": "Number of responses to generate from the reference policy."}
+    )
 
 
 if __name__ == "__main__":
     parser = HfArgumentParser(ScriptArguments)
     script_args = parser.parse_args_into_dataclasses()[0]
 
-    dataset = load_helpsteer2_dataset(split="train")
-    if script_args.debug:
-        # Load a small subset of the dataset for debugging
+    random.seed(42)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        dataset = dataset.select(range(100))
-    random.seed(0)
-    annotate_dataset(
-        model_name=script_args.model_name,
-        batch_size=script_args.batch_size,
-        max_length=script_args.max_length,
-        output_path=script_args.output_path,
-        reasoning=script_args.reasoning,
-        dataset=dataset,
-    )
+    # --- Mode Dispatcher ---
+    if script_args.annotation_mode == "gold":
+        print("--- Running in GOLD annotation mode ---")
+        dataset = load_helpsteer2_dataset(split="train")
+        if script_args.debug:
+            dataset = dataset.select(range(100))
+
+        annotate_dataset(
+            model_name=script_args.model_name,
+            batch_size=script_args.batch_size,
+            max_length=script_args.max_length,
+            output_path=script_args.output_path,
+            reasoning=script_args.reasoning,
+            dataset=dataset,
+        )
+
+    elif script_args.annotation_mode == "reference_policy":
+        print("--- Running in REFERENCE POLICY annotation mode ---")
+        dataset = load_helpsteer2_dataset(split="train")
+        if script_args.debug:
+            dataset = dataset.select(range(100))
+
+        # Load reference policy model (as a causal LM)
+        policy_model, policy_tokenizer = load_reward_model(
+            script_args.reference_policy_name, reasoning=True, device=device
+        )
+
+        results = generate_with_reference_policy(
+            dataset, policy_model, policy_tokenizer, script_args.batch_size,
+            script_args.max_length, script_args.num_reference_responses, device
+        )
+
+        save_annotated_dataset(results, script_args.output_path)
+
+    elif script_args.annotation_mode == "reference_reward":
+        print("--- Running in REFERENCE REWARD annotation mode ---")
+        if not script_args.input_path:
+            raise ValueError("An --input_path must be provided for 'reference_reward' mode.")
+
+        dataset = load_annotated_dataset(script_args.input_path)
+        if script_args.debug:
+            dataset = dataset[:100]
+
+        # Load reference reward model (as a sequence classification model)
+        reward_model, reward_tokenizer = load_reward_model(
+            script_args.reference_reward_model_name, reasoning=False, device=device
+        )
+
+        results = evaluate_with_reference_reward_model(
+            dataset, reward_model, reward_tokenizer, script_args.batch_size,
+            script_args.max_length, script_args.num_reference_responses, device
+        )
+
+        save_annotated_dataset(results, script_args.output_path)
+
+    else:
+        raise ValueError(f"Unknown annotation mode: '{script_args.annotation_mode}'. "
+                         f"Choose from 'gold', 'reference_policy', or 'reference_reward'.")
