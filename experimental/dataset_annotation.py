@@ -464,7 +464,7 @@ def annotate_dataset(model_name,
 class ScriptArguments:
     model_name: str = field(default="Reward-Reasoning/RRM-7B",
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
-    batch_size: int = field(default=8, metadata={"help": "Batch size for evaluation"})
+    batch_size: int = field(default=32, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="data/annotated_dataset/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
