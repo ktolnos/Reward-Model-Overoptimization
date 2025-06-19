@@ -285,7 +285,7 @@ def generate_with_reference_policy(
         print(batch_size, len(batch_data))
 
         prompts = [
-            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True)
+            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True, enable_thinking=False)
             for item in batch_data
         ]
 
