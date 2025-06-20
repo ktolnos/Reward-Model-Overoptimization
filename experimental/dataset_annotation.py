@@ -466,18 +466,18 @@ class ScriptArguments:
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=32, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="data/annotated_dataset/train.json",
+    output_path: str = field(default="data/annotated_ref_reward/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
-    debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
+    debug: bool = field(default=True, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
-        default="reference_policy",
+        default="reference_reward",
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/train.json',
+        default='data/annotated_dataset/train.json',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
     )
     reference_policy_name: str = field(
