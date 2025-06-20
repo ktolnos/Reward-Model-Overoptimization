@@ -65,7 +65,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
             if script_args.reference_rewards:
-                reference_rewards = kwargs.get('reference_rewards', None)
+                reference_rewards = kwargs.get('reference_reward', None)
                 assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
                 if isinstance(reference_rewards, list):
                     reference_rewards = torch.stack(reference_rewards)
