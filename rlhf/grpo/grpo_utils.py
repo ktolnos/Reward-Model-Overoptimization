@@ -69,7 +69,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
                 if isinstance(reference_rewards, list):
                     reference_rewards = torch.stack(reference_rewards)
-                rew -= reference_rewards
+                rew = rew - reference_rewards
             if script_args.sigmoid_rewards:
                 rew = torch.sigmoid(rew)
             rewards.append(rew)
