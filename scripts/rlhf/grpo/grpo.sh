@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=168:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
@@ -12,7 +12,8 @@ export HF_HOME="/nas/ucb/eop/cache"
 
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B" # policy base model
-dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
+dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B_reward_Gemma2_2B_ray_gold_URM_LLama8B/"
+#dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 
 cd ../../../
@@ -33,12 +34,13 @@ export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9991
+export MASTER_PORT=9992
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #  "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
+# "Reward-Reasoning/RRM-7B"
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
@@ -49,7 +51,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --max_prompt_length 512 \
     --max_completion_length 1024 \
     --epsilon_high 0.28 \
-    --mask_truncated_completions False \
+    --mask_truncated_completions True \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.3 \
     --vllm_mode "colocate" \
@@ -64,7 +66,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "Reward-Reasoning/RRM-7B" \
+    --reward_model_paths "Ray2333/GRM-gemma2-2B-rewardmodel-ft" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
@@ -75,6 +77,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
+    --reference_rewards True \
+    --sigmoid_rewards True \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \
@@ -90,5 +94,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 # For RRM:
 #    --reward_model_paths "Reward-Reasoning/RRM-7B" \
 #    --mask_truncated_completions False \
+#    #SBATCH --time=168:00:00
 
 #     --report_to "none" \
+

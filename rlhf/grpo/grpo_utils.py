@@ -60,6 +60,7 @@ def post_process_common_dataset(ds, tokenizer, max_length):
 
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
     def model_reward_func(prompts, completions, **kwargs):
+        print("KWargs for model_reward_func:", kwargs)
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
