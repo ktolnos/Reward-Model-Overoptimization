@@ -367,7 +367,7 @@ def evaluate_with_reference_reward_model(
             item_rewards = [all_rewards[reward_idx + k] for k in range(num_responses) if f'reference_response_{k+1}' in item]
             reward_idx += len(item_rewards)
 
-            new_item['reference_reward'] = sum(item_rewards) / len(item_rewards) if item_rewards else None
+            new_item['reference_reward'] = float(sum(item_rewards) / len(item_rewards)) if item_rewards else None
             results.append(new_item)
 
     return results
