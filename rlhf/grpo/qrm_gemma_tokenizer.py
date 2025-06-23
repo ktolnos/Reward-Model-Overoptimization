@@ -20,13 +20,14 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
             text = args[0]
             args = args[1:]
         pattern = "<end_of_turn>\n<start_of_turn>model\n"
-        if pattern not in text:
-            if isinstance(text, str):
+        if isinstance(text, str):
+            if pattern not in text:
                 kwargs['text'] = text + pattern
-            elif isinstance(text, list):
+        elif isinstance(text, list):
+            if not all(pattern in t for t in text):
                 kwargs['text'] = [t + pattern for t in text]
-            else:
-                raise ValueError(f"Unsupported type for text: {type(text)}")
+        else:
+            raise ValueError(f"Unsupported type for text: {type(text)}")
 
         return self.tokenizer(*args, **kwargs)
 
