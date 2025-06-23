@@ -64,6 +64,10 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         rewards = []
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
+            if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
+                wandb.log({
+                    f"reward/{reward_model.config._name_or_path}": rew.mean().item(),
+                }, step=wandb.run.step)
             if script_args.reference_rewards:
                 reference_rewards = kwargs.get('reference_reward', None)
                 assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
@@ -73,10 +77,6 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             if script_args.sigmoid_rewards:
                 rew = torch.sigmoid(rew)
             rewards.append(rew)
-            if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
-                wandb.log({
-                    f"reward/{reward_model.config._name_or_path}": rew.mean().item(),
-                }, step=wandb.run.step)
 
         rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
         if script_args.ensemble_aggregation == 'mean':
