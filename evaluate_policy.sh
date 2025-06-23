@@ -6,6 +6,8 @@
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=12:00:00
 
+export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
+
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 
 # Directory containing the checkpoints
