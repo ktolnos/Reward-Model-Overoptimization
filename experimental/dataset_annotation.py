@@ -15,6 +15,7 @@ from tqdm import tqdm
 import json
 import random
 from reward_utils import Skywork_SYSTEM_PROMPT, Skywork_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
+from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
 
 def load_helpsteer2_dataset(split="train"):
@@ -53,8 +54,11 @@ def load_reward_model(model_name, reasoning, device=None):
         "trust_remote_code": True,
         "device_map": device
     }
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     if 'QRM' in model_name:
         kwargs["torch_dtype"] = torch.bfloat16
+        tokenizer = TokenizerWrapper(tokenizer)
 
     print(f"Loading model {model_name} on {device}")
     if reasoning:
@@ -62,7 +66,6 @@ def load_reward_model(model_name, reasoning, device=None):
     else:
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     print(model)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
