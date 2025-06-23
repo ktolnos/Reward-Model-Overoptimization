@@ -68,6 +68,10 @@ class ScriptArguments:
         default=False,
         metadata={"help": "Debug mode - only use first 100 prompts"}
     )
+    evaluate_with_training_rm: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to evaluate with the training reward model"}
+    )
 
 def load_reward_model(model_path_or_name, device):
     """Load a reward model and its tokenizer."""
@@ -184,7 +188,8 @@ def main():
     
     # Load reward models
     print("Loading reward models...")
-    training_rm, training_rm_tokenizer = load_reward_model(args.training_rm_path, args.device)
+    if args.evaluate_with_training_rm:
+        training_rm, training_rm_tokenizer = load_reward_model(args.training_rm_path, args.device)
     gold_rm, gold_rm_tokenizer = load_reward_model(args.gold_rm_name, args.device)
     
     # Load evaluation dataset
@@ -282,15 +287,16 @@ def main():
             )
 
             print(responses[:5])  # Print first 5 responses for debugging
-            
-            # Get reward scores
-            training_rm_scores = get_reward_score(
-                training_rm,
-                training_rm_tokenizer,
-                responses,
-                args.device,
-                args.batch_size
-            )
+
+            if args.evaluate_with_training_rm:
+                # Get reward scores
+                training_rm_scores = get_reward_score(
+                    training_rm,
+                    training_rm_tokenizer,
+                    responses,
+                    args.device,
+                    args.batch_size
+                )
             
             gold_rm_scores = get_reward_score(
                 gold_rm,
@@ -304,25 +310,22 @@ def main():
             checkpoint_num = int(checkpoint.split("-")[1])
             checkpoint_results = {
                 "checkpoint": checkpoint_num,
-                "training_rm_mean": float(np.mean(training_rm_scores)),
-                "training_rm_std": float(np.std(training_rm_scores)),
                 "gold_rm_mean": float(np.mean(gold_rm_scores)),
-                "gold_rm_std": float(np.std(gold_rm_scores))
+                "gold_rm_std": float(np.std(gold_rm_scores)),
+                "gold_rm/scores_hist": wandb.Histogram(gold_rm_scores),
             }
-            
+            if args.evaluate_with_training_rm:
+                checkpoint_results["training_rm_mean"] = float(np.mean(training_rm_scores))
+                checkpoint_results["training_rm_std"] = float(np.std(training_rm_scores))
+                checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(training_rm_scores)
+
             # Log to wandb
             if not args.disable_wandb:
-                wandb.log({
-                    "checkpoint": checkpoint_num,
-                    "training_rm/mean": checkpoint_results["training_rm_mean"],
-                    "training_rm/std": checkpoint_results["training_rm_std"],
-                    "gold_rm/mean": checkpoint_results["gold_rm_mean"],
-                    "gold_rm/std": checkpoint_results["gold_rm_std"],
-                    # Add histograms of scores
-                    "training_rm/scores_hist": wandb.Histogram(training_rm_scores),
-                    "gold_rm/scores_hist": wandb.Histogram(gold_rm_scores),
-                })
-            
+                wandb.log(checkpoint_results)
+
+            del checkpoint_results["gold_rm/scores_hist"]
+            if args.evaluate_with_training_rm:
+                del checkpoint_results["training_rm/scores_hist"]
             results.append(checkpoint_results)
             
         finally:
