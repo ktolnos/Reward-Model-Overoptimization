@@ -50,7 +50,7 @@ python evaluate_policy.py \
     --num_responses_per_prompt 1 \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
-    --evaluate_with_training_rm False \
+    --evaluate_with_training_rm True \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 
