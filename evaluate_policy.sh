@@ -45,8 +45,8 @@ python evaluate_policy.py \
     --gold_rm_name "$GOLD_RM_NAME" \
     --dataset_name "$DATASET_NAME" \
     --output_file "$OUTPUT_FILE" \
-    --batch_size 64 \
-    --generation_batch_size 1 \
+    --batch_size 1 \
+    --generation_batch_size 64 \
     --max_length 1024 \
     --device "cuda" \
     --num_responses_per_prompt 1 \
