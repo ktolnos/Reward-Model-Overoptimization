@@ -9,7 +9,7 @@
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250609_204801"  # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250613_191007"  # Current directory with all checkpoints
 
 # Path to the training reward model
 #TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
@@ -17,7 +17,8 @@ TRAINING_RM_PATH="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 
 # Name of the gold reward model
 #GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
-GOLD_RM_NAME="LxzGordon/URM-LLaMa-3.1-8B"
+#GOLD_RM_NAME="LxzGordon/URM-LLaMa-3.1-8B"
+GOLD_RM_NAME="nicolinho/QRM-Gemma-2-27B"
 
 # Dataset name
 DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
@@ -45,12 +46,13 @@ python evaluate_policy.py \
     --dataset_name "$DATASET_NAME" \
     --output_file "$OUTPUT_FILE" \
     --batch_size 64 \
+    --generation_batch_size 64 \
     --max_length 1024 \
     --device "cuda" \
     --num_responses_per_prompt 1 \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
-    --evaluate_with_training_rm True \
+    --evaluate_with_training_rm False \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 

@@ -14,6 +14,8 @@ import pandas as pd
 import numpy as np
 from peft import PeftModel, PeftConfig
 import wandb
+
+from rlhf.ppo.ppo_rm_ensemble import kwargs
 from rlhf.ppo.ppo_utils import post_process_common_dataset
 
 @dataclass
@@ -46,6 +48,7 @@ class ScriptArguments:
         metadata={"help": "Maximum number of new tokens to generate"}
     )
     batch_size: Optional[int] = field(default=8)
+    generation_batch_size: Optional[int] = field(default=8)
     device: Optional[str] = field(default="cuda")
     output_file: Optional[str] = field(default="evaluation_results.csv")
     num_responses_per_prompt: Optional[int] = field(
@@ -75,11 +78,19 @@ class ScriptArguments:
 
 def load_reward_model(model_path_or_name, device):
     """Load a reward model and its tokenizer."""
-    tokenizer = AutoTokenizer.from_pretrained(model_path_or_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_path_or_name, trust_remote_code=True)
+    kwargs = {
+        "torch_dtype": torch.float16,
+        "device_map": device,
+        "trust_remote_code": True,
+        "attn_implementation": "flash_attention_2",
+    }
+    if 'QRM' in model_path_or_name:
+        kwargs['torch_dtype'] = torch.bfloat16
+
     model = AutoModelForSequenceClassification.from_pretrained(
         model_path_or_name,
-        torch_dtype=torch.float16,
-        device_map=device
+        **kwargs
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -282,7 +293,7 @@ def main():
                 input_ids_list,
                 attention_mask_list,
                 max_new_tokens=args.max_new_tokens,
-                batch_size=args.batch_size,
+                batch_size=args.generation_batch_size,
                 num_responses=args.num_responses_per_prompt
             )
 
