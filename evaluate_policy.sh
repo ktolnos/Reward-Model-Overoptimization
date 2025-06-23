@@ -7,6 +7,7 @@
 #SBATCH --time=12:00:00
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
+export HF_HOME="/nas/ucb/eop/cache"
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 
