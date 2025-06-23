@@ -1,5 +1,6 @@
 from typing import List
 from transformers import PreTrainedTokenizerBase, BatchEncoding
+import transformers
 transformers.models.llama.modeling_llama.LLAMA_INPUTS_DOCSTRING = "No docstring."
 
 
