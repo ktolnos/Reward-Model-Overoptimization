@@ -15,7 +15,6 @@ import numpy as np
 from peft import PeftModel, PeftConfig
 import wandb
 
-from rlhf.ppo.ppo_rm_ensemble import kwargs
 from rlhf.ppo.ppo_utils import post_process_common_dataset
 
 @dataclass
