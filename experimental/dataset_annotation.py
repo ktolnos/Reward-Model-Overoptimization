@@ -47,18 +47,20 @@ def load_reward_model(model_name, reasoning, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    kwargs = {
+        "torch_dtype": torch.float16,
+        "attn_implementation": "flash_attention_2",
+        "trust_remote_code": True,
+        "device_map": device
+    }
+    if 'QRM' in model_name:
+        kwargs["torch_dtype"] = torch.bfloat16
+
     print(f"Loading model {model_name} on {device}")
     if reasoning:
-        model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                     torch_dtype=torch.bfloat16,
-                                                     attn_implementation="flash_attention_2",
-                                                     trust_remote_code=True,
-                                                     device_map=device)
+        model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
     else:
-        model = AutoModelForSequenceClassification.from_pretrained(model_name,
-                                                                   torch_dtype=torch.float16,
-                                                                   attn_implementation="flash_attention_2",
-                                                                   device_map=device, trust_remote_code=True)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     print(model)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:

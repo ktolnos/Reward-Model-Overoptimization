@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, List
 import torch
+from sympy import false
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
@@ -16,6 +17,7 @@ from peft import PeftModel, PeftConfig
 import wandb
 
 from rlhf.ppo.ppo_utils import post_process_common_dataset
+from experimental.dataset_annotation import load_reward_model
 
 @dataclass
 class ScriptArguments:
@@ -75,27 +77,9 @@ class ScriptArguments:
         metadata={"help": "Whether to evaluate with the training reward model"}
     )
 
-def load_reward_model(model_path_or_name, device):
-    """Load a reward model and its tokenizer."""
-    tokenizer = AutoTokenizer.from_pretrained(model_path_or_name, trust_remote_code=True)
-    kwargs = {
-        "torch_dtype": torch.float16,
-        "device_map": device,
-        "trust_remote_code": True,
-        "attn_implementation": "flash_attention_2",
-    }
-    if 'QRM' in model_path_or_name:
-        kwargs['torch_dtype'] = torch.bfloat16
-
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_path_or_name,
-        **kwargs
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-    model.eval()  # Ensure model is in evaluation mode
-    return model, tokenizer
+def load_reward_model_impl(model_path_or_name, device):
+    model, tokenizer = load_reward_model(model_path_or_name, reasoning=False, device=device)
+    return  model, tokenizer
 
 def get_reward_score(model, tokenizer, texts, device, batch_size=8):
     """Get reward scores for a batch of texts."""
@@ -199,8 +183,8 @@ def main():
     # Load reward models
     print("Loading reward models...")
     if args.evaluate_with_training_rm:
-        training_rm, training_rm_tokenizer = load_reward_model(args.training_rm_path, args.device)
-    gold_rm, gold_rm_tokenizer = load_reward_model(args.gold_rm_name, args.device)
+        training_rm, training_rm_tokenizer = load_reward_model_impl(args.training_rm_path, args.device)
+    gold_rm, gold_rm_tokenizer = load_reward_model_impl(args.gold_rm_name, args.device)
     
     # Load evaluation dataset
     print("Loading evaluation dataset...")
