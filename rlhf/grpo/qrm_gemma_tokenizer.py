@@ -15,7 +15,10 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         self.bos_token = tokenizer.bos_token
 
     def __call__(self, *args, **kwargs):
-        text = kwargs['text']
+        text = kwargs.get('text', None)
+        if text is None:
+            text = args[0]
+            args = args[1:]
         pattern = "<end_of_turn>\n<start_of_turn>model\n"
         if pattern not in text:
             if isinstance(text, str):
