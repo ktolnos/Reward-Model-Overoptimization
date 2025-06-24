@@ -55,6 +55,8 @@ def load_reward_model(model_name, reasoning, device=None):
         "device_map": device
     }
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     if 'QRM' in model_name:
         kwargs["torch_dtype"] = torch.bfloat16
@@ -66,9 +68,6 @@ def load_reward_model(model_name, reasoning, device=None):
     else:
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     print(model)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
 
     model.eval()
     return model, tokenizer
