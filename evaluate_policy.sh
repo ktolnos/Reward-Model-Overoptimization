@@ -12,7 +12,7 @@ export HF_HOME="/nas/ucb/eop/cache"
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250620_123756"  # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250605_210908"  # Current directory with all checkpoints
 
 # Path to the training reward model
 #TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
