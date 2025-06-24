@@ -45,7 +45,7 @@ class ScriptArguments:
         metadata={"help": "Maximum sequence length for input processing"}
     )
     max_new_tokens: Optional[int] = field(
-        default=512,
+        default=1024,
         metadata={"help": "Maximum number of new tokens to generate"}
     )
     batch_size: Optional[int] = field(default=8)
@@ -90,8 +90,7 @@ def get_reward_score(model, tokenizer, texts, device, batch_size=8):
             batch_texts,
             return_tensors="pt",
             padding=True,
-            truncation=True,
-            max_length=1024,
+            truncation=False,
         )
         
         with torch.no_grad():
@@ -112,6 +111,12 @@ def is_peft_model(model_path):
 
 def collate_batch(input_ids_list, attention_mask_list, tokenizer):
     """Collate and pad a batch of input sequences to the longest sequence in the batch."""
+    if len(input_ids_list) <= 1:
+        # No padding needed for single item
+        return (
+            torch.tensor(input_ids_list),
+            torch.tensor(attention_mask_list)
+        )
     max_length = max(len(ids) for ids in input_ids_list)
     
     padded_input_ids = []
