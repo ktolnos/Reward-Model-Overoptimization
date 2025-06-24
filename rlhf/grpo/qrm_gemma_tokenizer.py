@@ -33,6 +33,7 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
             kwargs['text'] = text
         else:
             raise ValueError(f"Unsupported type for text: {type(text)}")
+        kwargs['truncation'] = False
 
         return self.tokenizer(*args, **kwargs)
 
