@@ -10,6 +10,7 @@ export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/uc
 export HF_HOME="/nas/ucb/eop/cache"
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
+source .bashrc
 
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_grpo/20250605_210908"  # Current directory with all checkpoints
