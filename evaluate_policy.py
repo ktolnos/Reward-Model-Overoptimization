@@ -299,7 +299,7 @@ def main():
     # --- Common Setup ---
     print("Loading evaluation dataset...")
     split = "test" if args.dataset_name.startswith("/") else "train"
-    dataset = load_dataset(args.dataset_name, split="test")
+    dataset = load_dataset(args.dataset_name, split=split)
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
