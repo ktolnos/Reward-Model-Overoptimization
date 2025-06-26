@@ -1,4 +1,7 @@
 import os
+import random
+import requests
+import json
 from dataclasses import dataclass, field
 from typing import Optional, List
 import torch
@@ -13,11 +16,11 @@ from datasets import load_dataset
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from peft import PeftModel, PeftConfig
 import wandb
 
 from rlhf.ppo.ppo_utils import post_process_common_dataset
 from experimental.dataset_annotation import load_reward_model
+from reward_utils import Skywork_PROMPT, Skywork_SYSTEM_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
 
 @dataclass
 class ScriptArguments:
@@ -35,10 +38,6 @@ class ScriptArguments:
     dataset_name: str = field(
         default="gagan3012/helpsteer2-gold",
         metadata={"help": "Name of the dataset to evaluate on"}
-    )
-    base_model_name: Optional[str] = field(
-        default=None,
-        metadata={"help": "Base model name for LoRA models. Required if using LoRA checkpoints."}
     )
     max_length: Optional[int] = field(
         default=1024,
@@ -76,6 +75,38 @@ class ScriptArguments:
         default=True,
         metadata={"help": "Whether to evaluate with the training reward model"}
     )
+    evaluate_with_llm_judge: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use an LLM as a judge for evaluation"}
+    )
+    llm_judge_model_name: Optional[str] = field(
+        default="google/gemma-7b-it",
+        metadata={"help": "Name of the LLM judge model on OpenRouter"}
+    )
+    openrouter_api_key: Optional[str] = field(
+        default=None,
+        metadata={"help": "OpenRouter API key. If not provided, tries to use OPENROUTER_API_KEY env var."}
+    )
+    baseline_model_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to the baseline model (Hugging Face model or checkpoint) for LLM judge comparison."}
+    )
+    use_dataset_response_as_baseline: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Use the 'response' column from the dataset as the baseline."}
+    )
+    llm_judge_max_new_tokens: Optional[int] = field(
+        default=1024,
+        metadata={"help": "Max new tokens for the LLM judge."}
+    )
+    save_eval_dataset_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to save the full evaluation dataset with all responses and verdicts (e.g., eval_results.jsonl)."}
+    )
+    subsample_n: Optional[int] = field(
+        default=None,
+        metadata={"help": "Number of prompts to randomly subsample from the dataset. If None, uses the full dataset."}
+    )
 
 def load_reward_model_impl(model_path_or_name, device):
     model, tokenizer = load_reward_model(model_path_or_name, reasoning=False, device=device)
@@ -105,9 +136,6 @@ def get_reward_score(model, tokenizer, texts, device, batch_size=8):
     
     return np.array(all_scores)
 
-def is_peft_model(model_path):
-    """Check if the model at the given path is a PEFT model."""
-    return os.path.exists(os.path.join(model_path, "adapter_config.json"))
 
 def collate_batch(input_ids_list, attention_mask_list, tokenizer):
     """Collate and pad a batch of input sequences to the longest sequence in the batch."""
@@ -170,6 +198,89 @@ def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, ma
     
     return all_responses
 
+def load_policy_model(model_path, tokenizer, device):
+    """Loads a policy model from a path."""
+    print(f"Loading model from {model_path}")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.float16,
+        device_map=device
+    )
+    model.resize_token_embeddings(len(tokenizer))
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.eval()
+    return model
+
+def get_llm_judge_verdicts(
+    prompts: List[str],
+    responses1: List[str],
+    responses2: List[str],
+    args: ScriptArguments,
+) -> List[int]:
+    """
+    Gets verdicts from an LLM judge for pairs of responses.
+    Returns a list of preferences: 1 if response1 is better, -1 if response2 is better, 0 for a tie.
+    """
+    api_key = args.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("OpenRouter API key must be provided via --openrouter_api_key or OPENROUTER_API_KEY env var.")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000", # Optional, but good practice
+        "X-Title": "Reward Model Overoptimization" # Optional, but good practice
+    }
+    
+    all_preferences = []
+    
+    # This is a simplified sequential implementation.
+    # For higher throughput, you might consider concurrent requests.
+    for i in tqdm(range(len(prompts)), desc="Querying LLM Judge"):
+        prompt = prompts[i]
+        resp1 = responses1[i]
+        resp2 = responses2[i]
+
+        # Randomly swap to mitigate position bias
+        swap = random.random() > 0.5
+        answer1, answer2 = (resp2, resp1) if swap else (resp1, resp2)
+        
+        user_prompt = Skywork_PROMPT.format(question=prompt, answer1=answer1, answer2=answer2)
+        
+        payload = {
+            "model": args.llm_judge_model_name,
+            "messages": [
+                {"role": "system", "content": Skywork_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+                {"role": "assistant", "content": Skywork_ASSISTANT_PROMPT},
+            ],
+            "max_tokens": args.llm_judge_max_new_tokens,
+            "temperature": 0.6,
+            "top_p": 0.9,
+        }
+        
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+            generated_text = result['choices'][0]['message']['content']
+            
+            preference = extract_reward_from_response(generated_text)
+            if swap:
+                preference *= -1 # un-swap
+            
+            all_preferences.append(preference)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error querying LLM Judge: {e}")
+            all_preferences.append(0) # Default to tie on error
+    
+    return all_preferences
+
 def main():
     parser = HfArgumentParser(ScriptArguments)
     args = parser.parse_args_into_dataclasses()[0]
@@ -185,20 +296,19 @@ def main():
             config=vars(args)
         )
     
-    # Load reward models
-    print("Loading reward models...")
-    if args.evaluate_with_training_rm:
-        training_rm, training_rm_tokenizer = load_reward_model_impl(args.training_rm_path, args.device)
-    gold_rm, gold_rm_tokenizer = load_reward_model_impl(args.gold_rm_name, args.device)
-    
-    # Load evaluation dataset
+    # --- Common Setup ---
     print("Loading evaluation dataset...")
     dataset = load_dataset(args.dataset_name, split="test")
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
-    
-    # Get all checkpoint directories
+    elif args.subsample_n is not None:
+        if args.subsample_n > len(dataset):
+            print(f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
+        else:
+            dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
+            print(f"Subsampling to {args.subsample_n} prompts.")
+
     checkpoints = sorted([
         d for d in os.listdir(args.checkpoints_dir)
         if d.startswith("checkpoint-")
@@ -207,28 +317,35 @@ def main():
     if not checkpoints:
         raise ValueError(f"No checkpoints found in directory: {args.checkpoints_dir}")
     
-    # Check if we're dealing with LoRA checkpoints
     first_checkpoint_path = os.path.join(args.checkpoints_dir, checkpoints[0])
-    if is_peft_model(first_checkpoint_path) and args.base_model_name is None:
-        raise ValueError(
-            "Found LoRA checkpoints but no base model specified. "
-            "Please provide --base_model_name"
-        )
     
-    # Load tokenizer once since it's the same for all checkpoints
     print("Loading tokenizer...")
-    tokenizer_path = args.base_model_name if args.base_model_name else first_checkpoint_path
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(first_checkpoint_path, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
     
-    # Process dataset once with the tokenizer
-    print("Processing dataset...")
-    processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+    # Prepare dataset based on its structure
+    if 'prompt' in dataset.column_names:
+        print("Using 'prompt' column for prompts.")
+        original_prompts = dataset['prompt']
+        processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+    elif 'chosen' in dataset.column_names:
+        print("Using 'chosen' column for prompts and responses.")
+        def extract_prompt_from_chosen(example):
+            # The prompt is the conversation up to the last turn.
+            return {'prompt': tokenizer.apply_chat_template(example['chosen'][:-1],
+                                                            tokenize=False,
+                                                            add_generation_prompt=True,
+                                                            enable_thinking=False)}
+        dataset = dataset.map(extract_prompt_from_chosen)
+        original_prompts = dataset['prompt']
+        processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+    else:
+        raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
+
     print(f"Using {len(processed_dataset)} processed prompts for evaluation")
     
-    # Convert input_ids and attention_mask to lists for processing
     input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
     attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
     
@@ -237,105 +354,189 @@ def main():
         checkpoints = checkpoints[:1]
     
     results = []
-    
-    for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
-        checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
-        print(f"\nEvaluating {checkpoint}")
+    full_eval_data = []
+
+    if args.evaluate_with_llm_judge:
+        # --- LLM-as-Judge Evaluation ---
+        print("Starting LLM-as-Judge evaluation...")
         
-        try:
-            # Load model (without tokenizer since we already have it)
-            print(f"Loading {'LoRA' if args.base_model_name else 'full'} model from {checkpoint_path}")
-            if args.base_model_name:
-                # Load the base model first
-                base_model = AutoModelForCausalLM.from_pretrained(
-                    args.base_model_name,
-                    torch_dtype=torch.float16,
-                    device_map=args.device
-                )
-                base_model.resize_token_embeddings(len(tokenizer))
-                base_model.config.pad_token_id = tokenizer.pad_token_id
-                
-                # Load and apply the LoRA adapter
-                model = PeftModel.from_pretrained(
-                    base_model,
-                    checkpoint_path,
-                    torch_dtype=torch.float16,
-                    device_map=args.device
-                )
-            else:
-                # Load the full model directly
-                model = AutoModelForCausalLM.from_pretrained(
-                    checkpoint_path,
-                    torch_dtype=torch.float16,
-                    device_map=args.device
-                )
-                model.resize_token_embeddings(len(tokenizer))
-                model.config.pad_token_id = tokenizer.pad_token_id
-            
-            model.eval()
-            
-            # Generate responses using processed input_ids and attention_mask
-            responses = generate_responses(
-                model,
+        if not args.baseline_model_path and not args.use_dataset_response_as_baseline:
+            raise ValueError(
+                "Either --baseline_model_path or --use_dataset_response_as_baseline must be specified for LLM judge evaluation."
+            )
+
+        baseline_responses = []
+        if args.use_dataset_response_as_baseline:
+            print("Using dataset 'chosen' column as baseline response.")
+            if 'chosen' not in dataset.column_names:
+                raise ValueError("Dataset must have a 'chosen' column to use it as a baseline.")
+            def extract_response_from_chosen(example):
+                return {'response': example['chosen'][-1]['content']}
+            baseline_responses = dataset.map(extract_response_from_chosen)['response']
+        else:
+            baseline_model = load_policy_model(
+                args.baseline_model_path,
+                tokenizer,
+                args.device
+            )
+            print("Generating baseline responses...")
+            baseline_responses = generate_responses(
+                baseline_model,
                 tokenizer,
                 input_ids_list,
                 attention_mask_list,
                 max_new_tokens=args.max_new_tokens,
                 batch_size=args.generation_batch_size,
-                num_responses=args.num_responses_per_prompt
+                num_responses=1
             )
+            del baseline_model
+            torch.cuda.empty_cache()
 
-            print(responses[:5])  # Print first 5 responses for debugging
+        # Initialize the full_eval_data list
+        for i in range(len(original_prompts)):
+            full_eval_data.append({
+                "prompt": original_prompts[i],
+                "baseline_response": baseline_responses[i],
+                "checkpoints": {}
+            })
 
-            if args.evaluate_with_training_rm:
-                # Get reward scores
-                training_rm_scores = get_reward_score(
-                    training_rm,
-                    training_rm_tokenizer,
+        for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints with LLM Judge"):
+            checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
+            checkpoint_num = int(checkpoint.split("-")[1])
+            print(f"\nEvaluating {checkpoint}")
+            
+            try:
+                model = load_policy_model(
+                    checkpoint_path,
+                    tokenizer,
+                    args.device
+                )
+                
+                policy_responses = generate_responses(
+                    model,
+                    tokenizer,
+                    input_ids_list,
+                    attention_mask_list,
+                    max_new_tokens=args.max_new_tokens,
+                    batch_size=args.generation_batch_size,
+                    num_responses=args.num_responses_per_prompt
+                )
+                
+                verdicts = get_llm_judge_verdicts(
+                    original_prompts,
+                    policy_responses,
+                    baseline_responses,
+                    args
+                )
+                
+                for i in range(len(original_prompts)):
+                    full_eval_data[i]["checkpoints"][checkpoint_num] = {
+                        "policy_response": policy_responses[i],
+                        "llm_judge_verdict": verdicts[i]
+                    }
+
+                wins = verdicts.count(1)
+                losses = verdicts.count(-1)
+                ties = verdicts.count(0)
+                total = len(verdicts)
+                
+                checkpoint_results = {
+                    "checkpoint": checkpoint_num,
+                    "win_rate": wins / total if total > 0 else 0,
+                    "loss_rate": losses / total if total > 0 else 0,
+                    "tie_rate": ties / total if total > 0 else 0,
+                    "total_comparisons": total,
+                }
+
+                if not args.disable_wandb:
+                    wandb_log_data = {f"llm_judge/{k}": v for k, v in checkpoint_results.items() if k != 'checkpoint'}
+                    wandb_log_data['checkpoint'] = checkpoint_num
+                    wandb.log(wandb_log_data)
+
+                results.append(checkpoint_results)
+
+            finally:
+                if 'model' in locals():
+                    del model
+                torch.cuda.empty_cache()
+
+    else:
+        # --- Reward Model Evaluation (Original Logic) ---
+        print("Starting Reward Model evaluation...")
+        print("Loading reward models...")
+        if args.evaluate_with_training_rm:
+            training_rm, training_rm_tokenizer = load_reward_model_impl(args.training_rm_path, args.device)
+        gold_rm, gold_rm_tokenizer = load_reward_model_impl(args.gold_rm_name, args.device)
+
+        for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
+            checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
+            print(f"\nEvaluating {checkpoint}")
+            
+            try:
+                model = load_policy_model(
+                    checkpoint_path,
+                    tokenizer,
+                    args.device
+                )
+                
+                responses = generate_responses(
+                    model,
+                    tokenizer,
+                    input_ids_list,
+                    attention_mask_list,
+                    max_new_tokens=args.max_new_tokens,
+                    batch_size=args.generation_batch_size,
+                    num_responses=args.num_responses_per_prompt
+                )
+
+                print(responses[:5])
+
+                if args.evaluate_with_training_rm:
+                    training_rm_scores = get_reward_score(
+                        training_rm,
+                        training_rm_tokenizer,
+                        responses,
+                        args.device,
+                        args.batch_size
+                    )
+                
+                gold_rm_scores = get_reward_score(
+                    gold_rm,
+                    gold_rm_tokenizer,
                     responses,
                     args.device,
                     args.batch_size
                 )
-            
-            gold_rm_scores = get_reward_score(
-                gold_rm,
-                gold_rm_tokenizer,
-                responses,
-                args.device,
-                args.batch_size
-            )
-            
-            # Calculate statistics
-            checkpoint_num = int(checkpoint.split("-")[1])
-            checkpoint_results = {
-                "checkpoint": checkpoint_num,
-                "gold_rm_mean": float(np.mean(gold_rm_scores)),
-                "gold_rm_std": float(np.std(gold_rm_scores)),
-                "gold_rm/scores_hist": wandb.Histogram(gold_rm_scores),
-            }
-            if args.evaluate_with_training_rm:
-                checkpoint_results["training_rm_mean"] = float(np.mean(training_rm_scores))
-                checkpoint_results["training_rm_std"] = float(np.std(training_rm_scores))
-                checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(training_rm_scores)
+                
+                checkpoint_num = int(checkpoint.split("-")[1])
+                checkpoint_results = {
+                    "checkpoint": checkpoint_num,
+                    "gold_rm/mean": float(np.mean(gold_rm_scores)),
+                    "gold_rm/std": float(np.std(gold_rm_scores)),
+                }
+                if not args.disable_wandb:
+                    checkpoint_results["gold_rm/scores_hist"] = wandb.Histogram(gold_rm_scores)
 
-            # Log to wandb
-            if not args.disable_wandb:
-                wandb.log(checkpoint_results)
+                if args.evaluate_with_training_rm:
+                    checkpoint_results["training_rm/mean"] = float(np.mean(training_rm_scores))
+                    checkpoint_results["training_rm/std"] = float(np.std(training_rm_scores))
+                    if not args.disable_wandb:
+                        checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(training_rm_scores)
 
-            del checkpoint_results["gold_rm/scores_hist"]
-            if args.evaluate_with_training_rm:
-                del checkpoint_results["training_rm/scores_hist"]
-            results.append(checkpoint_results)
-            
-        finally:
-            # Free up memory
-            if 'model' in locals():
-                del model
-            if 'base_model' in locals():
-                del base_model
-            torch.cuda.empty_cache()
-    
-    # Save results to CSV
+                if not args.disable_wandb:
+                    wandb.log(checkpoint_results)
+
+                if "gold_rm/scores_hist" in checkpoint_results:
+                    del checkpoint_results["gold_rm/scores_hist"]
+                if "training_rm/scores_hist" in checkpoint_results:
+                    del checkpoint_results["training_rm/scores_hist"]
+                results.append(checkpoint_results)
+                
+            finally:
+                if 'model' in locals():
+                    del model
+                torch.cuda.empty_cache()
+
     if results:
         results_df = pd.DataFrame(results)
         if args.debug:
@@ -345,9 +546,15 @@ def main():
     else:
         print("\nNo results were generated!")
     
-    # Close wandb
+    if args.save_eval_dataset_path and full_eval_data:
+        with open(args.save_eval_dataset_path, 'w') as f:
+            for item in full_eval_data:
+                f.write(json.dumps(item) + "\n")
+        print(f"Full evaluation data saved to {args.save_eval_dataset_path}")
+
     if not args.disable_wandb:
         wandb.finish()
 
+
 if __name__ == "__main__":
-    main() 
+    main()

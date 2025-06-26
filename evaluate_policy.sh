@@ -56,6 +56,12 @@ python evaluate_policy.py \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
     --evaluate_with_training_rm True \
+    --evaluate_with_llm_judge True \
+    --llm_judge_model_name "deepseek/deepseek-chat-v3-0324:free" \
+    --baseline_model_path "Qwen/Qwen3-0.6B" \
+    --use_dataset_response_as_baseline True \
+    --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
+    --subsample_n 25 \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 
