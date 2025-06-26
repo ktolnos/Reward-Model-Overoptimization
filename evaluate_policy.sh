@@ -25,7 +25,8 @@ TRAINING_RM_PATH="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 GOLD_RM_NAME="nicolinho/QRM-Gemma-2-27B"
 
 # Dataset name
-DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
+#DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
+DATASET_NAME="gagan3012/helpsteer2-preference-v2"
 
 
 # Base model name (required for LoRA checkpoints)
