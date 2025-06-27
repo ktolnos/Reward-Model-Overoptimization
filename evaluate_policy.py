@@ -3,7 +3,7 @@ import random
 import requests
 import json
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import torch
 from sympy import false
 from transformers import (
@@ -216,7 +216,7 @@ def get_llm_judge_verdicts(
     responses1: List[str],
     responses2: List[str],
     args: ScriptArguments,
-) -> List[int]:
+) -> Tuple[List[int], List[str]]:
     """
     Gets verdicts from an LLM judge for pairs of responses.
     Returns a list of preferences: 1 if response1 is better, -1 if response2 is better, 0 for a tie.
@@ -233,6 +233,7 @@ def get_llm_judge_verdicts(
     }
     
     all_preferences = []
+    all_responses = []
     
     # This is a simplified sequential implementation.
     # For higher throughput, you might consider concurrent requests.
@@ -268,6 +269,7 @@ def get_llm_judge_verdicts(
             response.raise_for_status()
             result = response.json()
             generated_text = result['choices'][0]['message']['content']
+            all_responses.append(generated_text)
             
             preference = extract_reward_from_response(generated_text)
             if swap:
@@ -279,7 +281,7 @@ def get_llm_judge_verdicts(
             print(f"Error querying LLM Judge: {e}")
             all_preferences.append(0) # Default to tie on error
     
-    return all_preferences
+    return all_preferences, all_responses
 
 def main():
     parser = HfArgumentParser(ScriptArguments)
@@ -423,7 +425,7 @@ def main():
                     num_responses=args.num_responses_per_prompt
                 )
                 
-                verdicts = get_llm_judge_verdicts(
+                verdicts, judge_responses = get_llm_judge_verdicts(
                     original_prompts,
                     policy_responses,
                     baseline_responses,
@@ -433,6 +435,7 @@ def main():
                 for i in range(len(original_prompts)):
                     full_eval_data[i]["checkpoints"][checkpoint_num] = {
                         "policy_response": policy_responses[i],
+                        "llm_judge_response": judge_responses[i],
                         "llm_judge_verdict": verdicts[i]
                     }
 
