@@ -3,7 +3,7 @@
 #SBATCH --job-name=evaluate_policy
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
-#SBATCH --gres=shard:10
+#SBATCH --gres=shard:13
 #SBATCH --time=12:00:00
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"

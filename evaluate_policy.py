@@ -2,6 +2,7 @@ import os
 import random
 import requests
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 import torch
@@ -260,26 +261,55 @@ def get_llm_judge_verdicts(
             "top_p": 0.9,
         }
         
-        try:
-            response = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            result = response.json()
-            generated_text = result['choices'][0]['message']['content']
-            all_responses.append(generated_text)
-            
-            preference = extract_reward_from_response(generated_text)
-            if swap:
-                preference *= -1 # un-swap
-            
-            all_preferences.append(preference)
+        retries = 5
+        backoff_factor = 1
+        for attempt in range(retries):
+            try:
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                result = response.json()
+                generated_text = result['choices'][0]['message']['content']
+                all_responses.append(generated_text)
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error querying LLM Judge: {e}")
-            all_preferences.append(0) # Default to tie on error
+                preference = extract_reward_from_response(generated_text)
+                if swap:
+                    preference *= -1 # un-swap
+
+                all_preferences.append(preference)
+                break  # Success, exit retry loop
+
+            except requests.exceptions.RequestException as e:
+                if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+                    if attempt < retries - 1:
+                        # Try to get the specific wait time from the 'Retry-After' header
+                        retry_after_header = e.response.headers.get("Retry-After")
+                        if retry_after_header:
+                            try:
+                                sleep_time = int(retry_after_header) + 1 # Add 1s buffer
+                                print(f"Rate limit exceeded. Following server's 'Retry-After' header. Waiting for {sleep_time} seconds.")
+                            except ValueError:
+                                # If the header is a date, this will fail. Fallback to exponential backoff.
+                                sleep_time = backoff_factor * (2 ** attempt) + random.uniform(0, 1)
+                                print(f"Rate limit exceeded. Could not parse 'Retry-After' header. Retrying in {sleep_time:.2f} seconds...")
+                        else:
+                            # Fallback to exponential backoff if the header is not present
+                            sleep_time = backoff_factor * (2 ** attempt) + random.uniform(0, 1)
+                            print(f"Rate limit exceeded. Retrying in {sleep_time:.2f} seconds (exponential backoff)...")
+                        
+                        time.sleep(sleep_time)
+                    else:
+                        print(f"Error querying LLM Judge after multiple retries: {e}")
+                        all_preferences.append(0) # Default to tie on error
+                        all_responses.append(f"Error querying LLM Judge: {e}")
+                else:
+                    print(f"Error querying LLM Judge: {e}")
+                    all_preferences.append(0) # Default to tie on error
+                    all_responses.append(f"Error querying LLM Judge: {e}")
+                    break # Don't retry for other errors
     
     return all_preferences, all_responses
 
