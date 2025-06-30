@@ -286,10 +286,10 @@ def get_llm_judge_verdicts(
                 break  # Success, exit retry loop
 
             except BaseException as e:
-                if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+                if isinstance(e, requests.exceptions.HTTPError) and (e.response.status_code == 429 or e.response.status_code == 500) or isinstance(e, KeyError): # sometimes server returns error in the body
                     if attempt < retries - 1:
                         # Try to get the specific wait time from the 'Retry-After' header
-                        retry_after_header = e.response.headers.get("Retry-After")
+                        retry_after_header = e.response.headers.get("Retry-After") if hasattr(e, "response") else None
                         if retry_after_header:
                             try:
                                 sleep_time = int(retry_after_header) + 1 # Add 1s buffer
