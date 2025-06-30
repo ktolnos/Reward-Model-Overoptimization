@@ -257,8 +257,11 @@ def get_llm_judge_verdicts(
                 {"role": "assistant", "content": Skywork_ASSISTANT_PROMPT},
             ],
             "max_tokens": args.llm_judge_max_new_tokens,
-            "temperature": 0.6,
+            "temperature": 0,
             "top_p": 0.9,
+            # "providers": {
+            #     "order": ["targon", "chutes/fp8"]
+            # }
         }
         
         retries = 5
