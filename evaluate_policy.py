@@ -265,7 +265,7 @@ def get_llm_judge_verdicts(
         }
         
         retries = 5
-        backoff_factor = 1
+        backoff_factor = 2
         for attempt in range(retries):
             try:
                 response = requests.post(
@@ -285,7 +285,7 @@ def get_llm_judge_verdicts(
                 all_preferences.append(preference)
                 break  # Success, exit retry loop
 
-            except requests.exceptions.RequestException as e:
+            except BaseException as e:
                 if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
                     if attempt < retries - 1:
                         # Try to get the specific wait time from the 'Retry-After' header
@@ -309,9 +309,9 @@ def get_llm_judge_verdicts(
                         all_preferences.append(0) # Default to tie on error
                         all_responses.append(f"Error querying LLM Judge: {e}")
                 else:
-                    print(f"Error querying LLM Judge: {e}")
+                    print(f"Error querying LLM Judge: {e}\n\nlocals:\n{locals()}")
                     all_preferences.append(0) # Default to tie on error
-                    all_responses.append(f"Error querying LLM Judge: {e}")
+                    all_responses.append(f"Error querying LLM Judge: {e}\n\nlocals:\n{locals()}")
                     break # Don't retry for other errors
     
     return all_preferences, all_responses
@@ -491,6 +491,17 @@ def main():
                     wandb.log(wandb_log_data)
 
                 results.append(checkpoint_results)
+            except Exception as e:
+                print(f"Error evaluating checkpoint {checkpoint}: {e}")
+                # Log an empty result for this checkpoint
+                results.append({
+                    "checkpoint": checkpoint_num,
+                    "win_rate": None,
+                    "loss_rate": None,
+                    "tie_rate": None,
+                    "total_comparisons": 0
+                })
+                continue
 
             finally:
                 if 'model' in locals():
