@@ -331,10 +331,20 @@ def get_reward_reasoning(
 
 def extract_reward_from_response(response):
     lower_response = response.lower()
-    pos_assistant1 = lower_response.rfind("assistant 1")
-    pos_assistant2 = lower_response.rfind("assistant 2")
+
+    pos_assistant1 = lower_response.rfind("boxed{assistant 1}")
+    pos_assistant2 = lower_response.rfind("boxed{assistant 2}")
 
     # If neither phrase is found, rfind() returns -1 for both.
+    if pos_assistant1 == -1 and pos_assistant2 == -1:
+        pos_assistant1 = lower_response.rfind("{assistant 1}")
+        pos_assistant2 = lower_response.rfind("{assistant 2}")
+
+    if pos_assistant1 == -1 and pos_assistant2 == -1:
+        pos_assistant1 = lower_response.rfind("assistant 1")
+        pos_assistant2 = lower_response.rfind("assistant 2")
+
+
     if pos_assistant1 == -1 and pos_assistant2 == -1:
         return 0
 
