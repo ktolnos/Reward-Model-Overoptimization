@@ -340,9 +340,9 @@ def extract_reward_from_response(response):
         pos_assistant1 = lower_response.rfind("{assistant 1}")
         pos_assistant2 = lower_response.rfind("{assistant 2}")
 
-    if pos_assistant1 == -1 and pos_assistant2 == -1:
-        pos_assistant1 = lower_response.rfind("assistant 1")
-        pos_assistant2 = lower_response.rfind("assistant 2")
+    # if pos_assistant1 == -1 and pos_assistant2 == -1:
+    #     pos_assistant1 = lower_response.rfind("assistant 1")
+    #     pos_assistant2 = lower_response.rfind("assistant 2")
 
 
     if pos_assistant1 == -1 and pos_assistant2 == -1:
