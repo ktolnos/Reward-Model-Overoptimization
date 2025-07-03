@@ -11,7 +11,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
 export HF_HOME="/nas/ucb/eop/cache"
 
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
-base_model_name="Qwen/Qwen3-0.6B" # policy base model
+base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
 dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B_reward_Gemma2_2B_ray_gold_URM_LLama8B/"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
@@ -48,7 +48,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_generations 8 \
     --num_train_epochs 2 \
     --temperature 0.9 \
-    --max_prompt_length 512 \
+    --max_prompt_length 1024 \
     --max_completion_length 1024 \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
@@ -77,8 +77,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
-    --reference_rewards True \
-    --sigmoid_rewards True \
+    --reference_rewards False \
+    --sigmoid_rewards False \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \
@@ -90,6 +90,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #    --gradient_checkpointing True \
 #    --max_completion_length 256 \
 #     --vllm_gpu_memory_utilization 0.08 \
+#    --max_prompt_length 512 \
 
 # For RRM:
 #    --reward_model_paths "Reward-Reasoning/RRM-7B" \
