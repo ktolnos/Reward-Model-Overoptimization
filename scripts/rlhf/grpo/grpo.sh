@@ -66,7 +66,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "Ray2333/GRM-gemma2-2B-rewardmodel-ft" \
+    --reward_model_paths "LxzGordon/URM-LLaMa-3.1-8B" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
