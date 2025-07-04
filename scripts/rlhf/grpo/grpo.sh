@@ -34,7 +34,7 @@ export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9992
+export MASTER_PORT=9994
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
@@ -46,7 +46,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
     --num_generations 8 \
-    --num_train_epochs 2 \
+    --num_train_epochs 1 \
     --temperature 0.9 \
     --max_prompt_length 1024 \
     --max_completion_length 1024 \
@@ -66,11 +66,11 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "LxzGordon/URM-LLaMa-3.1-8B" \
+    --reward_model_paths "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
-    --logging_steps 0.005 \
+    --logging_steps 0.01 \
     --learning_rate ${learning_rate} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
@@ -79,6 +79,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --trust_remote_code True \
     --reference_rewards False \
     --sigmoid_rewards False \
+    --save_generations_path "${log_dir}/generations.csv" \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \

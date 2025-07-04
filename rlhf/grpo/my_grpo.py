@@ -51,6 +51,7 @@ class ScriptArguments:
                                                 metadata={
                                                     'help': 'how to aggregate rewards from multiple reward models. Options: mean, min'}
                                                 )
+    save_generations_path: Optional[str] = field(default=None, metadata={'help': 'path to save generations and rewards'})
 
 
 if __name__ == "__main__":
@@ -119,7 +120,7 @@ if __name__ == "__main__":
 
     trainer = None
 
-    reward_controller = RewardController()
+    reward_controller = RewardController(save_path=script_args.save_generations_path)
     reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller)
     ################
     # Training

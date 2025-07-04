@@ -20,6 +20,17 @@ from reward_utils import get_reward
 class RewardController:
     trainer: GRPOTrainer = None
     logging_steps: float = 1
+    save_path: str = None
+    generations_df: pd.DataFrame = None
+
+    def __post_init__(self):
+        if self.save_path and self.generations_df is None:
+            if os.path.exists(self.save_path):
+                print(f"Loading existing generations from {self.save_path}")
+                self.generations_df = pd.read_csv(self.save_path)
+            else:
+                print(f"Creating new generations file at {self.save_path}")
+                self.generations_df = pd.DataFrame(columns=['prompt', 'completion', 'reward'])
 
 
 def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
@@ -85,6 +96,17 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             reward = rewards.min(dim=1).values
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
+
+        if controller.save_path is not None:
+            new_data = pd.DataFrame({
+                'prompt': prompts,
+                'completion': completions,
+                'reward': reward.tolist()
+            })
+            controller.generations_df = pd.concat([controller.generations_df, new_data], ignore_index=True)
+            if controller.trainer.state.global_step > 0 and controller.trainer.state.global_step % controller.logging_steps == 0:
+                controller.generations_df.to_csv(controller.save_path, index=False)
+
         return reward.tolist()
 
     return model_reward_func
