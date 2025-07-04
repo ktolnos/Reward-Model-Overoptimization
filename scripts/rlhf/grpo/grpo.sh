@@ -80,6 +80,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --reference_rewards False \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
+    --adv_rm_lambda 1.0 \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \

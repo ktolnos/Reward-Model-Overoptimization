@@ -10,9 +10,11 @@ devices=0
 n_gpu=1
 # export NCCL_P2P_DISABLE=1
 # dataset_name='hendrydong/preference_700K'
-dataset_name='../experimental/data/helpsteer2_gold/'
+#dataset_name='../experimental/data/helpsteer2_gold/'
+dataset_name='gagan3012/helpsteer2-preference-v2'
 base_model='Qwen/Qwen3-0.6B'
-wandb_name="BT_RM_Qwen3-0.6B_${SLURM_JOB_ID}"
+seed=42
+wandb_name="${seed}_BT_RM_Qwen3-0.6B_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
 
@@ -33,4 +35,5 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
-    --dataset ${dataset_name}
+    --dataset ${dataset_name} \
+    --seed ${seed} \

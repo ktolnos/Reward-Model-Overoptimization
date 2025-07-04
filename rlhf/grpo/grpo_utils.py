@@ -73,33 +73,45 @@ def post_process_common_dataset(ds, tokenizer, max_length):
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
     rew_mean_sum = defaultdict(float)
     rew_mean_count = defaultdict(int)
+
+    reference_rewards = None
+    if script_args.reference_rewards:
+        reference_rewards = kwargs.get('reference_reward', None)
+        assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
+        if isinstance(reference_rewards, list):
+            reference_rewards = torch.stack(reference_rewards)
+
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
+        should_log = controller.trainer.state.global_step % controller.logging_steps == 0
 
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
+        rewards_dict = {}
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
             rew_mean_sum[reward_model] += rew.mean().item()
             rew_mean_count[reward_model] += 1
-            if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
+            rewards_dict[reward_model.config._name_or_path].append(rew)
+            if should_log and wandb.run is not None:
                 wandb.log({
                     f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
                 }, step=wandb.run.step)
-                rew_mean_sum[reward_model] = 0
-                rew_mean_count[reward_model] = 0
-            if script_args.reference_rewards:
-                reference_rewards = kwargs.get('reference_reward', None)
-                assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
-                if isinstance(reference_rewards, list):
-                    reference_rewards = torch.stack(reference_rewards)
+
+            if script_args.reference_rewards and script_args.adv_rm_lambda == 0:
                 rew = rew - reference_rewards
             if script_args.sigmoid_rewards:
                 rew = torch.sigmoid(rew)
             rewards.append(rew)
 
         rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
-        if script_args.ensemble_aggregation == 'mean':
+        if script_args.adv_rm_lambda != 0:
+            assert rewards.shape[1] == 2, "Adv-RM requires exactly 2 reward models"
+            assert reference_rewards is not None, "Reference rewards must be provided for Adv-RM"
+            rewards_above_ref = rewards[:, 0] - script_args.adv_rm_lambda * rewards[:, 1]
+            rewards_below_ref = rewards[:, 0] - 25
+            reward = torch.where(rewards[:, 0] > reference_rewards, rewards_above_ref, rewards_below_ref)
+        elif script_args.ensemble_aggregation == 'mean':
             reward = rewards.mean(dim=1)
         elif script_args.ensemble_aggregation == 'min':
             reward = rewards.min(dim=1).values
@@ -107,15 +119,24 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
 
         if controller.save_path is not None:
-            new_data = pd.DataFrame({
+            new_data = {
                 'prompt': prompts,
                 'completion': completions,
                 'reward': reward.tolist()
-            })
-            controller.generations_df = pd.concat([controller.generations_df, new_data], ignore_index=True)
-            if controller.trainer.state.global_step > 0 and controller.trainer.state.global_step % controller.logging_steps == 0:
+            }
+            if script_args.reference_rewards:
+                new_data['reference_reward'] = reference_rewards.tolist()
+
+            for reward_model in reward_models:
+                new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[reward_model.config._name_or_path].tolist()
+            controller.generations_df = pd.concat([controller.generations_df, pd.DataFrame(new_data)], ignore_index=True)
+            if should_log:
                 controller.generations_df.to_csv(controller.save_path, index=False)
 
+        if should_log:
+            for reward_model in reward_models:
+                rew_mean_sum[reward_model] = 0
+                rew_mean_count[reward_model] = 0
         return reward.tolist()
 
     return model_reward_func

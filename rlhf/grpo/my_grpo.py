@@ -52,6 +52,9 @@ class ScriptArguments:
                                                     'help': 'how to aggregate rewards from multiple reward models. Options: mean, min'}
                                                 )
     save_generations_path: Optional[str] = field(default=None, metadata={'help': 'path to save generations and rewards'})
+    adv_rm_lambda: Optional[float] = field(default=0.0,
+                                           metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
+                                                             'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ class ScriptArguments:
     save_strategy: Optional[str] = field(default="epoch")
     save_steps: Optional[int] = field(default=0.1)
     debug: Optional[bool] = field(default=False, metadata={'help': 'if debug=True, only train with 100 samples'})
-    
+    seed: Optional[int] = field(default=42, metadata={'help': 'random seed for data shuffling'})
 
 
 parser = HfArgumentParser(ScriptArguments)
@@ -108,7 +108,8 @@ if 'Qwen' in script_args.base_model:
     tokenizer.padding_side = 'left' # left is not supported in Qwen flash attention
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None)
+train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None,
+                                                      seed=script_args.seed)
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 
