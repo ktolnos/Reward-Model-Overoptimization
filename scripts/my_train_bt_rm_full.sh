@@ -21,9 +21,9 @@ main_process_port=9994
 learning_rate=1e-5
 max_length=3000
 num_train_epochs=1
-gradient_accumulation_steps=16
-per_device_train_batch_size=4
-per_device_eval_batch_size=4
+gradient_accumulation_steps=8
+per_device_train_batch_size=8
+per_device_eval_batch_size=8
 
 cd ../reward_models
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} run_reward_models_train.py \
