@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Union, Any, Mapping
 
@@ -70,15 +71,23 @@ def post_process_common_dataset(ds, tokenizer, max_length):
 
 
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
+    rew_mean_sum = defaultdict(float)
+    rew_mean_count = defaultdict(int)
     def model_reward_func(prompts, completions, **kwargs):
+        global rew_mean_sum, rew_mean_count
+
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
         for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
+            rew_mean_sum[reward_model] += rew.mean().item()
+            rew_mean_count[reward_model] += 1
             if controller.trainer.state.global_step % controller.logging_steps == 0 and wandb.run is not None:
                 wandb.log({
-                    f"reward/{reward_model.config._name_or_path}": rew.mean().item(),
+                    f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
                 }, step=wandb.run.step)
+                rew_mean_sum[reward_model] = 0
+                rew_mean_count[reward_model] = 0
             if script_args.reference_rewards:
                 reference_rewards = kwargs.get('reference_reward', None)
                 assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
