@@ -66,7 +66,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136/" "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen3-0.6B_912839_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs" \
+    --reward_model_paths "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136/" "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen3-0.6B_912839_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
