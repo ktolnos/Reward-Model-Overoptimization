@@ -69,11 +69,9 @@ def post_process_common_dataset(ds, tokenizer, max_length):
     ds.set_format(type="torch")
     return ds
 
-
+rew_mean_sum = defaultdict(float)
+rew_mean_count = defaultdict(int)
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
-    rew_mean_sum = defaultdict(float)
-    rew_mean_count = defaultdict(int)
-
     reference_rewards = None
     if script_args.reference_rewards:
         reference_rewards = kwargs.get('reference_reward', None)
