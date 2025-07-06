@@ -90,7 +90,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
             rew_mean_sum[reward_model] += rew.mean().item()
             rew_mean_count[reward_model] += 1
-            rewards_dict[reward_model.config._name_or_path].append(rew)
+            rewards_dict[reward_model] = rew
             if should_log and wandb.run is not None:
                 wandb.log({
                     f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
@@ -126,7 +126,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 new_data['reference_reward'] = reference_rewards.tolist()
 
             for reward_model in reward_models:
-                new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[reward_model.config._name_or_path].tolist()
+                new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[reward_model].tolist()
             controller.generations_df = pd.concat([controller.generations_df, pd.DataFrame(new_data)], ignore_index=True)
             if should_log:
                 controller.generations_df.to_csv(controller.save_path, index=False)
