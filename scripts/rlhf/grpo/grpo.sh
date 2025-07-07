@@ -10,6 +10,8 @@
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
 export HF_HOME="/nas/ucb/eop/cache"
 export TMPDIR="/nas/ucb/eop/temp"
+export TEMP="/nas/ucb/eop/temp"
+export TMP="/nas/ucb/eop/temp"
 export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
 export TORCHINDUCTOR_CACHE_DIR="/nas/ucb/eop/temp/torchinductor_cache"
 
