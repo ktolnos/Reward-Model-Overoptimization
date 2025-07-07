@@ -14,6 +14,8 @@ export TEMP="/nas/ucb/eop/temp"
 export TMP="/nas/ucb/eop/temp"
 export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
 export TORCHINDUCTOR_CACHE_DIR="/nas/ucb/eop/temp/torchinductor_cache"
+export TORCHINDUCTOR_FX_GRAPH_CACHE="/nas/ucb/eop/temp/fx_graph_cache"
+export VLLM_DISABLE_COMPILE_CACHE=1
 
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
