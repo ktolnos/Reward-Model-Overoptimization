@@ -490,7 +490,7 @@ class ScriptArguments:
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=32, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="data/annotated_ref_reward/train.json",
+    output_path: str = field(default="data/annotated_helpsteer2_Qwen06B-Base/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
     debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
