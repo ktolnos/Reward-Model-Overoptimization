@@ -419,11 +419,30 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json"):
     Returns:
         list: List of dictionaries with evaluation results
     """
-    with open(input_path, "r") as f:
-        results = json.load(f)
+    if input_path.endswith(".json"):
+        with open(input_path, "r") as f:
+            results = json.load(f)
 
-    print(f"Loaded {len(results)} examples from {input_path}")
-    return results
+        print(f"Loaded {len(results)} examples from {input_path}")
+        return results
+    elif input_path == "helpsteer2":
+        dataset = load_helpsteer2_dataset(split="train")
+        results = []
+        for i in range(len(dataset)):
+            item = dataset[i]
+            results.append({
+                "chosen": item["chosen"],
+                "rejected": item["rejected"],
+                "preference_strength": item["preference_strength"],
+                "does_gold_agree_with_original": True,  # Placeholder for gold evaluation
+                "chosen_reward": item["preference_strength"],  # Placeholder for gold evaluation
+                "rejected_reward": -item["preference_strength"],  # Placeholder for gold evaluation
+            })
+        return results
+    else:
+        raise ValueError(f"Unsupported input path format: {input_path}. Expected a JSON file or 'helpsteer2'.")
+
+
 
 
 def annotate_dataset(model_name,
@@ -478,15 +497,15 @@ class ScriptArguments:
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
-        default="reference_reward",
+        default="reference_policy",
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='data/annotated_dataset/train.json',
+        default='helpsteer2',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
     )
     reference_policy_name: str = field(
-        default="Qwen/Qwen3-0.6B",
+        default="Qwen/Qwen3-0.6B-Base",
         metadata={"help": "Name of the causal LLM to use as the reference policy."}
     )
     reference_reward_model_name: str = field(
