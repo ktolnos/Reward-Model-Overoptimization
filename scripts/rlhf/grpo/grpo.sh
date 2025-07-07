@@ -11,6 +11,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
 export HF_HOME="/nas/ucb/eop/cache"
 export TMPDIR="/nas/ucb/eop/temp"
 export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
+export TORCHINDUCTOR_CACHE_DIR="/nas/ucb/eop/temp/torchinductor_cache"
 
 log_dir="rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
