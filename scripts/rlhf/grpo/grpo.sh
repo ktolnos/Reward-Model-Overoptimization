@@ -85,7 +85,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
-    --reference_rewards False \
+    --reference_rewards True \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 1.0 \

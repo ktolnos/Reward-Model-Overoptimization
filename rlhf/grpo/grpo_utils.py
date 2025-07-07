@@ -76,6 +76,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         global rew_mean_sum, rew_mean_count
         should_log = controller.trainer.state.global_step % controller.logging_steps == 0
 
+        reference_rewards = None
         if script_args.reference_rewards:
             reference_rewards = kwargs.get('reference_reward', None)
             assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
