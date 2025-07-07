@@ -489,7 +489,7 @@ class ScriptArguments:
         metadata={"help": "Name of the causal LLM to use as the reference policy."}
     )
     reference_reward_model_name: str = field(
-        default="Ray2333/GRM-gemma2-2B-rewardmodel-ft",
+        default="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136/",
         metadata={"help": "Name of the reward model for evaluating reference responses."}
     )
     num_reference_responses: int = field(
