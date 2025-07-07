@@ -72,16 +72,15 @@ def post_process_common_dataset(ds, tokenizer, max_length):
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
-    reference_rewards = None
-    if script_args.reference_rewards:
-        reference_rewards = kwargs.get('reference_reward', None)
-        assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
-        if isinstance(reference_rewards, list):
-            reference_rewards = torch.stack(reference_rewards)
-
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
         should_log = controller.trainer.state.global_step % controller.logging_steps == 0
+
+        if script_args.reference_rewards:
+            reference_rewards = kwargs.get('reference_reward', None)
+            assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
+            if isinstance(reference_rewards, list):
+                reference_rewards = torch.stack(reference_rewards)
 
         texts = [p + c for p, c in zip(prompts, completions)]
         rewards = []
