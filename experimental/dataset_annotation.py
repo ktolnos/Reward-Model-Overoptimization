@@ -55,6 +55,7 @@ def load_reward_model(model_name, reasoning, device=None):
         "device_map": device
     }
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
