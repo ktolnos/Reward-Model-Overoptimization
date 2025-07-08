@@ -373,6 +373,10 @@ def evaluate_with_reference_reward_model(
             reward_idx += len(item_rewards)
 
             new_item['reference_reward'] = float(sum(item_rewards) / len(item_rewards)) if item_rewards else None
+            for k in range(num_responses):
+                response_key = f'reference_response_{k+1}'
+                if response_key in new_item:
+                    new_item[f'reference_reward_{k+1}'] = item_rewards[k] if k < len(item_rewards) else None
             results.append(new_item)
 
     return results
@@ -490,18 +494,18 @@ class ScriptArguments:
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=32, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="data/annotated_helpsteer2_Qwen06B-Base/train.json",
+    output_path: str = field(default="data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
     debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
-        default="reference_policy",
+        default="reference_reward",
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='helpsteer2',
+        default='data/annotated_helpsteer2_Qwen06B-Base/train.json',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
     )
     reference_policy_name: str = field(
