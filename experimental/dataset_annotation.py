@@ -376,7 +376,7 @@ def evaluate_with_reference_reward_model(
             for k in range(num_responses):
                 response_key = f'reference_response_{k+1}'
                 if response_key in new_item:
-                    new_item[f'reference_reward_{k+1}'] = item_rewards[k] if k < len(item_rewards) else None
+                    new_item[f'reference_reward_{k+1}'] = float(item_rewards[k]) if k < len(item_rewards) else None
             results.append(new_item)
 
     return results
