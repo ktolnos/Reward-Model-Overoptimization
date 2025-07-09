@@ -129,6 +129,8 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             for k, v in kwargs.items():
                 if isinstance(v, list):
                     new_data[k] = v
+                elif isinstance(v, torch.Tensor):
+                    new_data[k] = v.tolist()
                 else:
                     new_data[k] = [v] * len(prompts)
 
