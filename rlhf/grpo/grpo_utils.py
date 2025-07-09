@@ -128,7 +128,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             }
             for k, v in kwargs.items():
                 if isinstance(v, list):
-                    new_data[k] = v
+                    new_data[k] = [it.cpu().numpy() if isinstance(it, torch.Tensor) else it for it in v]
                 elif isinstance(v, torch.Tensor):
                     new_data[k] = v.tolist()
                 else:
