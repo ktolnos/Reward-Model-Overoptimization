@@ -62,6 +62,10 @@ def post_process_common_dataset(ds, tokenizer, max_length):
     columns_to_remove = ds.column_names
     if 'reference_reward' in columns_to_remove:
         columns_to_remove.remove('reference_reward')
+    if 'reference_reward_1' in columns_to_remove:
+        columns_to_remove.remove('reference_reward_1')
+    if 'reference_reward_2' in columns_to_remove:
+        columns_to_remove.remove('reference_reward_2')
     print(columns_to_remove, " will be removed")
     ds = ds.map(formatting_func,
                 remove_columns=columns_to_remove,
