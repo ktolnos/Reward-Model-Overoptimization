@@ -122,8 +122,11 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 'completion': completions,
                 'reward': reward.tolist()
             }
-            if script_args.reference_rewards:
-                new_data['reference_reward'] = reference_rewards.tolist()
+            for k, v in kwargs.items():
+                if isinstance(v, list):
+                    new_data[k] = v
+                else:
+                    new_data[k] = [v] * len(prompts)
 
             for reward_model in reward_models:
                 new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[reward_model].tolist()
