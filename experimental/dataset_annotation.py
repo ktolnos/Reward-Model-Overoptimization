@@ -501,15 +501,15 @@ class ScriptArguments:
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
-        default="reference_reward",
+        default="reference_policy",
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='data/annotated_helpsteer2_Qwen06B-Base/train.json',
+        default='data/annotated_helpsteer2_Qwen06B/train.json',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
     )
     reference_policy_name: str = field(
-        default="Qwen/Qwen3-0.6B-Base",
+        default="Qwen/Qwen3-0.6B",
         metadata={"help": "Name of the causal LLM to use as the reference policy."}
     )
     reference_reward_model_name: str = field(
