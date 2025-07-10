@@ -12,18 +12,18 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
 dataset_name='gagan3012/helpsteer2-preference-v2'
-base_model='Qwen/Qwen3-0.6B'
+base_model='Qwen/Qwen3-Embedding-8B'
 seed=42
-wandb_name="${seed}_BT_RM_Qwen3-0.6B_${SLURM_JOB_ID}"
+wandb_name="${seed}_BT_RM_Qwen3-Embedding-8B_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
 
 learning_rate=2e-5
 max_length=3000
 num_train_epochs=1
-gradient_accumulation_steps=16
-per_device_train_batch_size=4
-per_device_eval_batch_size=4
+gradient_accumulation_steps=4
+per_device_train_batch_size=16
+per_device_eval_batch_size=16
 
 cd ../reward_models
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} run_reward_models_train.py \
