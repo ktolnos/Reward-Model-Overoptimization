@@ -505,8 +505,8 @@ class ScriptArguments:
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='data/annotated_helpsteer2_Qwen06B/train.json',
-        metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode."}
+        default='helpsteer2',
+        metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode. Special case: 'helpsteer2' to load the original dataset."}
     )
     reference_policy_name: str = field(
         default="Qwen/Qwen3-0.6B",
