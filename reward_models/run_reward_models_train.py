@@ -43,7 +43,7 @@ class ScriptArguments:
     # eval
     per_device_eval_batch_size: Optional[int] = field(default=1)
     evaluation_strategy: Optional[str] = field(default="steps")
-    eval_steps: Optional[int] = field(default=0.01)
+    eval_steps: Optional[int] = field(default=0.02)
     # model and loss
     base_model: Optional[str] =  field(default="google/gemma-2b-it")
     loss_type: Optional[str] = field(default='bt', metadata={'help': "use 'bt', 'margin', 'labelsmooth', and 'pos_reg'."})
@@ -84,7 +84,7 @@ training_args = TrainingArguments(
     bf16=script_args.bf16,
     logging_strategy="steps",
     logging_steps=0.025,
-    warmup_ratio=0.03,
+    warmup_ratio=0.05,
     optim=script_args.optim,
     lr_scheduler_type=script_args.lr_scheduler_type,
     run_name=script_args.wandb_name,
