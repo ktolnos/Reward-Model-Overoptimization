@@ -492,8 +492,8 @@ def annotate_dataset(model_name,
 class ScriptArguments:
     model_name: str = field(default="Reward-Reasoning/RRM-7B",
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
-    batch_size: int = field(default=32, metadata={"help": "Batch size for evaluation"})
-    max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
+    batch_size: int = field(default=16, metadata={"help": "Batch size for evaluation"})
+    max_length: int = field(default=3000, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
