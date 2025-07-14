@@ -85,7 +85,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
-    --dataset_path ${dataset_paths}" \
+    --dataset_path "${dataset_paths[@]}" \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
