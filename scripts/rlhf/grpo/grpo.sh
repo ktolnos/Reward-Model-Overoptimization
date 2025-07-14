@@ -59,7 +59,7 @@ export WANDB_RUN_NAME=${wandb_name}
 # "Reward-Reasoning/RRM-7B"
 
 reward_model_paths=(
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_916583_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_916583_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-290"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
 #    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_915731_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
 )
