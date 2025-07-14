@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Union
 from accelerate import Accelerator
 import evaluate
 import numpy as np
 import os
 import torch
 import torch.nn as nn
+from datasets import concatenate_datasets
 from peft import LoraConfig, TaskType
 from transformers import (
     AutoModelForSequenceClassification,
@@ -14,7 +15,7 @@ from transformers import (
     TrainingArguments,
 )
 from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
-from load_datasets import load_train_eval_dataset
+from load_datasets import load_train_eval_dataset, build_dataset
 from utils import print_trainable_parameters, compute_metrics, freeze_trainable_parameters
 
 
@@ -32,7 +33,7 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[str] = field(default='llm-blender/Unified-Feedback')
+    dataset: Optional[Union[str, List[str]]] = field(default='llm-blender/Unified-Feedback')
     dataset_mode: Optional[str] = field(default='', metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},)
     # lora
     use_lora: Optional[bool] = field(default=True)
@@ -62,10 +63,11 @@ class ScriptArguments:
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 model_name_split = script_args.base_model.split("/")[-1]
+dataset_name = script_args.dataset[0] if isinstance(script_args.dataset, list) else script_args.dataset
 if script_args.use_lora:
-    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 else:
-    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 
 device = Accelerator().local_process_index 
 
@@ -108,8 +110,16 @@ if 'Qwen' in script_args.base_model:
     tokenizer.padding_side = 'left' # left is not supported in Qwen flash attention
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None,
-                                                      seed=script_args.seed)
+if isinstance(script_args.dataset, list):
+    train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset[0], tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None,
+                                                          seed=script_args.seed)
+    for i in range(1, len(script_args.dataset)):
+        new_train_dataset = build_dataset(script_args.dataset[i], tokenizer, split='train', size=100 if script_args.debug else None)
+        train_dataset = concatenate_datasets([train_dataset, new_train_dataset])
+    train_dataset = train_dataset.shuffle(seed=script_args.seed)
+else:
+    train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, size=100 if script_args.debug else None,
+                                                        seed=script_args.seed)
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 

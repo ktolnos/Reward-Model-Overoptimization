@@ -77,7 +77,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
-    --dataset_path ${dataset_path} \
+    --dataset_path ${dataset_path} "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1" \
     --output_dir ${log_dir}\
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \

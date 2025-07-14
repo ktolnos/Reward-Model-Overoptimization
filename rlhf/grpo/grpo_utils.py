@@ -131,6 +131,8 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 'reward': reward.tolist()
             }
             for k, v in kwargs.items():
+                if k == 'completion_ids':
+                    continue
                 if isinstance(v, list):
                     new_data[k] = [it.cpu().numpy() if isinstance(it, torch.Tensor) else it for it in v]
                 elif isinstance(v, torch.Tensor):
