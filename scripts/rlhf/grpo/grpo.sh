@@ -30,12 +30,6 @@ dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helps
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B_reward_Gemma2_2B_ray_gold_URM_LLama8B/"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
-
-dataset_paths=(
-    "$dataset_path"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
-)
-
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 
 cd ../../../
@@ -60,8 +54,6 @@ export MASTER_PORT=9994
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
-
-
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #  "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 # "Reward-Reasoning/RRM-7B"
@@ -85,7 +77,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --wandb_log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
-    --dataset_path "${dataset_paths[@]}" \
+    --dataset_path ${dataset_path} \
+    --output_dir ${log_dir}\
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \

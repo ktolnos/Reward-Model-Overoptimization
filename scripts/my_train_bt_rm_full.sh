@@ -26,7 +26,10 @@ n_gpu=1
 # export NCCL_P2P_DISABLE=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
-dataset_name='gagan3012/helpsteer2-preference-v2'
+dataset_name=(
+  'gagan3012/helpsteer2-preference-v2'
+  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
+)
 base_model='Qwen/Qwen3-Embedding-8B'
 seed=43
 wandb_name="${seed}_BT_RM_Qwen3-Embedding-8B_${SLURM_JOB_ID}"
@@ -50,6 +53,6 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
-    --dataset ${dataset_name} \
+    --dataset "${dataset_name[@]}" \
     --gradient_checkpointing True \
     --seed ${seed} \
