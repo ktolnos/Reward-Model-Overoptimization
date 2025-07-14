@@ -58,6 +58,11 @@ export WANDB_RUN_NAME=${wandb_name}
 #  "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 # "Reward-Reasoning/RRM-7B"
 
+reward_model_paths=(
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
+    #"/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_915731_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
+)
+
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
@@ -82,7 +87,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --warmup_ratio=0.1 \
     --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
-    --reward_model_paths "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272" "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_915731_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272" \
+    --reward_model_paths "${reward_model_paths[@]}" \
     --ensemble_aggregation "min" \
     --save_steps 0.025 \
     --run_name ${wandb_name} \
@@ -93,16 +98,21 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
-    --reference_rewards True \
+    --reference_rewards False \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
-    --adv_rm_lambda 1.0 \
+    --adv_rm_lambda 0.0 \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \
 #    --lora_target_modules 'all-linear' \
 #    --resume_from_checkpoint True \
 # 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
+
+# For Adv-RM:
+#     --reference_rewards True \
+#     --adv_rm_lambda 1.0 \
+# Add second reward model
 
 # For 27B:
 #    --gradient_checkpointing True \
