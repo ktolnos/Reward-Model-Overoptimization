@@ -29,6 +29,7 @@ n_gpu=1
 dataset_name=(
   'gagan3012/helpsteer2-preference-v2'
   "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
+  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
 )
 base_model='Qwen/Qwen3-Embedding-8B'
 seed=43
