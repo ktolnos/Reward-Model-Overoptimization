@@ -296,11 +296,11 @@ def get_llm_judge_verdicts(
                                 print(f"Rate limit exceeded. Following server's 'Retry-After' header. Waiting for {sleep_time} seconds.")
                             except ValueError:
                                 # If the header is a date, this will fail. Fallback to exponential backoff.
-                                sleep_time = backoff_factor * (2 ** attempt) + random.uniform(0, 1)
+                                sleep_time = backoff_factor * (10 ** attempt) + random.uniform(0, 1)
                                 print(f"Rate limit exceeded. Could not parse 'Retry-After' header. Retrying in {sleep_time:.2f} seconds...")
                         else:
                             # Fallback to exponential backoff if the header is not present
-                            sleep_time = backoff_factor * (2 ** attempt) + random.uniform(0, 1)
+                            sleep_time = backoff_factor * (10 ** attempt) + random.uniform(0, 1)
                             print(f"Rate limit exceeded. Retrying in {sleep_time:.2f} seconds (exponential backoff)...")
                         
                         time.sleep(sleep_time)
