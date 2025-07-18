@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
@@ -26,6 +27,7 @@ class OnlinePETConfig:
     rm_update_steps: int = field(default=1,
                                  metadata={"help": "Number of epochs to train RM on collected data."})
     rm_gradient_accumulation_steps: int = field(default=32, metadata={"help": "Gradient accumulation steps for RM update."})
+    rm_gradient_checkpointing: bool = field(default=False, metadata={"help": "Enable gradient checkpointing for reward models."})
     rm_update_learning_rate: float = field(default=2e-5, metadata={"help": "Learning rate for the reward model optimizer."})
     pessimistic_loss_weight: float = field(default=0.1, metadata={"help": "Weight for the pessimistic loss component."})
     bt_loss_weight: float = field(default=1.0, metadata={"help": "Weight for the BT loss component."})
@@ -33,6 +35,7 @@ class OnlinePETConfig:
     preference_batch_size: int = field(default=1, metadata={"help": "Batch size for the preference dataset dataloader."})
     adversarial_batch_size: int = field(default=1, metadata={"help": "Batch size for the adversarial examples."})
     eval_batch_size: int = field(default=1, metadata={"help": "Batch size for the evaluation dataloader."})
+    rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -48,6 +51,10 @@ class OnlinePETCallback(TrainerCallback):
         self.pet_update_counter = 0
 
         if pet_config.online_pet_enabled:
+            if self.pet_config.rm_gradient_checkpointing:
+                for rm in self.reward_models:
+                    rm.gradient_checkpointing_enable()
+
             rm_tokenizer = self.reward_tokenizers[0]
             preference_dataset, eval_dataset = load_train_eval_dataset(
                 data_path=self.pet_config.preference_dataset_path,
@@ -75,6 +82,25 @@ class OnlinePETCallback(TrainerCallback):
                 for rm in self.reward_models:
                     rm.to("cpu")
                 self._move_optimizer_to_device(self.rm_optimizer, torch.device("cpu"))
+
+    def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if not self.pet_config.online_pet_enabled or not self.pet_config.rm_save_path:
+            return
+
+        if not self.accelerator.is_main_process:
+            return
+        current_epoch = int(state.epoch)
+        print(f"--- Saving reward model at epoch {current_epoch} (step {state.global_step}) ---")
+
+        for i, (rm, r_tok) in enumerate(zip(self.reward_models, self.reward_tokenizers)):
+            epoch_save_path = os.path.join(self.pet_config.rm_save_path, f"epoch_{current_epoch}")
+            rm_save_path = os.path.join(epoch_save_path, f"reward_model_{i}")
+
+            unwrapped_rm = self.accelerator.unwrap_model(rm)
+
+            unwrapped_rm.save_pretrained(rm_save_path)
+            r_tok.save_pretrained(rm_save_path)
+            print(f"Reward model {i} saved to {rm_save_path}")
 
     def collate_preference_data(self, batch):
         rm_tokenizer = self.reward_tokenizers[0]
@@ -121,7 +147,7 @@ class OnlinePETCallback(TrainerCallback):
             if self.pet_config.move_policy_to_cpu:
                 self._move_optimizer_to_device(policy_optimizer, torch.device("cpu"))
                 policy.to('cpu')
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
             self._perform_rm_update(state.global_step)
             self.pet_update_counter += 1
@@ -135,10 +161,10 @@ class OnlinePETCallback(TrainerCallback):
 
             print(f"--- Finished Online PET Actions ---")
 
-        if self.pet_config.move_rm_to_cpu:
-            for rm in self.reward_models:
-                rm.to('cpu')
-            self._move_optimizer_to_device(self.rm_optimizer, torch.device("cpu"))
+            if self.pet_config.move_rm_to_cpu:
+                for rm in self.reward_models:
+                    rm.to('cpu')
+                self._move_optimizer_to_device(self.rm_optimizer, torch.device("cpu"))
             torch.cuda.empty_cache()
 
     def _evaluate_rm(self, step):

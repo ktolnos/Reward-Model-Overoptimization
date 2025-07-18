@@ -24,6 +24,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     HfArgumentParser, PreTrainedTokenizerBase, TensorType, BatchEncoding,
+    TrainerCallback, TrainerState, TrainerControl,
 )
 
 from trl import (
@@ -143,6 +144,10 @@ if __name__ == "__main__":
         policy_tokenizer=policy_tokenizer,
         model_name=model_args.model_name_or_path
     )
+
+    callbacks = []
+    if pet_config.online_pet_enabled:
+        callbacks.append(pet_callback)
     ################
     # Training
     ################
@@ -154,10 +159,11 @@ if __name__ == "__main__":
         eval_dataset=eval_dataset,
         peft_config=peft_config,
         reward_funcs=reward_fn,
-        callbacks=[pet_callback] if pet_config.online_pet_enabled else []
+        callbacks=callbacks
     )
     pet_callback.accelerator = trainer.accelerator
     reward_controller.trainer = trainer
+
     logging_steps = int(training_args.logging_steps * len(train_dataset))
     print("Logging steps:", logging_steps)
     reward_controller.logging_steps = logging_steps
