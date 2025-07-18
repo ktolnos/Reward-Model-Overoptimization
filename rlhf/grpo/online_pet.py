@@ -193,7 +193,7 @@ class OnlinePETCallback(TrainerCallback):
         accuracy = total_correct / total_samples if total_samples > 0 else 0
         print(f"RM Evaluation Accuracy: {accuracy:.4f}")
         if wandb.run:
-            wandb.log({"eval/accuracy": accuracy}, step=step)
+            wandb.log({"eval/accuracy": accuracy}, step=wandb.run.step)
         rm.train()
         print("--- Finished RM Evaluation ---")
 
@@ -210,7 +210,7 @@ class OnlinePETCallback(TrainerCallback):
 
         num_adversarial_samples = len(all_adversarial_data)
         if wandb.run:
-            wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=step)
+            wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=wandb.run.step)
 
         for epoch in range(self.pet_config.rm_update_steps):
             random.shuffle(all_adversarial_data)
@@ -280,7 +280,7 @@ class OnlinePETCallback(TrainerCallback):
                         "update/total_loss": total_loss.item(),
                         "update/bt_accuracy": bt_accuracy.item(),
                     }
-                    wandb.log(log_data, step=step)
+                    wandb.log(log_data, step=wandb.run.step)
 
                 self.accelerator.backward(total_loss)
 

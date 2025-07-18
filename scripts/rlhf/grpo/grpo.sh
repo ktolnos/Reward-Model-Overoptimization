@@ -108,8 +108,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --online_pet_enabled True \
     --preference_dataset_path "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42" \
     --rm_gradient_checkpointing True \
-    --move_rm_to_cpu True \
-    --move_policy_to_cpu True \
+    --move_rm_to_cpu False \
+    --move_policy_to_cpu False \
 
 
 #    --use_peft True \
