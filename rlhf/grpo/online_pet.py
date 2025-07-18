@@ -21,7 +21,7 @@ class OnlinePETConfig:
     move_rm_to_cpu: bool = field(default=False, metadata={"help": "Move reward model to CPU when not in use."})
     k_top_responses: int = field(default=1, metadata={
         "help": "Number of top responses to store from each batch for adversarial training."})
-    update_interval_steps: int = field(default=64,
+    update_interval_steps: int = field(default=32,
                                        metadata={"help": "Number of GRPO steps between each reward model update."})
     eval_online_pet_every: int = field(default=4, metadata={"help": "How many PET steps between evaluations."})
     rm_update_steps: int = field(default=1,
