@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Any, Mapping
 
 import torch
@@ -23,6 +23,8 @@ class RewardController:
     logging_steps: float = 1
     save_path: str = None
     generations_df: pd.DataFrame = None
+    k_top_responses: int = 0
+    adversarial_responses_buffer: list = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         if self.save_path and self.generations_df is None:
@@ -32,6 +34,11 @@ class RewardController:
             else:
                 print(f"Creating new generations file at {self.save_path}")
                 self.generations_df = pd.DataFrame(columns=['prompt', 'completion', 'reward'])
+
+    def get_and_clear_adversarial_buffer(self):
+        buffer_copy = list(self.adversarial_responses_buffer)
+        self.adversarial_responses_buffer.clear()
+        return buffer_copy
 
 
 def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
@@ -77,6 +84,7 @@ def post_process_common_dataset(ds, tokenizer, max_length):
     ds.set_format(type="torch")
     return ds
 
+
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
@@ -102,7 +110,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             if should_log and wandb.run is not None:
                 wandb.log({
                     f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
-                }, step=wandb.run.step)
+                }, step=controller.trainer.state.global_step)
 
             if script_args.reference_rewards and script_args.adv_rm_lambda == 0:
                 rew = rew - reference_rewards
@@ -123,6 +131,17 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             reward = rewards.min(dim=1).values
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
+
+        if controller.k_top_responses > 0:
+            # Find the top k responses in the current batch
+            top_k_indices = torch.topk(reward, min(controller.k_top_responses, len(reward))).indices
+
+            for idx in top_k_indices:
+                # Store the prompt, the high-reward response, its reward, and reference reward
+                ref_rew = reference_rewards[idx].item() if reference_rewards is not None else None
+                controller.adversarial_responses_buffer.append(
+                    (prompts[idx], completions[idx], reward[idx].item(), ref_rew)
+                )
 
         if controller.save_path is not None:
             new_data = {
@@ -153,7 +172,3 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         return reward.tolist()
 
     return model_reward_func
-
-
-
-

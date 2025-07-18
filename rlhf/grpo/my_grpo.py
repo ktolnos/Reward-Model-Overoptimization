@@ -17,6 +17,7 @@ from qrm_gemma_tokenizer import TokenizerWrapper
 
 tqdm.pandas()
 from grpo_utils import (build_train_eval_datasets, build_reward_function, RewardController)
+from online_pet import OnlinePETConfig, OnlinePETCallback
 
 from transformers import (
     AutoModelForCausalLM,
@@ -58,8 +59,12 @@ class ScriptArguments:
 
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((ScriptArguments, GRPOConfig, ModelConfig))
-    script_args, training_args, model_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser((ScriptArguments, GRPOConfig, ModelConfig, OnlinePETConfig))
+    script_args, training_args, model_args, pet_config = parser.parse_args_into_dataclasses()
+
+    if pet_config.online_pet_enabled:
+        assert len(script_args.reward_model_paths) == 1, "Online PET is currently only supported for a single reward model."
+
     ################
     # Model & Tokenizer
     ################
@@ -123,8 +128,21 @@ if __name__ == "__main__":
 
     trainer = None
 
-    reward_controller = RewardController(save_path=script_args.save_generations_path)
+    reward_controller = RewardController(
+        save_path=script_args.save_generations_path,
+        k_top_responses=pet_config.k_top_responses if pet_config.online_pet_enabled else 0
+    )
     reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller)
+
+    pet_callback = OnlinePETCallback(
+        pet_config=pet_config,
+        accelerator=None,  # Will be set by the trainer
+        reward_models=reward_models,
+        reward_tokenizers=reward_tokenizers,
+        reward_controller=reward_controller,
+        policy_tokenizer=policy_tokenizer,
+        model_name=model_args.model_name_or_path
+    )
     ################
     # Training
     ################
@@ -136,7 +154,9 @@ if __name__ == "__main__":
         eval_dataset=eval_dataset,
         peft_config=peft_config,
         reward_funcs=reward_fn,
+        callbacks=[pet_callback] if pet_config.online_pet_enabled else []
     )
+    pet_callback.accelerator = trainer.accelerator
     reward_controller.trainer = trainer
     logging_steps = int(training_args.logging_steps * len(train_dataset))
     print("Logging steps:", logging_steps)
@@ -155,3 +175,4 @@ if __name__ == "__main__":
     trainer.save_model(training_args.output_dir)
     if training_args.push_to_hub:
         trainer.push_to_hub(dataset_name=script_args.dataset_name)
+
