@@ -106,7 +106,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
             rew_mean_sum[reward_model] += rew.mean().item()
             rew_mean_count[reward_model] += 1
-            rewards_dict[reward_model] = rew
+            rewards_dict[reward_model] = rew.detach()
             if should_log and wandb.run is not None:
                 wandb.log({
                     f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],

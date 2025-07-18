@@ -229,7 +229,6 @@ class OnlinePETCallback(TrainerCallback):
                 end_idx = start_idx + self.pet_config.adversarial_batch_size
                 adv_batch = all_adversarial_data[start_idx:end_idx]
 
-                preference_batch = self._get_preference_batch()
 
                 rm = self.reward_models[0]
 
@@ -251,6 +250,8 @@ class OnlinePETCallback(TrainerCallback):
                     pessimistic_loss = adv_rewards_new.mean()
 
                 pessimistic_loss *= self.pet_config.pessimistic_loss_weight
+
+                preference_batch = self._get_preference_batch()
 
                 # --- BT Loss on Preference Data ---
                 chosen_rewards = rm(
