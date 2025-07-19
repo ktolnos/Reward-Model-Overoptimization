@@ -250,6 +250,19 @@ class OnlinePETCallback(TrainerCallback):
                     pessimistic_loss = adv_rewards_new.mean()
 
                 pessimistic_loss *= self.pet_config.pessimistic_loss_weight
+                pessimistic_loss_item = pessimistic_loss.item()
+
+                # Scale and backward pessimistic loss
+                scaled_pessimistic_loss = pessimistic_loss
+                if self.pet_config.rm_gradient_accumulation_steps > 1:
+                    scaled_pessimistic_loss = scaled_pessimistic_loss / self.pet_config.rm_gradient_accumulation_steps
+
+                if scaled_pessimistic_loss.requires_grad:
+                    self.accelerator.backward(scaled_pessimistic_loss, retain_graph=False)
+
+                # Free memory from pessimistic loss calculation
+                del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
+                torch.cuda.empty_cache()
 
                 preference_batch = self._get_preference_batch()
 
@@ -268,25 +281,31 @@ class OnlinePETCallback(TrainerCallback):
                 bt_loss *= self.pet_config.bt_loss_weight
 
                 bt_accuracy = (chosen_rewards > rejected_rewards).float().mean()
+                bt_loss_item = bt_loss.item()
 
-                total_loss = pessimistic_loss + bt_loss
-
+                # Scale and backward BT loss
+                scaled_bt_loss = bt_loss
                 if self.pet_config.rm_gradient_accumulation_steps > 1:
-                    total_loss = total_loss / self.pet_config.rm_gradient_accumulation_steps
+                    scaled_bt_loss = scaled_bt_loss / self.pet_config.rm_gradient_accumulation_steps
 
+                if scaled_bt_loss.requires_grad:
+                    self.accelerator.backward(scaled_bt_loss, retain_graph=False)
+                
+                del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
+
+                # Log metrics
+                total_loss_item = pessimistic_loss_item + bt_loss_item
                 if wandb.run:
                     log_data = {
-                        "update/pessimistic_loss": pessimistic_loss.item(),
-                        "update/bt_loss": bt_loss.item(),
-                        "update/total_loss": total_loss.item(),
+                        "update/pessimistic_loss": pessimistic_loss_item,
+                        "update/bt_loss": bt_loss_item,
+                        "update/total_loss": total_loss_item,
                         "update/bt_accuracy": bt_accuracy.item(),
                     }
                     wandb.log(log_data, step=wandb.run.step)
 
-                self.accelerator.backward(total_loss)
-
                 if (i + 1) % self.pet_config.rm_gradient_accumulation_steps == 0:
-                    print(f"  Step {(i + 1) // self.pet_config.rm_gradient_accumulation_steps}/{num_optimizer_steps}: Pessimistic Loss: {pessimistic_loss.item():.4f}, BT Loss: {bt_loss.item():.4f}, Total Loss: {total_loss.item():.4f}, BT Accuracy: {bt_accuracy.item():.4f}")
+                    print(f"  Step {(i + 1) // self.pet_config.rm_gradient_accumulation_steps}/{num_optimizer_steps}: Pessimistic Loss: {pessimistic_loss_item:.4f}, BT Loss: {bt_loss_item:.4f}, Total Loss: {total_loss_item:.4f}, BT Accuracy: {bt_accuracy.item():.4f}")
                     self.rm_optimizer.step()
                     self.rm_optimizer.zero_grad()
 
