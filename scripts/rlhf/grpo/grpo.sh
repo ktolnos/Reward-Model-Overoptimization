@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=80gb
+#SBATCH --mem=64gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=24:00:00
 #SBATCH --qos=high
@@ -50,7 +50,7 @@ export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9998
+export MASTER_PORT=9991
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
