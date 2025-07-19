@@ -56,7 +56,7 @@ class OnlinePETCallback(TrainerCallback):
                     rm.gradient_checkpointing_enable()
 
             rm_tokenizer = self.reward_tokenizers[0]
-            rm_tokenizer.max_length = 1024
+            rm_tokenizer.max_length = 512
             preference_dataset, eval_dataset = load_train_eval_dataset(
                 data_path=self.pet_config.preference_dataset_path,
                 tokenizer=rm_tokenizer,
