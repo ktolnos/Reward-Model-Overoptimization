@@ -77,13 +77,13 @@ class OnlinePETCallback(TrainerCallback):
             )
             self.preference_data_iterator = iter(self.preference_dataloader)
 
-            self.rm_optimizer = torch.optim.AdamW(
+            self.rm_optimizer = Adafactor(
                 [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad],
                 lr=self.pet_config.rm_update_learning_rate,
-                # decay_rate=-0.8,
-                # weight_decay=0.0,
-                # scale_parameter=False,
-                # relative_step=False,
+                decay_rate=-0.8,
+                weight_decay=0.0,
+                scale_parameter=False,
+                relative_step=False,
             )
             if self.pet_config.move_rm_to_cpu:
                 for rm in self.reward_models:
