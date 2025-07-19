@@ -77,13 +77,13 @@ class OnlinePETCallback(TrainerCallback):
             )
             self.preference_data_iterator = iter(self.preference_dataloader)
 
-            self.rm_optimizer = Adafactor(
+            self.rm_optimizer = torch.optim.AdamW(
                 [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad],
                 lr=self.pet_config.rm_update_learning_rate,
-                decay_rate=-0.8,
-                weight_decay=0.0,
-                scale_parameter=False,
-                relative_step=False,
+                # decay_rate=-0.8,
+                # weight_decay=0.0,
+                # scale_parameter=False,
+                # relative_step=False,
             )
             if self.pet_config.move_rm_to_cpu:
                 for rm in self.reward_models:
@@ -125,11 +125,19 @@ class OnlinePETCallback(TrainerCallback):
             self.preference_data_iterator = iter(self.preference_dataloader)
             return next(self.preference_data_iterator)
 
-    def _move_optimizer_to_device(self, optimizer, device):
-        for state in optimizer.state.values():
-            for k, v in state.items():
-                if isinstance(v, torch.Tensor):
-                    state[k] = v.to(device)
+    def _move_optimizer_to_device(self, optim, device):
+        for param in optim.state.values():
+            # Not sure there are any global tensors in the state dict
+            if isinstance(param, torch.Tensor):
+                param.data = param.data.to(device)
+                if param._grad is not None:
+                    param._grad.data = param._grad.data.to(device)
+            elif isinstance(param, dict):
+                for subparam in param.values():
+                    if isinstance(subparam, torch.Tensor):
+                        subparam.data = subparam.data.to(device)
+                        if subparam._grad is not None:
+                            subparam._grad.data = subparam._grad.data.to(device)
 
     def on_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         if not self.pet_config.online_pet_enabled or not self.accelerator.is_main_process:
