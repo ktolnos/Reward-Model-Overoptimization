@@ -4,9 +4,9 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import TrainerCallback, TrainingArguments, TrainerState, TrainerControl
+from transformers.optimization import Adafactor
 import random
 import wandb
-import bitsandbytes as bnb
 import gc
 
 from reward_models.load_datasets import load_train_eval_dataset
@@ -77,9 +77,13 @@ class OnlinePETCallback(TrainerCallback):
             )
             self.preference_data_iterator = iter(self.preference_dataloader)
 
-            self.rm_optimizer = bnb.optim.AdamW8bit(
+            self.rm_optimizer = Adafactor(
                 [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad],
-                lr=self.pet_config.rm_update_learning_rate
+                lr=self.pet_config.rm_update_learning_rate,
+                decay_rate=-0.8,
+                weight_decay=0.0,
+                scale_parameter=False,
+                relative_step=False,
             )
             if self.pet_config.move_rm_to_cpu:
                 for rm in self.reward_models:
