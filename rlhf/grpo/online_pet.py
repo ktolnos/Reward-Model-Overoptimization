@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader
 from transformers import TrainerCallback, TrainingArguments, TrainerState, TrainerControl
 import random
 import wandb
+import bitsandbytes as bnb
+import gc
 
 from reward_models.load_datasets import load_train_eval_dataset
 from reward_utils import get_reward
@@ -75,8 +77,8 @@ class OnlinePETCallback(TrainerCallback):
             )
             self.preference_data_iterator = iter(self.preference_dataloader)
 
-            self.rm_optimizer = torch.optim.AdamW(
-                [p for rm in self.reward_models for p in rm.parameters()],
+            self.rm_optimizer = bnb.optim.AdamW8bit(
+                [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad],
                 lr=self.pet_config.rm_update_learning_rate
             )
             if self.pet_config.move_rm_to_cpu:
