@@ -58,7 +58,7 @@ class OnlinePETCallback(TrainerCallback):
                     rm.gradient_checkpointing_enable()
 
             rm_tokenizer = self.reward_tokenizers[0]
-            rm_tokenizer.max_length = 512
+            rm_tokenizer.max_length = 1024
             preference_dataset, eval_dataset = load_train_eval_dataset(
                 data_path=self.pet_config.preference_dataset_path,
                 tokenizer=rm_tokenizer,
@@ -207,7 +207,7 @@ class OnlinePETCallback(TrainerCallback):
         accuracy = total_correct / total_samples if total_samples > 0 else 0
         print(f"RM Evaluation Accuracy: {accuracy:.4f}")
         if wandb.run:
-            wandb.log({"eval/accuracy": accuracy}, step=wandb.run.step)
+            wandb.log({"eval/rm_accuracy": accuracy}, step=wandb.run.step)
         rm.train()
         print("--- Finished RM Evaluation ---")
 
@@ -238,6 +238,10 @@ class OnlinePETCallback(TrainerCallback):
                 continue
 
             self.rm_optimizer.zero_grad()
+            bt_accuracy = 0
+            total_loss_item = 0
+            pessimistic_loss_item = 0
+            bt_loss_item = 0
             for i in range(num_batches):
                 start_idx = i * self.pet_config.adversarial_batch_size
                 end_idx = start_idx + self.pet_config.adversarial_batch_size
@@ -264,7 +268,7 @@ class OnlinePETCallback(TrainerCallback):
                     pessimistic_loss = adv_rewards_new.mean()
 
                 pessimistic_loss *= self.pet_config.pessimistic_loss_weight
-                pessimistic_loss_item = pessimistic_loss.item()
+                pessimistic_loss_item += pessimistic_loss.item()
 
                 # Scale and backward pessimistic loss
                 scaled_pessimistic_loss = pessimistic_loss
@@ -294,8 +298,8 @@ class OnlinePETCallback(TrainerCallback):
                 bt_loss = -F.logsigmoid(chosen_rewards - rejected_rewards).mean()
                 bt_loss *= self.pet_config.bt_loss_weight
 
-                bt_accuracy = (chosen_rewards > rejected_rewards).float().mean()
-                bt_loss_item = bt_loss.item()
+                bt_accuracy += (chosen_rewards > rejected_rewards).float().mean().item()
+                bt_loss_item += bt_loss.item()
 
                 # Scale and backward BT loss
                 scaled_bt_loss = bt_loss
@@ -308,20 +312,21 @@ class OnlinePETCallback(TrainerCallback):
                 del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
 
                 # Log metrics
-                total_loss_item = pessimistic_loss_item + bt_loss_item
-                if wandb.run:
-                    log_data = {
-                        "update/pessimistic_loss": pessimistic_loss_item,
-                        "update/bt_loss": bt_loss_item,
-                        "update/total_loss": total_loss_item,
-                        "update/bt_accuracy": bt_accuracy.item(),
-                    }
-                    wandb.log(log_data, step=wandb.run.step)
+                total_loss_item += pessimistic_loss_item + bt_loss_item
+
 
                 if (i + 1) % self.pet_config.rm_gradient_accumulation_steps == 0:
                     print(f"  Step {(i + 1) // self.pet_config.rm_gradient_accumulation_steps}/{num_optimizer_steps}: Pessimistic Loss: {pessimistic_loss_item:.4f}, BT Loss: {bt_loss_item:.4f}, Total Loss: {total_loss_item:.4f}, BT Accuracy: {bt_accuracy.item():.4f}")
                     self.rm_optimizer.step()
                     self.rm_optimizer.zero_grad()
+                    if wandb.run:
+                        log_data = {
+                            "update/pessimistic_loss": pessimistic_loss_item / self.pet_config.rm_gradient_accumulation_steps,
+                            "update/bt_loss": bt_loss_item / self.pet_config.rm_gradient_accumulation_steps,
+                            "update/total_loss": total_loss_item / self.pet_config.rm_gradient_accumulation_steps,
+                            "update/bt_accuracy": bt_accuracy / self.pet_config.rm_gradient_accumulation_steps,
+                        }
+                        wandb.log(log_data, step=wandb.run.step)
 
             processed_batches = num_optimizer_steps * self.pet_config.rm_gradient_accumulation_steps
             self.adversarial_leftovers = all_adversarial_data[processed_batches * self.pet_config.adversarial_batch_size:]
