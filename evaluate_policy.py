@@ -483,6 +483,7 @@ def main():
                     "loss_rate": losses / total if total > 0 else 0,
                     "tie_rate": ties / total if total > 0 else 0,
                     "mean": np.mean(verdicts) if total > 0 else 0,
+                    "mean_no_tie": (wins - losses) / (wins + losses) if (wins + losses) > 0 else 0,
                     "total_comparisons": total,
                 }
 
