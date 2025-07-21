@@ -25,8 +25,10 @@ export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
-base_model_name="Qwen/Qwen3-0.6B" # policy base model
-dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42"
+#base_model_name="Qwen/Qwen3-0.6B" # policy base model
+base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
+dataset_path="gagan3012/helpsteer2-preference-v2"
+#dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B_reward_Gemma2_2B_ray_gold_URM_LLama8B/"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
@@ -101,7 +103,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --gradient_checkpointing False \
     --scale_rewards False \
     --trust_remote_code True \
-    --reference_rewards True \
+    --reference_rewards False \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
