@@ -314,10 +314,10 @@ class OnlinePETCallback(TrainerCallback):
 
 
                 if (i + 1) % self.pet_config.rm_gradient_accumulation_steps == 0:
+                    total_loss_item = pessimistic_loss_item + bt_loss_item
                     print(f"  Step {(i + 1) // self.pet_config.rm_gradient_accumulation_steps}/{num_optimizer_steps}: Pessimistic Loss: {pessimistic_loss_item:.4f}, BT Loss: {bt_loss_item:.4f}, Total Loss: {total_loss_item:.4f}, BT Accuracy: {bt_accuracy:.4f}")
                     self.rm_optimizer.step()
                     self.rm_optimizer.zero_grad()
-                    total_loss_item = pessimistic_loss_item + bt_loss_item
                     if wandb.run:
                         log_data = {
                             "update/pessimistic_loss": pessimistic_loss_item / self.pet_config.rm_gradient_accumulation_steps,
