@@ -133,15 +133,26 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
 
         if controller.k_top_responses > 0:
-            # Find the top k responses in the current batch
-            top_k_indices = torch.topk(reward, min(controller.k_top_responses, len(reward))).indices
+            # Group rewards by prompt, since prompts are repeated for each completion in a group.
+            # This is robust to variable batch sizes.
+            group_indices = defaultdict(list)
+            for i, p in enumerate(prompts):
+                group_indices[p].append(i)
 
-            for idx in top_k_indices:
-                # Store the prompt, the high-reward response, its reward, and reference reward
-                ref_rew = reference_rewards[idx].item() if reference_rewards is not None else None
-                controller.adversarial_responses_buffer.append(
-                    (prompts[idx], completions[idx], reward[idx].item(), ref_rew)
-                )
+            for p, indices in group_indices.items():
+                group_rewards = reward[torch.tensor(indices, device=reward.device)]
+
+                # Find top k in this group
+                top_k_indices_in_group = torch.topk(
+                    group_rewards, min(controller.k_top_responses, len(group_rewards))
+                ).indices
+
+                for k_idx in top_k_indices_in_group:
+                    original_idx = indices[k_idx]
+                    ref_rew = reference_rewards[original_idx].item() if reference_rewards is not None else None
+                    controller.adversarial_responses_buffer.append(
+                        (prompts[original_idx], completions[original_idx], reward[original_idx].item(), ref_rew)
+                    )
 
         if controller.save_path is not None:
             new_data = {
