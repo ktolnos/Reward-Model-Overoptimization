@@ -494,7 +494,7 @@ class ScriptArguments:
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=16, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=3000, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42/train.json",
+    output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05/train.json",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
     debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
@@ -505,7 +505,7 @@ class ScriptArguments:
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B/train.json',
+        default='/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base/train.json',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode. Special case: 'helpsteer2' to load the original dataset."}
     )
     reference_policy_name: str = field(
@@ -513,7 +513,7 @@ class ScriptArguments:
         metadata={"help": "Name of the causal LLM to use as the reference policy."}
     )
     reference_reward_model_name: str = field(
-        default="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272",
+        default="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256",
         metadata={"help": "Name of the reward model for evaluating reference responses."}
     )
     num_reference_responses: int = field(
