@@ -116,7 +116,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
     --pessimistic_loss_weight 10.0 \
-    --rm_update_steps 1 \
+    --rm_update_steps 2 \
+    --k_top_responses 8 \
+    --rm_optimizer 'AdamW' \
 
 
 #    --use_peft True \

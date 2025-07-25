@@ -25,12 +25,12 @@ class OnlinePETConfig:
         "help": "Number of top responses to store from each batch for adversarial training."})
     update_interval_steps: int = field(default=16,
                                        metadata={"help": "Number of GRPO steps between each reward model update."})
-    eval_online_pet_every: int = field(default=4, metadata={"help": "How many PET steps between evaluations."})
+    eval_online_pet_every: int = field(default=8, metadata={"help": "How many PET steps between evaluations."})
     rm_update_steps: int = field(default=1,
                                  metadata={"help": "Number of epochs to train RM on collected data."})
     rm_gradient_accumulation_steps: int = field(default=32, metadata={"help": "Gradient accumulation steps for RM update."})
     rm_gradient_checkpointing: bool = field(default=False, metadata={"help": "Enable gradient checkpointing for reward models."})
-    rm_update_learning_rate: float = field(default=2e-5, metadata={"help": "Learning rate for the reward model optimizer."})
+    rm_update_learning_rate: float = field(default=4e-5, metadata={"help": "Learning rate for the reward model optimizer."})
     pessimistic_loss_weight: float = field(default=0.1, metadata={"help": "Weight for the pessimistic loss component."})
     bt_loss_weight: float = field(default=1.0, metadata={"help": "Weight for the BT loss component."})
     preference_dataset_path: str = field(default="", metadata={"help": "Path to the original preference dataset for BT loss."})
@@ -38,6 +38,7 @@ class OnlinePETConfig:
     adversarial_batch_size: int = field(default=1, metadata={"help": "Batch size for the adversarial examples."})
     eval_batch_size: int = field(default=1, metadata={"help": "Batch size for the evaluation dataloader."})
     rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
+    rm_optimizer: str = field(default="AdamW", metadata={"help": "Optimizer to use for RM update. Values: AdamW, Adafactor"})
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -77,14 +78,19 @@ class OnlinePETCallback(TrainerCallback):
             )
             self.preference_data_iterator = iter(self.preference_dataloader)
 
+            params = [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad]
             self.rm_optimizer = Adafactor(
-                [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad],
+                params,
                 lr=self.pet_config.rm_update_learning_rate,
                 decay_rate=-0.8,
                 weight_decay=0.0,
                 scale_parameter=False,
                 relative_step=False,
-            )
+            ) if str.lower(self.pet_config.rm_optimizer) == 'adafactor' else torch.optim.AdamW(
+                params,
+                lr=self.pet_config.rm_update_learning_rate,
+            ) if str.lower(self.pet_config.rm_optimizer) == 'adamw' else None
+            assert self.rm_optimizer is not None, f"Unsupported optimizer {self.pet_config.rm_optimizer}"
             if self.pet_config.move_rm_to_cpu:
                 for rm in self.reward_models:
                     rm.to("cpu")
