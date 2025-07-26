@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
 #SBATCH --gres=gpu:A100-SXM4-80GB:1
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
@@ -116,7 +116,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
     --pessimistic_loss_weight 10.0 \
-    --rm_update_steps 2 \
+    --rm_update_steps 4 \
+    --rm_update_learning_rate 1e-4 \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
 
@@ -146,3 +147,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 
 #     --report_to "none" \
 
+sbatch /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --checkpoints_dir "${log_dir}"
