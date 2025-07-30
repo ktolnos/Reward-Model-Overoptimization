@@ -1,4 +1,5 @@
 import os
+from collections import deque
 from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
@@ -39,6 +40,7 @@ class OnlinePETConfig:
     eval_batch_size: int = field(default=1, metadata={"help": "Batch size for the evaluation dataloader."})
     rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
     rm_optimizer: str = field(default="AdamW", metadata={"help": "Optimizer to use for RM update. Values: AdamW, Adafactor"})
+    rm_buffer_size: int = field(default=32, metadata={"help": "Buffer size for RM updates."})
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -50,8 +52,9 @@ class OnlinePETCallback(TrainerCallback):
         self.reward_controller = reward_controller
         self.policy_tokenizer = policy_tokenizer
         self.model_name = model_name
-        self.adversarial_leftovers = []
         self.pet_update_counter = 0
+        self.adversarial_buffer = deque(maxlen=pet_config.rm_buffer_size)
+
 
         if pet_config.online_pet_enabled:
             if self.pet_config.rm_gradient_checkpointing:
@@ -220,23 +223,22 @@ class OnlinePETCallback(TrainerCallback):
     def _perform_rm_update(self, step):
         print("--- Starting RM Update ---")
         new_adversarial_data = self.reward_controller.get_and_clear_adversarial_buffer()
-        all_adversarial_data = self.adversarial_leftovers + new_adversarial_data
+        self.adversarial_buffer.extend(new_adversarial_data)
 
         effective_adv_batch_size = self.pet_config.adversarial_batch_size * self.pet_config.rm_gradient_accumulation_steps
-        if len(all_adversarial_data) < effective_adv_batch_size:
-            print(f"Not enough adversarial samples to form a full batch. Have {len(all_adversarial_data)}, need {effective_adv_batch_size}. Storing for next update.")
-            self.adversarial_leftovers = all_adversarial_data
+        if len(self.adversarial_buffer) < effective_adv_batch_size:
+            print(f"Not enough adversarial samples to form a full batch. Have {len(self.adversarial_buffer)}, need {effective_adv_batch_size}. Storing for next update.")
             return
 
-        num_adversarial_samples = len(all_adversarial_data)
+        num_adversarial_samples = len(self.adversarial_buffer)
         if wandb.run:
             wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=wandb.run.step)
 
         for epoch in range(self.pet_config.rm_update_steps):
-            random.shuffle(all_adversarial_data)
+            random.shuffle(self.adversarial_buffer)
             print(f"RM Update Epoch {epoch + 1}/{self.pet_config.rm_update_steps}")
 
-            num_batches = len(all_adversarial_data) // self.pet_config.adversarial_batch_size
+            num_batches = len(self.adversarial_buffer) // self.pet_config.adversarial_batch_size
             num_optimizer_steps = num_batches // self.pet_config.rm_gradient_accumulation_steps
 
             if num_optimizer_steps == 0:
@@ -250,7 +252,7 @@ class OnlinePETCallback(TrainerCallback):
             for i in range(num_batches):
                 start_idx = i * self.pet_config.adversarial_batch_size
                 end_idx = start_idx + self.pet_config.adversarial_batch_size
-                adv_batch = all_adversarial_data[start_idx:end_idx]
+                adv_batch = self.adversarial_buffer[start_idx:end_idx]
 
 
                 rm = self.reward_models[0]
@@ -332,9 +334,5 @@ class OnlinePETCallback(TrainerCallback):
                             "update/bt_accuracy": bt_accuracy / self.pet_config.rm_gradient_accumulation_steps,
                         }
                         wandb.log(log_data, step=wandb.run.step)
-
-            processed_batches = num_optimizer_steps * self.pet_config.rm_gradient_accumulation_steps
-            self.adversarial_leftovers = all_adversarial_data[processed_batches * self.pet_config.adversarial_batch_size:]
-            print(f"Stored {len(self.adversarial_leftovers)} adversarial samples for next update.")
 
         print("--- RM Update Finished ---")
