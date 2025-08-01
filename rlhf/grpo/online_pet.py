@@ -252,7 +252,7 @@ class OnlinePETCallback(TrainerCallback):
             for i in range(num_batches):
                 start_idx = i * self.pet_config.adversarial_batch_size
                 end_idx = start_idx + self.pet_config.adversarial_batch_size
-                adv_batch = self.adversarial_buffer[start_idx:end_idx]
+                adv_batch = [self.adversarial_buffer[i] for i in range(start_idx, end_idx)]
 
 
                 rm = self.reward_models[0]
