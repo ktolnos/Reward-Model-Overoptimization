@@ -32,6 +32,15 @@ DATASET_NAME="gagan3012/helpsteer2-preference-v2"
 # Base model name (required for LoRA checkpoints)
 # Uncomment and set this if evaluating LoRA checkpoints
 #BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
+for ARGUMENT in "$@"
+do
+   KEY=$(echo $ARGUMENT | cut -f1 -d=)
+
+   KEY_LENGTH=${#KEY}
+   VALUE="${ARGUMENT:$KEY_LENGTH+1}"
+
+   export "$KEY"="$VALUE"
+done
 
 # Output file
 OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json"

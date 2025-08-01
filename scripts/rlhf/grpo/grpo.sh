@@ -121,7 +121,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
     --rm_buffer_size 512 \
-
+    || exit 1
 
 #    --use_peft True \
 #    --lora_r 32 \
@@ -148,4 +148,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 
 #     --report_to "none" \
 
-sbatch /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --checkpoints_dir "${log_dir}"
+sbatch /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --CHECKPOINTS_DIR="${log_dir}"
