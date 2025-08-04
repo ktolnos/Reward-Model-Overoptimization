@@ -41,7 +41,7 @@ OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jso
 
 # WandB settings
 WANDB_PROJECT="policy-evaluation"
-WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)
+WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 
 echo "Running evaluation with the following settings:"
 echo "Checkpoints Directory: $CHECKPOINTS_DIR"
