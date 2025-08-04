@@ -47,34 +47,42 @@ OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jso
 
 # WandB settings
 WANDB_PROJECT="policy-evaluation"
-WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
+WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)
+
+echo "Running evaluation with the following settings:"
+echo "Checkpoints Directory: $CHECKPOINTS_DIR"
+echo "Training RM Path: $TRAINING_RM_PATH"
+echo "Gold RM Name: $GOLD_RM_NAME"
+echo "Dataset Name: $DATASET_NAME"
+echo "Output File: $OUTPUT_FILE"
+echo "WandB Project: $WANDB_PROJECT"
 
 # Debug mode flag (uncomment to enable)
 #DEBUG_MODE="--debug"
 
 # Run the evaluation script
-python evaluate_policy.py \
-    --checkpoints_dir "$CHECKPOINTS_DIR" \
-    --training_rm_path "$TRAINING_RM_PATH" \
-    --gold_rm_name "$GOLD_RM_NAME" \
-    --dataset_name "$DATASET_NAME" \
-    --output_file "$OUTPUT_FILE" \
-    --batch_size 1 \
-    --generation_batch_size 64 \
-    --max_length 1024 \
-    --device "cuda" \
-    --num_responses_per_prompt 1 \
-    --wandb_project "$WANDB_PROJECT" \
-    --wandb_run_name "$WANDB_RUN_NAME" \
-    --evaluate_with_training_rm True \
-    --evaluate_with_llm_judge True \
-    --llm_judge_model_name "deepseek/deepseek-r1-0528:free" \
-    --baseline_model_path "Qwen/Qwen3-0.6B" \
-    --use_dataset_response_as_baseline False \
-    --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
-    --subsample_n 25 \
-    ${DEBUG_MODE:-} \
-    $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
+#python evaluate_policy.py \
+#    --checkpoints_dir "$CHECKPOINTS_DIR" \
+#    --training_rm_path "$TRAINING_RM_PATH" \
+#    --gold_rm_name "$GOLD_RM_NAME" \
+#    --dataset_name "$DATASET_NAME" \
+#    --output_file "$OUTPUT_FILE" \
+#    --batch_size 1 \
+#    --generation_batch_size 64 \
+#    --max_length 1024 \
+#    --device "cuda" \
+#    --num_responses_per_prompt 1 \
+#    --wandb_project "$WANDB_PROJECT" \
+#    --wandb_run_name "$WANDB_RUN_NAME" \
+#    --evaluate_with_training_rm True \
+#    --evaluate_with_llm_judge True \
+#    --llm_judge_model_name "deepseek/deepseek-r1-0528:free" \
+#    --baseline_model_path "Qwen/Qwen3-0.6B" \
+#    --use_dataset_response_as_baseline False \
+#    --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
+#    --subsample_n 25 \
+#    ${DEBUG_MODE:-} \
+#    $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 
 # To disable wandb logging, add: --disable_wandb
 # To enable debug mode, uncomment the DEBUG_MODE line above
