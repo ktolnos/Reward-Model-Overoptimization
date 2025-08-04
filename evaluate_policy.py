@@ -328,7 +328,9 @@ def main():
         wandb.init(
             project=args.wandb_project,
             name=wandb_run_name,
-            config=vars(args)
+            config=vars(args),
+            group=args.checkpoints_dir,
+            job_type="evaluation",
         )
     
     # --- Common Setup ---

@@ -72,56 +72,58 @@ reward_model_paths=(
       "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 )
 
-#CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
-#    --mixed_precision bf16 \
-#    rlhf/grpo/my_grpo.py \
-#    --num_generations 8 \
-#    --num_train_epochs 1 \
-#    --temperature 0.9 \
-#    --max_prompt_length 1024 \
-#    --max_completion_length 1024 \
-#    --epsilon_high 0.28 \
-#    --mask_truncated_completions True \
-#    --use_vllm True \
-#    --vllm_gpu_memory_utilization 0.1 \
-#    --vllm_mode "colocate" \
-#    --beta 0.0 \
-#    --log_completions True \
-#    --loss_type "dr_grpo" \
-#    --wandb_log_unique_prompts True \
-#    --disable_dropout True \
-#    --bf16 True \
-#    --dataset_path ${dataset_path} \
-#    --output_dir ${log_dir}\
-#    --warmup_ratio=0.1 \
-#    --lr_scheduler_type=cosine \
-#    --model_name_or_path ${base_model_name} \
-#    --reward_model_paths "${reward_model_paths[@]}" \
-#    --ensemble_aggregation "min" \
-#    --save_steps 0.025 \
-#    --run_name ${wandb_name} \
-#    --logging_steps 0.01 \
-#    --learning_rate ${learning_rate} \
-#    --per_device_train_batch_size ${per_device_train_batch_size} \
-#    --gradient_accumulation_steps ${gradient_accumulation_steps} \
-#    --gradient_checkpointing False \
-#    --scale_rewards False \
-#    --trust_remote_code True \
-#    --reference_rewards False \
-#    --sigmoid_rewards False \
-#    --save_generations_path "${log_dir}/generations.csv" \
-#    --adv_rm_lambda 0.0 \
-#    --online_pet_enabled True \
-#    --preference_dataset_path "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05" \
-#    --rm_gradient_checkpointing True \
-#    --move_rm_to_cpu True \
-#    --move_policy_to_cpu True \
-#    --pessimistic_loss_weight 10.0 \
-#    --rm_update_steps 1 \
-#    --k_top_responses 8 \
-#    --rm_optimizer 'AdamW' \
-#    --rm_buffer_size 512 \
-#    || exit 1
+export WANDB_RUN_GROUP=${log_dir}
+
+CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
+    --mixed_precision bf16 \
+    rlhf/grpo/my_grpo.py \
+    --num_generations 8 \
+    --num_train_epochs 1 \
+    --temperature 0.9 \
+    --max_prompt_length 1024 \
+    --max_completion_length 1024 \
+    --epsilon_high 0.28 \
+    --mask_truncated_completions True \
+    --use_vllm True \
+    --vllm_gpu_memory_utilization 0.1 \
+    --vllm_mode "colocate" \
+    --beta 0.0 \
+    --log_completions True \
+    --loss_type "dr_grpo" \
+    --wandb_log_unique_prompts True \
+    --disable_dropout True \
+    --bf16 True \
+    --dataset_path ${dataset_path} \
+    --output_dir ${log_dir}\
+    --warmup_ratio=0.1 \
+    --lr_scheduler_type=cosine \
+    --model_name_or_path ${base_model_name} \
+    --reward_model_paths "${reward_model_paths[@]}" \
+    --ensemble_aggregation "min" \
+    --save_steps 0.025 \
+    --run_name ${wandb_name} \
+    --logging_steps 0.01 \
+    --learning_rate ${learning_rate} \
+    --per_device_train_batch_size ${per_device_train_batch_size} \
+    --gradient_accumulation_steps ${gradient_accumulation_steps} \
+    --gradient_checkpointing False \
+    --scale_rewards False \
+    --trust_remote_code True \
+    --reference_rewards False \
+    --sigmoid_rewards False \
+    --save_generations_path "${log_dir}/generations.csv" \
+    --adv_rm_lambda 0.0 \
+    --online_pet_enabled True \
+    --preference_dataset_path "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05" \
+    --rm_gradient_checkpointing True \
+    --move_rm_to_cpu True \
+    --move_policy_to_cpu True \
+    --pessimistic_loss_weight 10.0 \
+    --rm_update_steps 1 \
+    --k_top_responses 8 \
+    --rm_optimizer 'AdamW' \
+    --rm_buffer_size 512 \
+    || exit 1
 
 #    --use_peft True \
 #    --lora_r 32 \
