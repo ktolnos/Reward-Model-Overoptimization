@@ -13,7 +13,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250727_102610" # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250801_232229" # Current directory with all checkpoints
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
@@ -70,7 +70,7 @@ python evaluate_policy.py \
     --wandb_run_name "$WANDB_RUN_NAME" \
     --evaluate_with_training_rm True \
     --evaluate_with_llm_judge True \
-    --llm_judge_model_name "deepseek/deepseek-r1-0528:free" \
+    --llm_judge_model_name "deepseek/deepseek-r1-0528" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
