@@ -41,9 +41,9 @@ gpu=0 #,1,2,3
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
-learning_rate="5e-7"
+learning_rate="1e-7"
 per_device_train_batch_size=1
-gradient_accumulation_steps=16
+gradient_accumulation_steps=32
 # shellcheck disable=SC2004
 wandb_name="${SLURM_JOB_ID}_$(date +%Y%m%d_%H%M%S)_lr${learning_rate}_batch$(($per_device_train_batch_size * $gradient_accumulation_steps))_rmQwen06B_Full_helpsteer2_gold"
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
@@ -67,9 +67,8 @@ reward_model_paths=(
 #    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_916583_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-290"
 #    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
 #    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_43_BT_RM_Qwen3-Embedding-8B_915731_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
-#     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
+     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136/"
-      "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 )
 
 export WANDB_RUN_GROUP=${log_dir}
@@ -77,7 +76,7 @@ export WANDB_RUN_GROUP=${log_dir}
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
-    --num_generations 8 \
+    --num_generations 16 \
     --num_train_epochs 1 \
     --temperature 0.9 \
     --max_prompt_length 1024 \
@@ -118,11 +117,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
-    --pessimistic_loss_weight 10.0 \
+    --pessimistic_loss_weight 1000.0 \
     --rm_update_steps 1 \
-    --k_top_responses 8 \
+    --rm_update_learning_rate 4e-5 \
+    --k_top_responses 16 \
     --rm_optimizer 'AdamW' \
-    --rm_buffer_size 512 \
+    --rm_buffer_size 4096 \
     || exit 1
 
 #    --use_peft True \
