@@ -15,7 +15,7 @@ source .bashrc
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250729_170052" # Current directory with all checkpoints
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
-  CHECKPOINTS_DIR ="${CHECKPOINTS_DIR_OVERRIDE}"
+  CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
 
 # Path to the training reward model
