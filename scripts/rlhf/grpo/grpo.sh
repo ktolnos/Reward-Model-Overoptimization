@@ -149,4 +149,4 @@ reward_model_paths=(
 #     --report_to "none" \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh
+sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh
