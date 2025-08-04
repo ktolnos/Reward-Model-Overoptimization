@@ -14,6 +14,9 @@ source .bashrc
 
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250729_170052" # Current directory with all checkpoints
+if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
+  CHECKPOINTS_DIR ="${CHECKPOINTS_DIR_OVERRIDE}"
+fi
 
 # Path to the training reward model
 TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-Embedding-8B_42_BT_RM_Qwen3-Embedding-8B_915487_len2000_fulltrain_2e-05_datahelpsteer2-preference-v2/logs/checkpoint-272"
@@ -32,15 +35,6 @@ DATASET_NAME="gagan3012/helpsteer2-preference-v2"
 # Base model name (required for LoRA checkpoints)
 # Uncomment and set this if evaluating LoRA checkpoints
 #BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
-for ARGUMENT in "$@"
-do
-   KEY=$(echo $ARGUMENT | cut -f1 -d=)
-
-   KEY_LENGTH=${#KEY}
-   VALUE="${ARGUMENT:$KEY_LENGTH+1}"
-
-   export "$KEY"="$VALUE"
-done
 
 # Output file
 OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json"
