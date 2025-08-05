@@ -17,8 +17,8 @@ def build_dataset(data_path, tokenizer, split='train', size=None, model_name='')
         rejected_messages = example['rejected']
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False, truncation=True, max_length=tokenizer.max_length)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False, truncation=True, max_length=tokenizer.max_length)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenizer(prompt_plus_chosen_response, **kwargs)
+        tokens_rejected = tokenizer(prompt_plus_rejected_response, **kwargs)
 
         if 'GRM' in model_name:
             # add label mask for sft and dpo training
