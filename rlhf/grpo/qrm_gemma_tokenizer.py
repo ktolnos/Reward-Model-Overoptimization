@@ -21,7 +21,7 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         if text is None:
             text = args[0]
             args = args[1:]
-        pattern = "<end_of_turn>\n<start_of_turn>model\n" if 'gemma' in self.model_path else "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        pattern = "<end_of_turn>\n<start_of_turn>model\n" if 'gemma' in self.model_path else """<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"""
         if isinstance(text, str):
             if pattern not in text:
                 kwargs['text'] = text + pattern
@@ -34,7 +34,9 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
             raise ValueError(f"Unsupported type for text: {type(text)}")
         kwargs['truncation'] = False
 
-        return self.tokenizer(*args, **kwargs)
+        result = self.tokenizer(*args, **kwargs)
+        print('Tokenizer wrapped ids: ' + str(result['input_ids'][0][-10:]))
+        return result
 
     def apply_chat_template(self, *args, **kwargs):
         return self.tokenizer.apply_chat_template(*args, **kwargs)
