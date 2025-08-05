@@ -100,7 +100,7 @@ if __name__ == "__main__":
         reward_tokenizers.append(reward_tokenizer)
 
         if 'QRM' in reward_model_path:
-            reward_tokenizer = TokenizerWrapper(reward_tokenizer)
+            reward_tokenizer = TokenizerWrapper(reward_tokenizer, reward_model_path)
 
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code

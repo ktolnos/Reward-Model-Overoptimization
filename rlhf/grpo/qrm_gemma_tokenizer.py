@@ -5,7 +5,7 @@ transformers.models.llama.modeling_llama.LLAMA_INPUTS_DOCSTRING = "No docstring.
 
 
 class TokenizerWrapper(PreTrainedTokenizerBase):
-    def __init__(self, tokenizer: PreTrainedTokenizerBase, **kwargs):
+    def __init__(self, tokenizer: PreTrainedTokenizerBase, model_path, **kwargs):
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
         self.eos_token_id = tokenizer.eos_token_id
@@ -13,23 +13,22 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         self.pad_token = tokenizer.pad_token
         self.eos_token = tokenizer.eos_token
         self.bos_token = tokenizer.bos_token
+        self.model_path = model_path
+
 
     def __call__(self, *args, **kwargs):
         text = kwargs.get('text', None)
         if text is None:
             text = args[0]
             args = args[1:]
-        pattern = "<end_of_turn>\n<start_of_turn>model\n"
-        print('Tokenizer call ')
+        pattern = "<end_of_turn>\n<start_of_turn>model\n" if 'gemma' in self.model_path else "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
         if isinstance(text, str):
             if pattern not in text:
                 kwargs['text'] = text + pattern
-            print('str text ' + text)
         elif isinstance(text, list):
             for i, s in enumerate(text):
                 if pattern not in s:
                     text[i] = s + pattern
-            print('list text ' + text[0])
             kwargs['text'] = text
         else:
             raise ValueError(f"Unsupported type for text: {type(text)}")
