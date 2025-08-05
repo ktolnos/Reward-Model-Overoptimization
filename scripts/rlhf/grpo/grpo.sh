@@ -121,7 +121,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --pessimistic_loss_weight 1000.0 \
     --rm_update_steps 1 \
     --k_top_responses 8 \
-    --rm_optimizer 'AdamW' \
+    --rm_optimizer 'Adafactor' \
     --rm_buffer_size 512 \
     || exit 1
 

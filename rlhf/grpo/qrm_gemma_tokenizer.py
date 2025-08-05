@@ -33,10 +33,7 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         else:
             raise ValueError(f"Unsupported type for text: {type(text)}")
         kwargs['truncation'] = False
-
-        result = self.tokenizer(*args, **kwargs)
-        print('Tokenizer wrapped ids: ' + str(result['input_ids'][0][-10:]))
-        return result
+        return self.tokenizer(*args, **kwargs)
 
     def apply_chat_template(self, *args, **kwargs):
         return self.tokenizer.apply_chat_template(*args, **kwargs)
