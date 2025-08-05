@@ -43,20 +43,20 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
 
     def encode(self, *args, **kwargs) -> List[int]:
         print("encode")
-        return tokenizer.encode(*args, **kwargs)
+        return self.tokenizer.encode(*args, **kwargs)
 
     def encode_plus(self, *args, **kwargs) -> BatchEncoding:
         print("encode_plus")
-        return tokenizer.encode_plus(*args, **kwargs)
+        return self.tokenizer.encode_plus(*args, **kwargs)
 
     def batch_encode_plus(self, *args, **kwargs) -> BatchEncoding:
         print("batch_encode_plus")
-        return tokenizer.batch_encode_plus(*args, **kwargs)
+        return self.tokenizer.batch_encode_plus(*args, **kwargs)
 
     def tokenize(self, *args, **kwargs) -> List[str]:
         print("tokenize")
-        return tokenizer.tokenize(*args, **kwargs)
+        return self.tokenizer.tokenize(*args, **kwargs)
 
     def decode(self, *args, **kwargs) -> str:
         print("decode")
-        return tokenizer.decode(*args, **kwargs)
+        return self.tokenizer.decode(*args, **kwargs)
