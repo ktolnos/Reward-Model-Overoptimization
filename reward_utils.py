@@ -45,7 +45,7 @@ Let's analyze this step by step and decide which assistant is better, and then a
 
 
 def is_reasoning(reward_model):
-    if hasattr(reward_model, 'classifier') or 'ForSequenceClassification' in str(type(reward_model)):
+    if hasattr(reward_model, 'classifier') or hasattr(reward_model, 'gating') or 'ForSequenceClassification' in str(type(reward_model)):
         return False
     elif hasattr(reward_model, 'lm_head') or 'ForCausalLM' in str(type(reward_model)):
         return True
