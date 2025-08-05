@@ -87,8 +87,8 @@ def build_dataset_UF(data_path, tokenizer, split='train', size=None, mode='', mo
         
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenizer(prompt_plus_chosen_response, **kwargs)
+        tokens_rejected = tokenizer(prompt_plus_rejected_response, **kwargs)
         if 'GRM' in model_name:
             # add label mask for sft and dpo training
             prompt = [example['conv_A'][0]]
