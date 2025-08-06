@@ -80,15 +80,15 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --num_generations 8 \
     --num_train_epochs 1 \
     --temperature 0.9 \
-    --max_prompt_length 1024 \
-    --max_completion_length 1024 \
+    --max_prompt_length 512 \
+    --max_completion_length 512 \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
     --beta 0.0 \
-    --log_completions True \
+    --log_completions False \
     --loss_type "dr_grpo" \
     --wandb_log_unique_prompts True \
     --disable_dropout True \

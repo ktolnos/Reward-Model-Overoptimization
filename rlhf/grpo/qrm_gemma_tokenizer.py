@@ -15,13 +15,18 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
         self.bos_token = tokenizer.bos_token
         self.model_path = model_path
 
+        pattern = "<end_of_turn>\n<start_of_turn>model\n" if 'gemma' in self.model_path else """<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"""
+        tokenized_pattern = tokenizer(pattern, add_special_tokens=False, return_tensors='pt')
+        self.pattern = pattern
+        self.tokenized_pattern = tokenized_pattern.input_ids[0]
+
+
 
     def __call__(self, *args, **kwargs):
         text = kwargs.get('text', None)
         if text is None:
             text = args[0]
             args = args[1:]
-        pattern = "<end_of_turn>\n<start_of_turn>model\n" if 'gemma' in self.model_path else """<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"""
         if isinstance(text, str):
             if pattern not in text:
                 kwargs['text'] = text + pattern
@@ -32,8 +37,14 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
             kwargs['text'] = text
         else:
             raise ValueError(f"Unsupported type for text: {type(text)}")
-        kwargs['truncation'] = False
-        return self.tokenizer(*args, **kwargs)
+        result = self.tokenizer(*args, **kwargs)
+        if 'input_ids' in result:
+            result['input_ids'][:, -len(self.tokenized_pattern):] = self.tokenized_pattern
+        if 'attention_mask' in result:
+            result['attention_mask'][:, -len(self.tokenized_pattern):] = 1
+        if 'token_type_ids' in result:
+            result['token_type_ids'][:, -len(self.tokenized_pattern):] = 0
+        return result
 
     def apply_chat_template(self, *args, **kwargs):
         return self.tokenizer.apply_chat_template(*args, **kwargs)
