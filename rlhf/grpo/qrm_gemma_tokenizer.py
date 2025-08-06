@@ -28,12 +28,12 @@ class TokenizerWrapper(PreTrainedTokenizerBase):
             text = args[0]
             args = args[1:]
         if isinstance(text, str):
-            if pattern not in text:
-                kwargs['text'] = text + pattern
+            if self.pattern not in text:
+                kwargs['text'] = text + self.pattern
         elif isinstance(text, list):
             for i, s in enumerate(text):
-                if pattern not in s:
-                    text[i] = s + pattern
+                if self.pattern not in s:
+                    text[i] = s + self.pattern
             kwargs['text'] = text
         else:
             raise ValueError(f"Unsupported type for text: {type(text)}")
