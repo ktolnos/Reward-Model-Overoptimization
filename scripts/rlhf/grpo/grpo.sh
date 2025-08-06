@@ -122,7 +122,10 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_update_steps 1 \
     --k_top_responses 8 \
     --rm_optimizer 'Adafactor' \
-    --rm_buffer_size 512 \
+    --rm_buffer_size 128 \
+    --rm_gradient_accumulation_steps 16 \
+    --adversarial_batch_size 2 \
+    --preference_batch_size 2 \
     || exit 1
 
 #    --use_peft True \
