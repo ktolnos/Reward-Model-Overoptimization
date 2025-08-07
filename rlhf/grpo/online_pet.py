@@ -54,6 +54,7 @@ class OnlinePETCallback(TrainerCallback):
         self.model_name = model_name
         self.pet_update_counter = 0
         self.adversarial_buffer = deque(maxlen=pet_config.rm_buffer_size)
+        self.num_preference_epochs = 0
 
 
         if pet_config.online_pet_enabled:
@@ -132,6 +133,7 @@ class OnlinePETCallback(TrainerCallback):
             return next(self.preference_data_iterator)
         except StopIteration:
             self.preference_data_iterator = iter(self.preference_dataloader)
+            self.num_preference_epochs += 1
             return next(self.preference_data_iterator)
 
     def _move_optimizer_to_device(self, optim, device):
@@ -197,6 +199,7 @@ class OnlinePETCallback(TrainerCallback):
         rm.eval()
         total_correct = 0
         total_samples = 0
+        total_bt_loss = 0
         
         with torch.no_grad():
             for batch in self.eval_dataloader:
@@ -209,14 +212,19 @@ class OnlinePETCallback(TrainerCallback):
                     input_ids=batch['input_ids_rejected'].to(self.accelerator.device),
                     attention_mask=batch['attention_mask_rejected'].to(self.accelerator.device)
                 ).logits.squeeze(-1)
-                
+
+                total_bt_loss += -F.logsigmoid(chosen_rewards - rejected_rewards).mean().item()
                 total_correct += (chosen_rewards > rejected_rewards).sum().item()
                 total_samples += chosen_rewards.size(0)
         
         accuracy = total_correct / total_samples if total_samples > 0 else 0
+        bt_loss = total_bt_loss / len(self.eval_dataloader) if len(self.eval_dataloader) > 0 else 0
         print(f"RM Evaluation Accuracy: {accuracy:.4f}")
         if wandb.run:
-            wandb.log({"eval/rm_accuracy": accuracy}, step=wandb.run.step)
+            wandb.log({
+                "eval/rm_accuracy": accuracy,
+                "eval/rm_bt_loss": bt_loss,
+            }, step=wandb.run.step)
         rm.train()
         print("--- Finished RM Evaluation ---")
 
@@ -332,7 +340,12 @@ class OnlinePETCallback(TrainerCallback):
                             "update/bt_loss": bt_loss_item / self.pet_config.rm_gradient_accumulation_steps,
                             "update/total_loss": total_loss_item / self.pet_config.rm_gradient_accumulation_steps,
                             "update/bt_accuracy": bt_accuracy / self.pet_config.rm_gradient_accumulation_steps,
+                            "update/num_preference_epochs": self.num_preference_epochs,
                         }
                         wandb.log(log_data, step=wandb.run.step)
+
+                    bt_accuracy = 0
+                    pessimistic_loss_item = 0
+                    bt_loss_item = 0
 
         print("--- RM Update Finished ---")
