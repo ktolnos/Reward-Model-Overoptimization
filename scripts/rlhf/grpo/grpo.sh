@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
 #SBATCH --gres=gpu:A100-SXM4-80GB:1
-#SBATCH --time=168:00:00
+#SBATCH --time=48:00:00
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
@@ -43,7 +43,7 @@ gpu=0 #,1,2,3
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 learning_rate="1e-7"
 per_device_train_batch_size=1
-gradient_accumulation_steps=32
+gradient_accumulation_steps=16
 # shellcheck disable=SC2004
 wandb_name="${SLURM_JOB_ID}_$(date +%Y%m%d_%H%M%S)_lr${learning_rate}_batch$(($per_device_train_batch_size * $gradient_accumulation_steps))_rmQwen06B_Full_helpsteer2_gold"
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
@@ -123,7 +123,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_update_learning_rate 4e-5 \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
-    --rm_buffer_size 512 \
+    --rm_buffer_size 256 \
     --pessimistic_gradient_accumulation_steps 16 \
     --bt_gradient_accumulation_steps 4 \
     --adversarial_batch_size 2 \
