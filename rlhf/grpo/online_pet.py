@@ -29,7 +29,8 @@ class OnlinePETConfig:
     eval_online_pet_every: int = field(default=8, metadata={"help": "How many PET steps between evaluations."})
     rm_update_steps: int = field(default=1,
                                  metadata={"help": "Number of epochs to train RM on collected data."})
-    rm_gradient_accumulation_steps: int = field(default=32, metadata={"help": "Gradient accumulation steps for RM update."})
+    pessimistic_gradient_accumulation_steps: int = field(default=32, metadata={"help": "Gradient accumulation steps for pessimistic loss."})
+    bt_gradient_accumulation_steps: int = field(default=8, metadata={"help": "Gradient accumulation steps for BT loss."})
     rm_gradient_checkpointing: bool = field(default=False, metadata={"help": "Enable gradient checkpointing for reward models."})
     rm_update_learning_rate: float = field(default=4e-5, metadata={"help": "Learning rate for the reward model optimizer."})
     pessimistic_loss_weight: float = field(default=0.1, metadata={"help": "Weight for the pessimistic loss component."})
@@ -233,9 +234,10 @@ class OnlinePETCallback(TrainerCallback):
         new_adversarial_data = self.reward_controller.get_and_clear_adversarial_buffer()
         self.adversarial_buffer.extend(new_adversarial_data)
 
-        effective_adv_batch_size = self.pet_config.adversarial_batch_size * self.pet_config.rm_gradient_accumulation_steps
+        effective_adv_batch_size = self.pet_config.adversarial_batch_size * self.pet_config.pessimistic_gradient_accumulation_steps
         if len(self.adversarial_buffer) < effective_adv_batch_size:
-            print(f"Not enough adversarial samples to form a full batch. Have {len(self.adversarial_buffer)}, need {effective_adv_batch_size}. Storing for next update.")
+            print(
+                f"Not enough adversarial samples to form a full batch. Have {len(self.adversarial_buffer)}, need {effective_adv_batch_size}. Storing for next update.")
             return
 
         num_adversarial_samples = len(self.adversarial_buffer)
@@ -243,109 +245,105 @@ class OnlinePETCallback(TrainerCallback):
             wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=wandb.run.step)
 
         for epoch in range(self.pet_config.rm_update_steps):
-            random.shuffle(self.adversarial_buffer)
+            adv_buffer_list = list(self.adversarial_buffer)
+            random.shuffle(adv_buffer_list)
             print(f"RM Update Epoch {epoch + 1}/{self.pet_config.rm_update_steps}")
 
-            num_batches = len(self.adversarial_buffer) // self.pet_config.adversarial_batch_size
-            num_optimizer_steps = num_batches // self.pet_config.rm_gradient_accumulation_steps
+            num_adv_micro_batches = len(adv_buffer_list) // self.pet_config.adversarial_batch_size
+            num_optimizer_steps = num_adv_micro_batches // self.pet_config.pessimistic_gradient_accumulation_steps
 
             if num_optimizer_steps == 0:
                 print("Not enough batches for one optimizer step, skipping epoch.")
                 continue
 
-            self.rm_optimizer.zero_grad()
-            bt_accuracy = 0
-            pessimistic_loss_item = 0
-            bt_loss_item = 0
-            for i in range(num_batches):
-                start_idx = i * self.pet_config.adversarial_batch_size
-                end_idx = start_idx + self.pet_config.adversarial_batch_size
-                adv_batch = [self.adversarial_buffer[i] for i in range(start_idx, end_idx)]
+            adv_buffer_iterator = iter(adv_buffer_list)
 
-
-                rm = self.reward_models[0]
+            for opt_step in range(num_optimizer_steps):
+                self.rm_optimizer.zero_grad()
 
                 # --- Pessimistic Loss ---
-                adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
-                rm_tokenizer = self.reward_tokenizers[0]
-                texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
-                adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts)
+                pessimistic_loss_item = 0
+                for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
+                    adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
 
-                pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
-                if adv_ref_rewards[0] is not None:
-                    adv_ref_rewards = torch.tensor(adv_ref_rewards, device=self.accelerator.device)
-                    mask = adv_rewards_new > adv_ref_rewards
-                    if mask.any():
-                        filtered_adv_rewards = adv_rewards_new[mask]
-                        filtered_ref_rewards = adv_ref_rewards[mask]
-                        pessimistic_loss = (filtered_adv_rewards - filtered_ref_rewards).mean()
-                else:
-                    pessimistic_loss = adv_rewards_new.mean()
+                    rm = self.reward_models[0]
+                    adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
+                    rm_tokenizer = self.reward_tokenizers[0]
+                    texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
+                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts)
 
-                pessimistic_loss *= self.pet_config.pessimistic_loss_weight
-                pessimistic_loss_item += pessimistic_loss.item()
+                    pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
+                    if adv_ref_rewards[0] is not None:
+                        adv_ref_rewards = torch.tensor(adv_ref_rewards, device=self.accelerator.device)
+                        mask = adv_rewards_new > adv_ref_rewards
+                        if mask.any():
+                            filtered_adv_rewards = adv_rewards_new[mask]
+                            filtered_ref_rewards = adv_ref_rewards[mask]
+                            pessimistic_loss = (filtered_adv_rewards - filtered_ref_rewards).mean()
+                    else:
+                        pessimistic_loss = adv_rewards_new.mean()
 
-                # Scale and backward pessimistic loss
-                scaled_pessimistic_loss = pessimistic_loss
-                if self.pet_config.rm_gradient_accumulation_steps > 1:
-                    scaled_pessimistic_loss = scaled_pessimistic_loss / self.pet_config.rm_gradient_accumulation_steps
+                    pessimistic_loss *= self.pet_config.pessimistic_loss_weight
+                    pessimistic_loss_item += pessimistic_loss.item()
 
-                if scaled_pessimistic_loss.requires_grad:
-                    self.accelerator.backward(scaled_pessimistic_loss, retain_graph=False)
+                    scaled_pessimistic_loss = pessimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
+                    if scaled_pessimistic_loss.requires_grad:
+                        self.accelerator.backward(scaled_pessimistic_loss)
 
-                # Free memory from pessimistic loss calculation
                 del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
                 torch.cuda.empty_cache()
 
-                preference_batch = self._get_preference_batch()
-
                 # --- BT Loss on Preference Data ---
-                chosen_rewards = rm(
-                    input_ids=preference_batch['input_ids_chosen'].to(self.accelerator.device),
-                    attention_mask=preference_batch['attention_mask_chosen'].to(self.accelerator.device)
-                ).logits.squeeze(-1)
+                bt_loss_item = 0
+                bt_accuracy = 0
+                if self.pet_config.bt_gradient_accumulation_steps > 0:
+                    for i in range(self.pet_config.bt_gradient_accumulation_steps):
+                        preference_batch = self._get_preference_batch()
+                        rm = self.reward_models[0]
 
-                rejected_rewards = rm(
-                    input_ids=preference_batch['input_ids_rejected'].to(self.accelerator.device),
-                    attention_mask=preference_batch['attention_mask_rejected'].to(self.accelerator.device)
-                ).logits.squeeze(-1)
+                        chosen_rewards = rm(
+                            input_ids=preference_batch['input_ids_chosen'].to(self.accelerator.device),
+                            attention_mask=preference_batch['attention_mask_chosen'].to(self.accelerator.device)
+                        ).logits.squeeze(-1)
 
-                bt_loss = -F.logsigmoid(chosen_rewards - rejected_rewards).mean()
-                bt_loss *= self.pet_config.bt_loss_weight
+                        rejected_rewards = rm(
+                            input_ids=preference_batch['input_ids_rejected'].to(self.accelerator.device),
+                            attention_mask=preference_batch['attention_mask_rejected'].to(
+                                self.accelerator.device)
+                        ).logits.squeeze(-1)
 
-                bt_accuracy += (chosen_rewards > rejected_rewards).float().mean().item()
-                bt_loss_item += bt_loss.item()
+                        bt_loss = -F.logsigmoid(chosen_rewards - rejected_rewards).mean()
+                        bt_loss *= self.pet_config.bt_loss_weight
 
-                # Scale and backward BT loss
-                scaled_bt_loss = bt_loss
-                if self.pet_config.rm_gradient_accumulation_steps > 1:
-                    scaled_bt_loss = scaled_bt_loss / self.pet_config.rm_gradient_accumulation_steps
+                        bt_accuracy += (chosen_rewards > rejected_rewards).float().mean().item()
+                        bt_loss_item += bt_loss.item()
 
-                if scaled_bt_loss.requires_grad:
-                    self.accelerator.backward(scaled_bt_loss, retain_graph=False)
-                
-                del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
+                        scaled_bt_loss = bt_loss / self.pet_config.bt_gradient_accumulation_steps
+                        if scaled_bt_loss.requires_grad:
+                            self.accelerator.backward(scaled_bt_loss)
 
-                # Log metrics
+                    del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
+                    torch.cuda.empty_cache()
 
+                # Optimizer step and logging
+                self.rm_optimizer.step()
 
-                if (i + 1) % self.pet_config.rm_gradient_accumulation_steps == 0:
-                    total_loss_item = pessimistic_loss_item + bt_loss_item
-                    print(f"  Step {(i + 1) // self.pet_config.rm_gradient_accumulation_steps}/{num_optimizer_steps}: Pessimistic Loss: {pessimistic_loss_item:.4f}, BT Loss: {bt_loss_item:.4f}, Total Loss: {total_loss_item:.4f}, BT Accuracy: {bt_accuracy:.4f}")
-                    self.rm_optimizer.step()
-                    self.rm_optimizer.zero_grad()
-                    if wandb.run:
-                        log_data = {
-                            "update/pessimistic_loss": pessimistic_loss_item / self.pet_config.rm_gradient_accumulation_steps,
-                            "update/bt_loss": bt_loss_item / self.pet_config.rm_gradient_accumulation_steps,
-                            "update/total_loss": total_loss_item / self.pet_config.rm_gradient_accumulation_steps,
-                            "update/bt_accuracy": bt_accuracy / self.pet_config.rm_gradient_accumulation_steps,
-                            "update/num_preference_epochs": self.num_preference_epochs,
-                        }
-                        wandb.log(log_data, step=wandb.run.step)
+                avg_pess_loss = pessimistic_loss_item / self.pet_config.pessimistic_gradient_accumulation_steps
+                avg_bt_loss = (bt_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
+                avg_bt_accuracy = (bt_accuracy / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
+                total_avg_loss = avg_pess_loss + avg_bt_loss
 
-                    bt_accuracy = 0
-                    pessimistic_loss_item = 0
-                    bt_loss_item = 0
+                print(
+                    f"  Step {opt_step + 1}/{num_optimizer_steps}: Pessimistic Loss: {avg_pess_loss:.4f}, BT Loss: {avg_bt_loss:.4f}, Total Loss: {total_avg_loss:.4f}, BT Accuracy: {avg_bt_accuracy:.4f}")
+
+                if wandb.run:
+                    log_data = {
+                        "update/pessimistic_loss": avg_pess_loss,
+                        "update/bt_loss": avg_bt_loss,
+                        "update/total_loss": total_avg_loss,
+                        "update/bt_accuracy": avg_bt_accuracy,
+                        "update/num_preference_epochs": self.num_preference_epochs,
+                    }
+                    wandb.log(log_data, step=wandb.run.step)
 
         print("--- RM Update Finished ---")
