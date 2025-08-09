@@ -3,7 +3,7 @@
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32gb
-#SBATCH --gres=gpu:A100-PCI-80GB:8
+#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=48:00:00
 #SBATCH --qos=high
 
