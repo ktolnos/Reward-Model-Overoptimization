@@ -124,8 +124,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
     --rm_buffer_size 256 \
-    --pessimistic_gradient_accumulation_steps 16 \
-    --bt_gradient_accumulation_steps 4 \
+    --pessimistic_gradient_accumulation_steps 32 \
+    --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     || exit 1
