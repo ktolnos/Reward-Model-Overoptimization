@@ -106,10 +106,10 @@ reward_model_paths=(
 )
 
 export WANDB_RUN_GROUP=${log_dir}
+#    --deepspeed "scripts/accelerate_configs/deepspeed_zero3.json" \
 
 accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_zero3.yaml \
     rlhf/grpo/my_grpo.py \
-    --deepspeed "scripts/accelerate_configs/deepspeed_zero3.json" \
     --num_generations 16 \
     --num_train_epochs 1 \
     --temperature 0.9 \
