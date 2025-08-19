@@ -12,6 +12,7 @@ import gc
 
 from reward_models.load_datasets import load_train_eval_dataset
 from reward_utils import get_reward
+from accelerate.utils import DummyOptim, DummyScheduler
 
 
 @dataclass
@@ -20,8 +21,6 @@ class OnlinePETConfig:
     Configuration for the online pessimistic reward model update.
     """
     online_pet_enabled: bool = field(default=False, metadata={"help": "Enable online PET updates."})
-    move_policy_to_cpu: bool = field(default=False, metadata={"help": "Move policy to CPU during RM update to save memory."})
-    move_rm_to_cpu: bool = field(default=False, metadata={"help": "Move reward model to CPU when not in use."})
     k_top_responses: int = field(default=1, metadata={
         "help": "Number of top responses to store from each batch for adversarial training."})
     update_interval_steps: int = field(default=16,
@@ -56,53 +55,63 @@ class OnlinePETCallback(TrainerCallback):
         self.pet_update_counter = 0
         self.adversarial_buffer = deque(maxlen=pet_config.rm_buffer_size)
         self.num_preference_epochs = 0
+        self.initialized = False
 
+    def set_accelerator(self, accelerator):
+        self.accelerator = accelerator
+        self._initialize_rm_training()
+        self.initialized = True
 
-        if pet_config.online_pet_enabled:
-            if self.pet_config.rm_gradient_checkpointing:
-                for rm in self.reward_models:
-                    rm.gradient_checkpointing_enable()
+    def _initialize_rm_training(self):
+        if not self.pet_config.online_pet_enabled or self.accelerator is None:
+            return
+        
+        print("--- Initializing Reward Model Training Components ---")
+        if self.pet_config.rm_gradient_checkpointing:
+            for rm in self.reward_models:
+                rm.gradient_checkpointing_enable()
 
-            rm_tokenizer = self.reward_tokenizers[0]
-            rm_tokenizer.max_length = 1024
-            preference_dataset, eval_dataset = load_train_eval_dataset(
-                data_path=self.pet_config.preference_dataset_path,
-                tokenizer=rm_tokenizer,
-                model_name=self.model_name
-            )
-            self.preference_dataloader = DataLoader(
-                preference_dataset,
-                batch_size=self.pet_config.preference_batch_size,
-                shuffle=True,
-                collate_fn=self.collate_preference_data
-            )
-            self.eval_dataloader = DataLoader(
-                eval_dataset,
-                batch_size=self.pet_config.eval_batch_size,
-                collate_fn=self.collate_preference_data
-            )
-            self.preference_data_iterator = iter(self.preference_dataloader)
+        rm_tokenizer = self.reward_tokenizers[0]
+        rm_tokenizer.max_length = 1024
+        preference_dataset, eval_dataset = load_train_eval_dataset(
+            data_path=self.pet_config.preference_dataset_path,
+            tokenizer=rm_tokenizer,
+            model_name=self.model_name
+        )
+        self.preference_dataloader = DataLoader(
+            preference_dataset,
+            batch_size=self.pet_config.preference_batch_size,
+            shuffle=True,
+            collate_fn=self.collate_preference_data
+        )
+        self.eval_dataloader = DataLoader(
+            eval_dataset,
+            batch_size=self.pet_config.eval_batch_size,
+            collate_fn=self.collate_preference_data
+        )
+        self.preference_dataloader, self.eval_dataloader =\
+            self.accelerator.prepare(self.preference_dataloader, self.eval_dataloader)
 
-            params = [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad]
-            self.rm_optimizer = Adafactor(
-                params,
-                lr=self.pet_config.rm_update_learning_rate,
-                decay_rate=-0.8,
-                weight_decay=0.0,
-                scale_parameter=False,
-                relative_step=False,
-            ) if str.lower(self.pet_config.rm_optimizer) == 'adafactor' else torch.optim.AdamW(
-                params,
-                lr=self.pet_config.rm_update_learning_rate,
-            ) if str.lower(self.pet_config.rm_optimizer) == 'adamw' else None
-            assert self.rm_optimizer is not None, f"Unsupported optimizer {self.pet_config.rm_optimizer}"
-            if self.pet_config.move_rm_to_cpu:
-                for rm in self.reward_models:
-                    rm.to("cpu")
-                self._move_optimizer_to_device(self.rm_optimizer, torch.device("cpu"))
+        self.preference_data_iterator = iter(self.preference_dataloader)
+
+        params = [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad]
+        self.rm_optimizer = Adafactor(
+            params,
+            lr=self.pet_config.rm_update_learning_rate,
+            decay_rate=-0.8,
+            weight_decay=0.0,
+            scale_parameter=False,
+            relative_step=False,
+        ) if str.lower(self.pet_config.rm_optimizer) == 'adafactor' else torch.optim.AdamW(
+            params,
+            lr=self.pet_config.rm_update_learning_rate,
+        ) if str.lower(self.pet_config.rm_optimizer) == 'adamw' else None
+        assert self.rm_optimizer is not None, f"Unsupported optimizer {self.pet_config.rm_optimizer}"
+        self.rm_optimizer = self.accelerator.prepare(self.rm_optimizer)
+
 
     def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-        if not self.pet_config.online_pet_enabled or not self.pet_config.rm_save_path:
+        if not self.pet_config.online_pet_enabled or not self.pet_config.rm_save_path or not self.initialized:
             return
 
         if not self.accelerator.is_main_process:
@@ -137,61 +146,21 @@ class OnlinePETCallback(TrainerCallback):
             self.num_preference_epochs += 1
             return next(self.preference_data_iterator)
 
-    def _move_optimizer_to_device(self, optim, device):
-        for param in optim.state.values():
-            # Not sure there are any global tensors in the state dict
-            if isinstance(param, torch.Tensor):
-                param.data = param.data.to(device)
-                if param._grad is not None:
-                    param._grad.data = param._grad.data.to(device)
-            elif isinstance(param, dict):
-                for subparam in param.values():
-                    if isinstance(subparam, torch.Tensor):
-                        subparam.data = subparam.data.to(device)
-                        if subparam._grad is not None:
-                            subparam._grad.data = subparam._grad.data.to(device)
-
-    def on_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-        if not self.pet_config.online_pet_enabled or not self.accelerator.is_main_process:
-            return
-
-        if self.pet_config.move_rm_to_cpu:
-            for rm in self.reward_models:
-                rm.to(self.accelerator.device)
-            self._move_optimizer_to_device(self.rm_optimizer, self.accelerator.device)
-
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-        if not self.pet_config.online_pet_enabled or not self.accelerator.is_main_process:
+        if not self.pet_config.online_pet_enabled or not self.accelerator.is_main_process or not self.initialized:
             return
 
         is_update_step = (state.global_step > 0 and state.global_step % self.pet_config.update_interval_steps == 0)
 
         if is_update_step:
-            print(f"\n--- Step {state.global_step}: Starting Online PET Actions ---")
-            policy = self.accelerator.unwrap_model(kwargs['model'])
-            policy_optimizer = kwargs['optimizer']
-
-            if self.pet_config.move_policy_to_cpu:
-                self._move_optimizer_to_device(policy_optimizer, torch.device("cpu"))
-                policy.to('cpu')
-            torch.cuda.empty_cache()
-
+            print(f"--- Step {state.global_step}: Starting Online PET Actions ---")
             self._perform_rm_update(state.global_step)
             self.pet_update_counter += 1
 
             if self.pet_update_counter % self.pet_config.eval_online_pet_every == 0:
                 self._evaluate_rm(state.global_step)
 
-            if self.pet_config.move_policy_to_cpu:
-                policy.to(self.accelerator.device)
-                self._move_optimizer_to_device(policy_optimizer, self.accelerator.device)
-
             print(f"--- Finished Online PET Actions ---")
-
-            if self.pet_config.move_rm_to_cpu:
-                for rm in self.reward_models:
-                    rm.to('cpu')
-                self._move_optimizer_to_device(self.rm_optimizer, torch.device("cpu"))
             torch.cuda.empty_cache()
 
     def _evaluate_rm(self, step):
@@ -205,13 +174,13 @@ class OnlinePETCallback(TrainerCallback):
         with torch.no_grad():
             for batch in self.eval_dataloader:
                 chosen_rewards = rm(
-                    input_ids=batch['input_ids_chosen'].to(self.accelerator.device),
-                    attention_mask=batch['attention_mask_chosen'].to(self.accelerator.device)
+                    input_ids=batch['input_ids_chosen'],
+                    attention_mask=batch['attention_mask_chosen']
                 ).logits.squeeze(-1)
 
                 rejected_rewards = rm(
-                    input_ids=batch['input_ids_rejected'].to(self.accelerator.device),
-                    attention_mask=batch['attention_mask_rejected'].to(self.accelerator.device)
+                    input_ids=batch['input_ids_rejected'],
+                    attention_mask=batch['attention_mask_rejected']
                 ).logits.squeeze(-1)
 
                 total_bt_loss += -F.logsigmoid(chosen_rewards - rejected_rewards).mean().item()
@@ -244,6 +213,10 @@ class OnlinePETCallback(TrainerCallback):
         if wandb.run:
             wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=wandb.run.step)
 
+        rm = self.reward_models[0]
+        rm_tokenizer = self.reward_tokenizers[0]
+        rm.train()
+
         for epoch in range(self.pet_config.rm_update_steps):
             adv_buffer_list = list(self.adversarial_buffer)
             random.shuffle(adv_buffer_list)
@@ -266,9 +239,7 @@ class OnlinePETCallback(TrainerCallback):
                 for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
                     adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
 
-                    rm = self.reward_models[0]
                     adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
-                    rm_tokenizer = self.reward_tokenizers[0]
                     texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
                     adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts)
 
@@ -299,7 +270,6 @@ class OnlinePETCallback(TrainerCallback):
                 if self.pet_config.bt_gradient_accumulation_steps > 0:
                     for i in range(self.pet_config.bt_gradient_accumulation_steps):
                         preference_batch = self._get_preference_batch()
-                        rm = self.reward_models[0]
 
                         chosen_rewards = rm(
                             input_ids=preference_batch['input_ids_chosen'].to(self.accelerator.device),
@@ -347,3 +317,4 @@ class OnlinePETCallback(TrainerCallback):
                     wandb.log(log_data, step=wandb.run.step)
 
         print("--- RM Update Finished ---")
+        rm.eval()

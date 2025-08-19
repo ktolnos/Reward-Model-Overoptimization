@@ -57,6 +57,7 @@ class ScriptArguments:
     adv_rm_lambda: Optional[float] = field(default=0.0,
                                            metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
                                                              'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
+    resume_from_checkpoint: Optional[str] = field(default="", metadata={'help': 'path to checkpoint from which to resume training'})
 
 
 if __name__ == "__main__":
@@ -139,7 +140,7 @@ if __name__ == "__main__":
 
     pet_callback = OnlinePETCallback(
         pet_config=pet_config,
-        accelerator=None,  # Will be set by the trainer
+        accelerator=None,  # Will be set later
         reward_models=reward_models,
         reward_tokenizers=reward_tokenizers,
         reward_controller=reward_controller,
@@ -163,24 +164,27 @@ if __name__ == "__main__":
         reward_funcs=reward_fn,
         callbacks=callbacks
     )
-    pet_callback.accelerator = trainer.accelerator
+    if pet_config.online_pet_enabled:
+        pet_callback.set_accelerator(Accelerator()) # we need to create it after the trainer is created
     reward_controller.trainer = trainer
 
     logging_steps = int(training_args.logging_steps * len(train_dataset))
     print("Logging steps:", logging_steps)
     reward_controller.logging_steps = logging_steps
-    if trainer.is_deepspeed_enabled:
-        for reward_model in reward_models:
-            prepare_deepspeed(reward_model, trainer.accelerator)
+    if pet_config.online_pet_enabled:
+        for i, reward_model in enumerate(reward_models):
+            reward_models[i] = pet_callback.accelerator.prepare(reward_model)
     else:
-        for reward_model in reward_models:
-            trainer.accelerator.prepare_model(
-                reward_model, evaluation_mode=True, device_placement=True
-            )
-    trainer.train()
+        for i, reward_model in enumerate(reward_models):
+            reward_models[i] = trainer.accelerator.prepare_model(reward_model, evaluation_mode=True, device_placement=True)
+    resume_from_checkpoint = None
+    if script_args.resume_from_checkpoint:
+        resume_from_checkpoint = script_args.resume_from_checkpoint
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     # Save and push to hub
     trainer.save_model(training_args.output_dir)
     if training_args.push_to_hub:
         trainer.push_to_hub(dataset_name=script_args.dataset_name)
+
 
