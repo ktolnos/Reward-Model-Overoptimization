@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=shard:13
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 export HF_HOME="/nas/ucb/eop/cache"
@@ -75,6 +75,8 @@ python evaluate_policy.py \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     --subsample_n 25 \
+    --continue_from_checkpoint "checkpoint-5974" \
+    --wandb_continue_run_id "mvebzmsk" \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 

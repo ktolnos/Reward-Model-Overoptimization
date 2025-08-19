@@ -108,6 +108,14 @@ class ScriptArguments:
         default=None,
         metadata={"help": "Number of prompts to randomly subsample from the dataset. If None, uses the full dataset."}
     )
+    continue_from_checkpoint: Optional[str] = field(
+        default=None,
+        metadata={"help": "Id of a specific checkpoint to continue evaluation from. If None, starts from the first checkpoint."}
+    )
+    wandb_continue_run_id: Optional[str] = field(
+        default=None,
+        metadata={"help": "WandB run ID to continue from. If None, starts a new run."}
+    )
 
 def load_reward_model_impl(model_path_or_name, device):
     model, tokenizer = load_reward_model(model_path_or_name, reasoning=False, device=device)
@@ -331,6 +339,8 @@ def main():
             config=vars(args),
             group=args.checkpoints_dir,
             job_type="evaluation",
+            resume="must" if args.wandb_continue_run_id else "auto",
+            id=args.wandb_continue_run_id if args.wandb_continue_run_id else None,
         )
     
     # --- Common Setup ---
@@ -351,6 +361,12 @@ def main():
         d for d in os.listdir(args.checkpoints_dir)
         if d.startswith("checkpoint-")
     ], key=lambda x: int(x.split("-")[1]))
+    if args.continue_from_checkpoint:
+        # Find the index of the specified checkpoint
+        continue_index = next((i for i, c in enumerate(checkpoints) if c == args.continue_from_checkpoint), None)
+        if continue_index is None:
+            raise ValueError(f"Checkpoint {args.continue_from_checkpoint} not found in {args.checkpoints_dir}")
+        checkpoints = checkpoints[continue_index:]  # Continue from the specified checkpoint
     
     if not checkpoints:
         raise ValueError(f"No checkpoints found in directory: {args.checkpoints_dir}")
