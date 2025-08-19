@@ -366,6 +366,7 @@ def main():
         continue_index = next((i for i, c in enumerate(checkpoints) if c == args.continue_from_checkpoint), None)
         if continue_index is None:
             raise ValueError(f"Checkpoint {args.continue_from_checkpoint} not found in {args.checkpoints_dir}")
+        print(f"Continuing from checkpoint: {args.continue_from_checkpoint} (index {continue_index})")
         checkpoints = checkpoints[continue_index:]  # Continue from the specified checkpoint
     
     if not checkpoints:
