@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32gb
 #SBATCH --gres=gpu:A100-PCI-80GB:2
-#SBATCH --time=168:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
@@ -110,7 +110,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     rlhf/grpo/my_grpo.py \
     --deepspeed "scripts/accelerate_configs/deepspeed_zero3.json" \
     --num_generations 16 \
-    --num_train_epochs 3 \
+    --num_train_epochs 1 \
     --temperature 0.9 \
     --max_prompt_length 1024 \
     --max_completion_length 1024 \
@@ -146,7 +146,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --online_pet_enabled True \
     --preference_dataset_path "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05" \
     --rm_gradient_checkpointing True \
-    --pessimistic_loss_weight 1000000.0 \
+    --pessimistic_loss_weight 10000.0 \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
     --k_top_responses 16 \
