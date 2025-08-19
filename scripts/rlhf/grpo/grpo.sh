@@ -58,8 +58,9 @@ PREF_EFFECTIVE_BATCH_SIZE=32
 PER_DEVICE_PREF_BATCH_SIZE=2
 # --- End Batch Size Configuration ---
 
+echo "CUDA_VISIBLE_DEVICES:$CUDA_VISIBLE_DEVICES"
 # --- Automatic Calculation of Accumulation Steps ---
-NUM_GPUS=$(CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
+NUM_GPUS=$($CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
 # Policy
 POLICY_GLOBAL_BATCH_SIZE=$(($PER_DEVICE_POLICY_BATCH_SIZE * $NUM_GPUS))
