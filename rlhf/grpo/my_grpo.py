@@ -57,7 +57,7 @@ class ScriptArguments:
     adv_rm_lambda: Optional[float] = field(default=0.0,
                                            metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
                                                              'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
-    resume_from_checkpoint: Optional[str] = field(default="", metadata={'help': 'path to checkpoint from which to resume training'})
+    resume_checkpoint: Optional[str] = field(default="", metadata={'help': 'path to checkpoint from which to resume training'})
 
 
 if __name__ == "__main__":
@@ -178,8 +178,8 @@ if __name__ == "__main__":
         for i, reward_model in enumerate(reward_models):
             reward_models[i] = trainer.accelerator.prepare_model(reward_model, evaluation_mode=True, device_placement=True)
     resume_from_checkpoint = None
-    if script_args.resume_from_checkpoint:
-        resume_from_checkpoint = script_args.resume_from_checkpoint
+    if script_args.resume_checkpoint:
+        resume_from_checkpoint = script_args.resume_checkpoint
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     # Save and push to hub

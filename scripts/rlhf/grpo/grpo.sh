@@ -24,7 +24,7 @@ export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
-#resume_from_checkpoint=""
+#resume_checkpoint=""
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
 if [[ -v resume_from_checkpoint ]]; then
@@ -153,7 +153,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --k_top_responses 16 \
     --rm_optimizer 'AdamW' \
     --rm_buffer_size 512 \
-    --resume_from_checkpoint "${resume_from_checkpoint:-}" \
+    --resume_checkpoint "${resume_from_checkpoint:-}" \
     --per_device_train_batch_size ${PER_DEVICE_POLICY_BATCH_SIZE} \
     --gradient_accumulation_steps ${POLICY_ACCUMULATION_STEPS} \
     --adversarial_batch_size ${PER_DEVICE_ADV_BATCH_SIZE} \
