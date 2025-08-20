@@ -262,7 +262,7 @@ class OnlinePETCallback(TrainerCallback):
 
                     adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
                     texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
-                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts)
+                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts, require_grad=True)
 
                     pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
                     if adv_ref_rewards[0] is not None:
@@ -282,6 +282,7 @@ class OnlinePETCallback(TrainerCallback):
                     # deepspeed scales the loss by the gradient accumulation steps
                     if scaled_pessimistic_loss.requires_grad:
                         self.accelerator.backward(scaled_pessimistic_loss)
+                        print("Info: scaled_pessimistic_loss does require gradients")
                         i += 1
                     else:
                         print("Warning: scaled_pessimistic_loss does not require gradients, skipping backward pass.")

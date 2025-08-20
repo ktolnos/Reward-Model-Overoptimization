@@ -54,22 +54,25 @@ def is_reasoning(reward_model):
     else:
         raise ValueError(f"{reward_model} is not a recognized model.")
 
-def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None):
+def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None, require_grad=False):
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
     else:
-        return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts)
+        return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, require_grad)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts):
+def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, require_grad):
     if texts is None:
         texts = [p + c for p, c in zip(prompts, completions)]
     reward_inputs = reward_tokenizer(
         text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
     )
     reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
-    with torch.inference_mode():
-        reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+    if require_grad:
+        reward = reward_model(**reward_inputs).logits[:, 0]
+    else:
+        with torch.inference_mode():
+            reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
     return reward
 
 
