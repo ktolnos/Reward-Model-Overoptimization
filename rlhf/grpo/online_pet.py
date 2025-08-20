@@ -3,6 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
+from accelerate import DeepSpeedPlugin
 from torch.utils.data import DataLoader
 from transformers import TrainerCallback, TrainingArguments, TrainerState, TrainerControl
 from transformers.optimization import Adafactor
@@ -74,9 +75,10 @@ class OnlinePETCallback(TrainerCallback):
 
 
         policy_plugin = self.accelerator.state.deepspeed_plugin
+        rm_plugin = DeepSpeedPlugin(hf_ds_config=self.pet_config.rm_deepspeed_plugin)
         deepspeed_plugins = {
             "policy": policy_plugin,
-            "rm": self.pet_config.rm_deepspeed_plugin,
+            "rm": rm_plugin,
         }
         self.accelerator.state.deepspeed_plugins = deepspeed_plugins
         self.accelerator.state.select_deepspeed_plugin("policy")
