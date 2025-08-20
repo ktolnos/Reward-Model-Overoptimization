@@ -108,8 +108,11 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             rew_mean_count[reward_model] += 1
             rewards_dict[reward_model] = rew.detach()
             if should_log and wandb.run is not None:
+                model_for_name = reward_model
+                if hasattr(reward_model, 'module'):
+                    model_for_name = reward_model.module
                 wandb.log({
-                    f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
+                    f"reward/{model_for_name.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
                 }, step=controller.trainer.state.global_step)
 
             if script_args.reference_rewards and script_args.adv_rm_lambda == 0:
