@@ -89,10 +89,6 @@ class OnlinePETCallback(TrainerCallback):
             batch_size=self.pet_config.eval_batch_size,
             collate_fn=self.collate_preference_data
         )
-        self.preference_dataloader, self.eval_dataloader =\
-            self.accelerator.prepare(self.preference_dataloader, self.eval_dataloader)
-
-        self.preference_data_iterator = iter(self.preference_dataloader)
 
         params = [p for rm in self.reward_models for p in rm.parameters() if p.requires_grad]
         self.rm_optimizer = Adafactor(
@@ -110,6 +106,7 @@ class OnlinePETCallback(TrainerCallback):
         self.reward_models[0], self.rm_optimizer, self.preference_dataloader, self.eval_dataloader = self.accelerator.prepare(
             self.reward_models[0], self.rm_optimizer, self.preference_dataloader, self.eval_dataloader
         )
+        self.preference_data_iterator = iter(self.preference_dataloader)
 
 
     def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
