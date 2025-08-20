@@ -41,6 +41,7 @@ class OnlinePETConfig:
     rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
     rm_optimizer: str = field(default="AdamW", metadata={"help": "Optimizer to use for RM update. Values: AdamW, Adafactor"})
     rm_buffer_size: int = field(default=32, metadata={"help": "Buffer size for RM updates."})
+    rm_deepspeed_plugin: str = field(default="", metadata={"help": "Deepspeed plugin config path for RM training"})
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -70,6 +71,15 @@ class OnlinePETCallback(TrainerCallback):
         if self.pet_config.rm_gradient_checkpointing:
             for rm in self.reward_models:
                 rm.gradient_checkpointing_enable()
+
+
+        policy_plugin = self.accelerator.state.deepspeed_plugin
+        deepspeed_plugins = {
+            "policy": policy_plugin,
+            "rm": self.pet_config.rm_deepspeed_plugin,
+        }
+        self.accelerator.state.deepspeed_plugins = deepspeed_plugins
+        self.accelerator.state.select_deepspeed_plugin("policy")
 
         rm_tokenizer = self.reward_tokenizers[0]
         rm_tokenizer.max_length = 1024
@@ -208,6 +218,8 @@ class OnlinePETCallback(TrainerCallback):
                 f"Not enough adversarial samples to form a full batch. Have {len(self.adversarial_buffer)}, need {effective_adv_batch_size}. Storing for next update.")
             return
 
+        self.accelerator.state.select_deepspeed_plugin("rm")
+
         num_adversarial_samples = len(self.adversarial_buffer)
         if wandb.run:
             wandb.log({"update/adversarial_samples": num_adversarial_samples}, step=wandb.run.step)
@@ -231,7 +243,7 @@ class OnlinePETCallback(TrainerCallback):
             adv_buffer_iterator = iter(adv_buffer_list)
 
             for opt_step in range(num_optimizer_steps):
-                self.rm_optimizer.zero_grad()
+                # self.rm_optimizer.zero_grad()
 
                 # --- Pessimistic Loss ---
                 pessimistic_loss_item = 0
@@ -256,12 +268,11 @@ class OnlinePETCallback(TrainerCallback):
                     pessimistic_loss *= self.pet_config.pessimistic_loss_weight
                     pessimistic_loss_item += pessimistic_loss.item()
 
-                    scaled_pessimistic_loss = pessimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
-                    if scaled_pessimistic_loss.requires_grad:
-                        self.accelerator.backward(scaled_pessimistic_loss)
+                    scaled_pessimistic_loss = pessimistic_loss * 2 # / self.pet_config.pessimistic_gradient_accumulation_steps
+                    # deepspeed scales the loss by the gradient accumulation steps
+                    self.accelerator.backward(scaled_pessimistic_loss)
 
                 del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
-                torch.cuda.empty_cache()
 
                 # --- BT Loss on Preference Data ---
                 bt_loss_item = 0
@@ -287,15 +298,14 @@ class OnlinePETCallback(TrainerCallback):
                         bt_accuracy += (chosen_rewards > rejected_rewards).float().mean().item()
                         bt_loss_item += bt_loss.item()
 
-                        scaled_bt_loss = bt_loss / self.pet_config.bt_gradient_accumulation_steps
-                        if scaled_bt_loss.requires_grad:
-                            self.accelerator.backward(scaled_bt_loss)
+                        scaled_bt_loss = bt_loss * 2 # / self.pet_config.bt_gradient_accumulation_steps
+                        # deepspeed scales the loss by the gradient accumulation steps
+                        self.accelerator.backward(scaled_bt_loss)
 
                     del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
-                    torch.cuda.empty_cache()
 
-                # Optimizer step and logging
-                self.rm_optimizer.step()
+                # # Optimizer step and logging
+                # self.rm_optimizer.step()
 
                 avg_pess_loss = pessimistic_loss_item / self.pet_config.pessimistic_gradient_accumulation_steps
                 avg_bt_loss = (bt_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
@@ -316,4 +326,5 @@ class OnlinePETCallback(TrainerCallback):
                     wandb.log(log_data, step=wandb.run.step)
 
         print("--- RM Update Finished ---")
+        self.accelerator.state.select_deepspeed_plugin("policy")
         rm.eval()

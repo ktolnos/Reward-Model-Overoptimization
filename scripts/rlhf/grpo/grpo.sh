@@ -160,6 +160,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --pessimistic_gradient_accumulation_steps ${ADV_ACCUMULATION_STEPS} \
     --preference_batch_size ${PER_DEVICE_PREF_BATCH_SIZE} \
     --bt_gradient_accumulation_steps ${PREF_ACCUMULATION_STEPS} \
+    --rm_deepspeed_plugin "scripts/accelerate_configs/rm_deepspeed_zero3.json" \
     || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"
