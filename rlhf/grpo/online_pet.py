@@ -243,6 +243,13 @@ class OnlinePETCallback(TrainerCallback):
                 continue
 
             adv_buffer_iterator = iter(adv_buffer_list)
+            def next_adv_batch():
+                global adv_buffer_iterator
+                try:
+                    return [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
+                except StopIteration:
+                    adv_buffer_iterator = iter(adv_buffer_list)
+                    return [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
 
             for opt_step in range(num_optimizer_steps):
                 # self.rm_optimizer.zero_grad()
@@ -251,7 +258,7 @@ class OnlinePETCallback(TrainerCallback):
                 pessimistic_loss_item = 0
                 i = 0
                 while i < self.pet_config.pessimistic_gradient_accumulation_steps:
-                    adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
+                    adv_batch = next_adv_batch()
 
                     adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
                     texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
