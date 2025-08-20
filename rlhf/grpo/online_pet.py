@@ -249,7 +249,8 @@ class OnlinePETCallback(TrainerCallback):
 
                 # --- Pessimistic Loss ---
                 pessimistic_loss_item = 0
-                for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
+                i = 0
+                while i < self.pet_config.pessimistic_gradient_accumulation_steps:
                     adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
 
                     adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
@@ -272,7 +273,11 @@ class OnlinePETCallback(TrainerCallback):
 
                     scaled_pessimistic_loss = pessimistic_loss * 2 # / self.pet_config.pessimistic_gradient_accumulation_steps
                     # deepspeed scales the loss by the gradient accumulation steps
-                    self.accelerator.backward(scaled_pessimistic_loss)
+                    if scaled_pessimistic_loss.requires_grad:
+                        self.accelerator.backward(scaled_pessimistic_loss)
+                        i += 1
+                    else:
+                        print("Warning: scaled_pessimistic_loss does not require gradients, skipping backward pass.")
 
                 del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
 
@@ -280,7 +285,8 @@ class OnlinePETCallback(TrainerCallback):
                 bt_loss_item = 0
                 bt_accuracy = 0
                 if self.pet_config.bt_gradient_accumulation_steps > 0:
-                    for i in range(self.pet_config.bt_gradient_accumulation_steps):
+                    i = 0
+                    while i < self.pet_config.bt_gradient_accumulation_steps:
                         preference_batch = self._get_preference_batch()
 
                         chosen_rewards = rm(
@@ -302,7 +308,11 @@ class OnlinePETCallback(TrainerCallback):
 
                         scaled_bt_loss = bt_loss * 2 # / self.pet_config.bt_gradient_accumulation_steps
                         # deepspeed scales the loss by the gradient accumulation steps
-                        self.accelerator.backward(scaled_bt_loss)
+                        if scaled_bt_loss.requires_grad:
+                            self.accelerator.backward(scaled_bt_loss)
+                            i += 1
+                        else:
+                            print("Warning: scaled_bt_loss does not require gradients, skipping backward pass.")
 
                     del bt_loss, scaled_bt_loss, chosen_rewards, rejected_rewards
 
