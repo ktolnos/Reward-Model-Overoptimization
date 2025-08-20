@@ -5,7 +5,7 @@
 #SBATCH --mem=32gb
 #SBATCH --gres=gpu:A100-SXM4-80GB:1
 #SBATCH --time=24:00:00
-#SBATCH --qos=default
+#SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
 export HF_HOME="/nas/ucb/eop/cache"
