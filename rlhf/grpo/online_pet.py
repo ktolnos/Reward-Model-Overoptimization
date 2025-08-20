@@ -244,7 +244,7 @@ class OnlinePETCallback(TrainerCallback):
 
             adv_buffer_iterator = iter(adv_buffer_list)
             def next_adv_batch():
-                global adv_buffer_iterator
+                nonlocal adv_buffer_iterator
                 try:
                     return [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
                 except StopIteration:
