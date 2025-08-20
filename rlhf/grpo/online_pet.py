@@ -107,7 +107,9 @@ class OnlinePETCallback(TrainerCallback):
             lr=self.pet_config.rm_update_learning_rate,
         ) if str.lower(self.pet_config.rm_optimizer) == 'adamw' else None
         assert self.rm_optimizer is not None, f"Unsupported optimizer {self.pet_config.rm_optimizer}"
-        self.rm_optimizer = self.accelerator.prepare(self.rm_optimizer)
+        self.reward_models[0], self.rm_optimizer, self.preference_dataloader, self.eval_dataloader = self.accelerator.prepare(
+            self.reward_models[0], self.rm_optimizer, self.preference_dataloader, self.eval_dataloader
+        )
 
 
     def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):

@@ -171,10 +171,7 @@ if __name__ == "__main__":
     logging_steps = int(training_args.logging_steps * len(train_dataset))
     print("Logging steps:", logging_steps)
     reward_controller.logging_steps = logging_steps
-    if pet_config.online_pet_enabled:
-        for i, reward_model in enumerate(reward_models):
-            reward_models[i] = pet_callback.accelerator.prepare(reward_model)
-    else:
+    if not pet_config.online_pet_enabled: # Online PET callback handles its own prepare
         for i, reward_model in enumerate(reward_models):
             reward_models[i] = trainer.accelerator.prepare_model(reward_model, evaluation_mode=True, device_placement=True)
     resume_from_checkpoint = None
