@@ -3,9 +3,13 @@
         "enabled": "auto"
     },
     "zero_optimization": {
-        "stage": 3,
+        "stage": 2,
         "overlap_comm": true,
-        "reduce_bucket_size": 1e6
+        "reduce_bucket_size": 1e6,
+        "offload_optimizer": {
+            "device": "none",
+            "pin_memory": true
+        }
     },
     "train_micro_batch_size_per_gpu": "auto",
     "gradient_accumulation_steps": "auto"
