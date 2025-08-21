@@ -270,7 +270,7 @@ class OnlinePETCallback(TrainerCallback):
                     adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
                     rm_tokenizer = self.reward_tokenizers[0]
                     texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
-                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts)
+                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts, require_grad=True)
 
                     pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
                     if adv_ref_rewards[0] is not None:
