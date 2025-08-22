@@ -71,7 +71,7 @@ class OnlinePETCallback(TrainerCallback):
         print("--- Initializing Reward Model Training Components ---")
         if self.pet_config.rm_gradient_checkpointing:
             for rm in self.reward_models:
-                rm.gradient_checkpointing_enable()
+                rm.gradient_checkpointing_enable(use_reentrant=False)
 
 
         policy_plugin = self.accelerator.state.deepspeed_plugin
