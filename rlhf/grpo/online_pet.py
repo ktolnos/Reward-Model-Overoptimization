@@ -286,8 +286,7 @@ class OnlinePETCallback(TrainerCallback):
                     scaled_pessimistic_loss = pessimistic_loss * 2 # / self.pet_config.pessimistic_gradient_accumulation_steps
                     # deepspeed scales the loss by the gradient accumulation steps
                     if scaled_pessimistic_loss.requires_grad:
-                        print(
-                            "boundary: " + self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
+                        print(f"boundary:", self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                         self.accelerator.backward(scaled_pessimistic_loss)
                         i += 1
                     else:
@@ -324,7 +323,7 @@ class OnlinePETCallback(TrainerCallback):
                         # deepspeed scales the loss by the gradient accumulation steps
                         if scaled_bt_loss.requires_grad:
                             print(
-                                "boundary: " + self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
+                                "boundary: ", self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                             self.accelerator.backward(scaled_bt_loss)
                             i += 1
                         else:
