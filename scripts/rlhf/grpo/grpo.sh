@@ -18,6 +18,7 @@ export TORCHINDUCTOR_FX_GRAPH_CACHE="/nas/ucb/eop/temp/fx_graph_cache"
 export VLLM_CONFIG_ROOT="/nas/ucb/eop/cache/vllm_config"
 export VLLM_DISABLE_COMPILE_CACHE="1"
 export VLLM_CACHE_ROOT="/nas/ucb/eop/cache/"
+export TRITON_CACHE_DIR="/nas/ucb/eop/cache/triton"
 
 export WANDB_DIR="/nas/ucb/eop/wandb"
 export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
