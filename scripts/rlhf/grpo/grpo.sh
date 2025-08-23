@@ -131,7 +131,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
     --warmup_ratio=0.1 \
-    --lr_scheduler_type=constant_with_warmup \
+    --lr_scheduler_type=cosine \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
     --ensemble_aggregation "min" \
@@ -164,6 +164,31 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --bt_gradient_accumulation_steps ${PREF_ACCUMULATION_STEPS} \
     --rm_deepspeed_plugin "scripts/accelerate_configs/rm_deepspeed_zero3.json" \
     || exit 1
+
+#    --use_peft True \
+#    --lora_r 32 \
+#    --lora_alpha 64 \
+#    --lora_target_modules 'all-linear' \
+#    --resume_from_checkpoint True \
+# 'q_proj' 'k_proj' 'v_proj' 'o_proj' \
+
+# For Adv-RM:
+#     --reference_rewards True \
+#     --adv_rm_lambda 1.0 \
+# Add second reward model
+
+# For 27B:
+#    --gradient_checkpointing True \
+#    --max_completion_length 256 \
+#     --vllm_gpu_memory_utilization 0.08 \
+#    --max_prompt_length 512 \
+
+# For RRM:
+#    --reward_model_paths "Reward-Reasoning/RRM-7B" \
+#    --mask_truncated_completions False \
+#    #SBATCH --time=168:00:00
+
+#     --report_to "none" \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
 sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh

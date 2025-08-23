@@ -286,7 +286,6 @@ class OnlinePETCallback(TrainerCallback):
                     scaled_pessimistic_loss = pessimistic_loss * 2 # / self.pet_config.pessimistic_gradient_accumulation_steps
                     # deepspeed scales the loss by the gradient accumulation steps
                     if scaled_pessimistic_loss.requires_grad:
-                        print(f"boundary:", self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                         self.accelerator.backward(scaled_pessimistic_loss)
                         i += 1
                     else:
@@ -338,9 +337,6 @@ class OnlinePETCallback(TrainerCallback):
                 avg_bt_loss = (bt_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 avg_bt_accuracy = (bt_accuracy / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 total_avg_loss = avg_pess_loss + avg_bt_loss
-
-                print(
-                    f"  Step {opt_step + 1}/{num_optimizer_steps}: Pessimistic Loss: {avg_pess_loss:.4f}, BT Loss: {avg_bt_loss:.4f}, Total Loss: {total_avg_loss:.4f}, BT Accuracy: {avg_bt_accuracy:.4f}")
 
                 if wandb.run:
                     log_data = {

@@ -1,6 +1,6 @@
 {
     "bf16": {
-        "enabled": "auto"
+        "enabled": true
     },
     "zero_optimization": {
         "stage": 2,
@@ -12,5 +12,7 @@
         }
     },
     "train_micro_batch_size_per_gpu": 2,
-    "gradient_accumulation_steps": 32
+    "gradient_accumulation_steps": 32,
+    "zero_allow_untested_optimizer": true,
+    "zero_force_ds_cpu_optimizer": false
 }
