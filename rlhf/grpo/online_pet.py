@@ -82,6 +82,9 @@ class OnlinePETCallback(TrainerCallback):
             "policy": policy_plugin,
             "rm": rm_plugin,
         }
+        assert rm_plugin.gradient_accumulation_steps == self.pet_config.pessimistic_gradient_accumulation_steps + self.pet_config.bt_gradient_accumulation_steps, \
+            f"Deepspeed plugin gradient_accumulation_steps {rm_plugin.gradient_accumulation_steps} does not match config" + \
+            f"{self.pet_config.pessimistic_gradient_accumulation_steps} + {self.pet_config.bt_gradient_accumulation_steps}"
         self.accelerator.state.deepspeed_plugins = deepspeed_plugins
         self.accelerator.state.select_deepspeed_plugin("policy")
 
@@ -283,8 +286,9 @@ class OnlinePETCallback(TrainerCallback):
                     scaled_pessimistic_loss = pessimistic_loss * 2 # / self.pet_config.pessimistic_gradient_accumulation_steps
                     # deepspeed scales the loss by the gradient accumulation steps
                     if scaled_pessimistic_loss.requires_grad:
+                        print(
+                            "boundary: " + self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                         self.accelerator.backward(scaled_pessimistic_loss)
-                        print("Info: scaled_pessimistic_loss does require gradients")
                         i += 1
                     else:
                         print("Warning: scaled_pessimistic_loss does not require gradients, skipping backward pass.")
@@ -319,6 +323,8 @@ class OnlinePETCallback(TrainerCallback):
                         scaled_bt_loss = bt_loss * 2 # / self.pet_config.bt_gradient_accumulation_steps
                         # deepspeed scales the loss by the gradient accumulation steps
                         if scaled_bt_loss.requires_grad:
+                            print(
+                                "boundary: " + self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                             self.accelerator.backward(scaled_bt_loss)
                             i += 1
                         else:
