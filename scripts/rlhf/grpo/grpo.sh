@@ -3,7 +3,7 @@
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32gb
-#SBATCH --gres=gpu:A100-SXM4-80GB:1
+#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=24:00:00
 #SBATCH --qos=high
 
@@ -23,6 +23,7 @@ export WANDB_DIR="/nas/ucb/eop/wandb"
 export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
+export DEEPSPEED_LOG_LEVEL=DEBUG
 
 #resume_checkpoint=""
 
