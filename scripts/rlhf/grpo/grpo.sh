@@ -149,7 +149,7 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_deepspeed_
     --online_pet_enabled True \
     --preference_dataset_path "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05" \
     --rm_gradient_checkpointing True \
-    --pessimistic_loss_weight 0.001 \
+    --pessimistic_loss_weight 0 \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
     --k_top_responses 16 \

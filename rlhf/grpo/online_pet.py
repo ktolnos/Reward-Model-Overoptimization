@@ -177,7 +177,6 @@ class OnlinePETCallback(TrainerCallback):
                 self._evaluate_rm(state.global_step)
 
             print(f"--- Finished Online PET Actions ---")
-            torch.cuda.empty_cache()
 
     def _evaluate_rm(self, step):
         print("--- Evaluating Reward Model ---")
@@ -321,8 +320,6 @@ class OnlinePETCallback(TrainerCallback):
                         scaled_bt_loss = bt_loss * 2 # / self.pet_config.bt_gradient_accumulation_steps
                         # deepspeed scales the loss by the gradient accumulation steps
                         if scaled_bt_loss.requires_grad:
-                            print(
-                                "boundary: ", self.accelerator.deepspeed_engine_wrapped.engine.is_gradient_accumulation_boundary(), self.accelerator.deepspeed_engine_wrapped.engine.micro_steps)
                             self.accelerator.backward(scaled_bt_loss)
                             i += 1
                         else:
