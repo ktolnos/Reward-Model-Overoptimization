@@ -42,6 +42,9 @@ class OnlinePETConfig:
     rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
     rm_optimizer: str = field(default="AdamW", metadata={"help": "Optimizer to use for RM update. Values: AdamW, Adafactor"})
     rm_buffer_size: int = field(default=32, metadata={"help": "Buffer size for RM updates."})
+    rm_deepspeed_plugin: str = field(default="", metadata={"help": "Deepspeed plugin config path for RM training"})
+    relu_chosen_reward_loss: float = field(default=0.0, metadata={"help": "If > 0, use ReLU(adv_reward - chosen_reward) as additional loss"})
+    relu_chosen_use_rejected_baseline: bool = field(default=False, metadata={"help": "If True, use the rejected reward as baseline for ReLU loss instead of adversarial reward."})
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -296,6 +299,7 @@ class OnlinePETCallback(TrainerCallback):
                 # --- BT Loss on Preference Data ---
                 bt_loss_item = 0
                 bt_accuracy = 0
+                relu_chosen_loss_item = 0
                 if self.pet_config.bt_gradient_accumulation_steps > 0:
                     for i in range(self.pet_config.bt_gradient_accumulation_steps):
                         preference_batch = self._get_preference_batch()
@@ -319,6 +323,17 @@ class OnlinePETCallback(TrainerCallback):
                         bt_loss_item += bt_loss.item()
 
                         scaled_bt_loss = bt_loss / self.pet_config.bt_gradient_accumulation_steps
+
+                        if self.pet_config.relu_chosen_reward_loss > 0.0:
+                            baseline = 0
+                            if self.pet_config.relu_chosen_use_rejected_baseline:
+                                baseline = rejected_rewards.mean().detach()
+                            relu_loss = F.relu(baseline - chosen_rewards).mean() * self.pet_config.relu_chosen_reward_loss
+                            relu_chosen_loss_item += relu_loss.item()
+                            scaled_relu_loss = relu_loss / self.pet_config.bt_gradient_accumulation_steps
+
+                            scaled_bt_loss += scaled_relu_loss
+
                         if scaled_bt_loss.requires_grad:
                             self.accelerator.backward(scaled_bt_loss)
 
@@ -332,6 +347,7 @@ class OnlinePETCallback(TrainerCallback):
                 avg_bt_loss = (bt_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 avg_bt_accuracy = (bt_accuracy / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 total_avg_loss = avg_pess_loss + avg_bt_loss
+                avg_relu_chosen_loss = (relu_chosen_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
 
                 print(
                     f"  Step {opt_step + 1}/{num_optimizer_steps}: Pessimistic Loss: {avg_pess_loss:.4f}, BT Loss: {avg_bt_loss:.4f}, Total Loss: {total_avg_loss:.4f}, BT Accuracy: {avg_bt_accuracy:.4f}")
@@ -343,6 +359,7 @@ class OnlinePETCallback(TrainerCallback):
                         "update/total_loss": total_avg_loss,
                         "update/bt_accuracy": avg_bt_accuracy,
                         "update/num_preference_epochs": self.num_preference_epochs,
+                        "update/relu_chosen_loss": avg_relu_chosen_loss,
                     }
                     wandb.log(log_data, step=wandb.run.step)
 
