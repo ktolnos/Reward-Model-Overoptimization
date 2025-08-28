@@ -53,7 +53,7 @@ export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9993
+export MASTER_PORT=9994
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
@@ -119,7 +119,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
     --pessimistic_loss_weight 0.1 \
-    --relu_chosen_reward_loss 0.2 \
+    --relu_chosen_reward_loss 0 \
     --relu_chosen_use_rejected_baseline True \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
