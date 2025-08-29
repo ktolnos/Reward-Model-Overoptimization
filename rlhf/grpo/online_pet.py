@@ -327,8 +327,8 @@ class OnlinePETCallback(TrainerCallback):
                         if self.pet_config.relu_chosen_reward_loss > 0.0:
                             baseline = 0
                             if self.pet_config.relu_chosen_use_rejected_baseline:
-                                baseline = rejected_rewards.mean().detach()
-                            relu_loss = F.relu(baseline - chosen_rewards).mean() * self.pet_config.relu_chosen_reward_loss
+                                baseline = rejected_rewards.mean()
+                            relu_loss = F.relu(baseline - chosen_rewards.mean()) * self.pet_config.relu_chosen_reward_loss
                             relu_chosen_loss_item += relu_loss.item()
                             scaled_relu_loss = relu_loss / self.pet_config.bt_gradient_accumulation_steps
 
