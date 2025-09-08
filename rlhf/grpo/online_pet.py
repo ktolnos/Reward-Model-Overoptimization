@@ -204,6 +204,7 @@ class OnlinePETCallback(TrainerCallback):
         total_correct = 0
         total_samples = 0
         total_bt_loss = 0
+        mean_reward = 0
         
         with torch.no_grad():
             for batch in self.eval_dataloader:
@@ -220,14 +221,17 @@ class OnlinePETCallback(TrainerCallback):
                 total_bt_loss += -F.logsigmoid(chosen_rewards - rejected_rewards).mean().item()
                 total_correct += (chosen_rewards > rejected_rewards).sum().item()
                 total_samples += chosen_rewards.size(0)
+                mean_reward += chosen_rewards.mean().item() + rejected_rewards.mean().item()
         
         accuracy = total_correct / total_samples if total_samples > 0 else 0
         bt_loss = total_bt_loss / len(self.eval_dataloader) if len(self.eval_dataloader) > 0 else 0
+        mean_reward = mean_reward / (2 * len(self.eval_dataloader)) if len(self.eval_dataloader) > 0 else 0
         print(f"RM Evaluation Accuracy: {accuracy:.4f}")
         if wandb.run:
             wandb.log({
                 "eval/rm_accuracy": accuracy,
                 "eval/rm_bt_loss": bt_loss,
+                "eval/rm_mean_reward": mean_reward
             }, step=wandb.run.step)
         rm.train()
         print("--- Finished RM Evaluation ---")
