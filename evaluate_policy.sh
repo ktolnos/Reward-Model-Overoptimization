@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=shard:13
-#SBATCH --time=48:00:00
+#SBATCH --time=60:00:00
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 export HF_HOME="/nas/ucb/eop/cache"
