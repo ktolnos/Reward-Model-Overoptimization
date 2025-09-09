@@ -13,7 +13,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250828_142542" # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250829_103839" # Current directory with all checkpoints
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
@@ -75,8 +75,8 @@ python evaluate_policy.py \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     --subsample_n 25 \
-    --continue_from_checkpoint "checkpoint-8858" \
-    --wandb_continue_run_id "yntmzx3a" \
+    --continue_from_checkpoint "checkpoint-309" \
+    --wandb_continue_run_id "ek1mcg73" \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
 
