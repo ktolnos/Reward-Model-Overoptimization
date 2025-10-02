@@ -37,7 +37,7 @@ class ScriptArguments:
         metadata={"help": "Name of the gold reward model"}
     )
     dataset_name: str = field(
-        default="gagan3012/helpsteer2-gold",
+        default="ktolnos/helpsteer3-preference-chosenrrejected",
         metadata={"help": "Name of the dataset to evaluate on"}
     )
     max_length: Optional[int] = field(
