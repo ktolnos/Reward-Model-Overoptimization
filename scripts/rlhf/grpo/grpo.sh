@@ -114,7 +114,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
-    --online_pet_enabled False \
+    --online_pet_enabled True \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
