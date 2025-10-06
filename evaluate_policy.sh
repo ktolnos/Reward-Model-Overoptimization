@@ -13,7 +13,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20250804_140200" # Current directory with all checkpoints
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251002_165633" # Current directory with all checkpoints
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
@@ -29,7 +29,7 @@ GOLD_RM_NAME="nicolinho/QRM-Gemma-2-27B"
 
 # Dataset name
 #DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
-DATASET_NAME="gagan3012/helpsteer2-preference-v2"
+DATASET_NAME="ktolnos/helpsteer3-preference-chosenrrejected"
 
 
 # Base model name (required for LoRA checkpoints)
