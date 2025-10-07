@@ -366,7 +366,7 @@ def main():
     tokenizer.padding_side = "left"
     
     # Prepare dataset based on its structure
-    args_no_max_length = copy.deepcopy(args)
+    args_no_max_length = copy(args)
     args_no_max_length.max_length = 1000_000 # effectively disable truncation
     if 'prompt' in dataset.column_names:
         print("Using 'prompt' column for prompts.")
