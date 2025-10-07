@@ -1,3 +1,4 @@
+from copy import copy
 import os
 import random
 import requests
