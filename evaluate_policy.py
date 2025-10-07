@@ -378,14 +378,13 @@ def main():
         raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
 
     if args.subsample_n is not None:
-        if args.subsample_n > len(dataset):
+        if args.subsample_n > len(processed_dataset):
             print(
                 f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
         else:
-            dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
+            processed_dataset = processed_dataset.shuffle(seed=42).select(range(args.subsample_n))
             print(f"Subsampling to {args.subsample_n} prompts, leaving {len(dataset)} prompts.")
-        assert len(processed_dataset) == args.subsample_n, f'Error in subsampling logic, expected {args.subsample_n} but got {len(processed_dataset)}'
-    
+
     input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
     attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
     
