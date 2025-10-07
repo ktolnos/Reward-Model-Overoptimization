@@ -335,17 +335,12 @@ def main():
     
     # --- Common Setup ---
     print("Loading evaluation dataset...")
-    split = "test" if args.dataset_name.startswith("/") else "train"
+    split = "test" if args.dataset_name.startswith("/") else "validation" if args.dataset_name=='ktolnos/helpsteer3-preference-chosenrrejected' else "train"
+    print('Using dataset split:', split)
     dataset = load_dataset(args.dataset_name, split=split)
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
-    elif args.subsample_n is not None:
-        if args.subsample_n > len(dataset):
-            print(f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
-        else:
-            dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
-            print(f"Subsampling to {args.subsample_n} prompts.")
 
     checkpoints = sorted([
         d for d in os.listdir(args.checkpoints_dir)
@@ -376,13 +371,20 @@ def main():
                                                             tokenize=False,
                                                             add_generation_prompt=True,
                                                             enable_thinking=False)}
-        dataset = dataset.map(extract_prompt_from_chosen)
+        dataset = dataset.map(extract_prompt_from_chosen, num_proc=1)
         original_prompts = dataset['prompt']
         processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
     else:
         raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
 
-    print(f"Using {len(processed_dataset)} processed prompts for evaluation")
+    if args.subsample_n is not None:
+        if args.subsample_n > len(dataset):
+            print(
+                f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
+        else:
+            dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
+            print(f"Subsampling to {args.subsample_n} prompts, leaving {len(dataset)} prompts.")
+        assert len(processed_dataset) == args.subsample_n, f'Error in subsampling logic, expected {args.subsample_n} but got {len(processed_dataset)}'
     
     input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
     attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
