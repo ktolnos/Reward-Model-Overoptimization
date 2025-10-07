@@ -341,6 +341,12 @@ def main():
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
+    elif args.subsample_n is not None:
+        if args.subsample_n > len(dataset):
+            print(f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
+        else:
+            dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
+            print(f"Subsampling to {args.subsample_n} prompts.")
 
     checkpoints = sorted([
         d for d in os.listdir(args.checkpoints_dir)
@@ -359,10 +365,12 @@ def main():
     tokenizer.padding_side = "left"
     
     # Prepare dataset based on its structure
+    args_no_max_length = copy.deepcopy(args)
+    args_no_max_length.max_length = 1000_000 # effectively disable truncation
     if 'prompt' in dataset.column_names:
         print("Using 'prompt' column for prompts.")
         original_prompts = dataset['prompt']
-        processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+        processed_dataset = post_process_common_dataset(dataset, tokenizer, args_no_max_length)
     elif 'chosen' in dataset.column_names:
         print("Using 'chosen' column for prompts and responses.")
         def extract_prompt_from_chosen(example):
@@ -373,17 +381,11 @@ def main():
                                                             enable_thinking=False)}
         dataset = dataset.map(extract_prompt_from_chosen, num_proc=1)
         original_prompts = dataset['prompt']
-        processed_dataset = post_process_common_dataset(dataset, tokenizer, args)
+        processed_dataset = post_process_common_dataset(dataset, tokenizer, args_no_max_length)
     else:
         raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
 
-    if args.subsample_n is not None:
-        if args.subsample_n > len(processed_dataset):
-            print(
-                f"Warning: subsample_n ({args.subsample_n}) is larger than the dataset size ({len(dataset)}). Using the full dataset.")
-        else:
-            processed_dataset = processed_dataset.shuffle(seed=42).select(range(args.subsample_n))
-            print(f"Subsampling to {args.subsample_n} prompts, leaving {len(dataset)} prompts.")
+    print(f"Using {len(processed_dataset)} processed prompts for evaluation")
 
     input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
     attention_mask_list = [mask.tolist() for mask in processed_dataset["attention_mask"]]
