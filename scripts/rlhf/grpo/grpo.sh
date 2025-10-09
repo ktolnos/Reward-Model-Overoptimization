@@ -101,7 +101,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
     --ensemble_aggregation "min" \
-    --save_steps 0.03333333 \
+    --save_steps 0.05 \
     --run_name ${wandb_name} \
     --logging_steps 0.01 \
     --learning_rate ${learning_rate} \
