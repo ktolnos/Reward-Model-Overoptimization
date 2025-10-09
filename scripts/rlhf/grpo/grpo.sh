@@ -78,8 +78,8 @@ export WANDB_RUN_GROUP=${log_dir}
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
-    --num_generations 16 \
-    --num_train_epochs 3 \
+    --num_generations 8 \
+    --num_train_epochs 1 \
     --temperature 0.9 \
     --max_prompt_length 1024 \
     --max_completion_length 1024 \
@@ -124,13 +124,14 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --relu_chosen_use_rejected_baseline True \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
-    --k_top_responses 16 \
+    --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
-    --rm_buffer_size 512 \
+    --rm_buffer_size 128 \
     --pessimistic_gradient_accumulation_steps 16 \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
+    --use_lora_for_rm True \
     || exit 1
 
 #    --use_peft True \
