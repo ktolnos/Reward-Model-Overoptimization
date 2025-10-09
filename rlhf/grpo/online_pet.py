@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
-from peft import LoraConfig, TaskType
+from peft import LoraConfig, TaskType, get_peft_model
 from torch.utils.data import DataLoader
 from transformers import TrainerCallback, TrainingArguments, TrainerState, TrainerControl
 from transformers.optimization import Adafactor
