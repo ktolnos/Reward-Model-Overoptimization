@@ -45,6 +45,10 @@ class OnlinePETConfig:
     rm_deepspeed_plugin: str = field(default="", metadata={"help": "Deepspeed plugin config path for RM training"})
     relu_chosen_reward_loss: float = field(default=0.0, metadata={"help": "If > 0, use ReLU(adv_reward - chosen_reward) as additional loss"})
     relu_chosen_use_rejected_baseline: bool = field(default=False, metadata={"help": "If True, use the rejected reward as baseline for ReLU loss instead of adversarial reward."})
+    use_lora_for_rm: bool = field(default=False, metadata={"help": "If True, use LoRA for the reward model."})
+    rm_lora_r: int = field(default=8, metadata={"help": "LoRA rank for the reward model."})
+    rm_lora_alpha: int = field(default=16, metadata={"help": "LoRA alpha for the reward model."})
+
 
 
 class OnlinePETCallback(TrainerCallback):
@@ -65,6 +69,24 @@ class OnlinePETCallback(TrainerCallback):
             if self.pet_config.rm_gradient_checkpointing:
                 for rm in self.reward_models:
                     rm.gradient_checkpointing_enable()
+
+            if self.pet_config.use_lora_for_rm:
+                print("--- Using LoRA for Reward Model ---")
+                lora_config = LoraConfig(
+                    r=self.pet_config.rm_lora_r,
+                    lora_alpha=self.pet_config.rm_lora_alpha,
+                    lora_dropout=0.05,
+                    bias="none",
+                    task_type=TaskType.SEQ_CLS,
+                    target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+                )
+                lora_wrapped_rms = []
+                for rm in self.reward_models:
+                    rm.config.pad_token_id = self.policy_tokenizer.pad_token_id
+                    peft_model = get_peft_model(rm, lora_config)
+                    lora_wrapped_rms.append(peft_model)
+                    peft_model.print_trainable_parameters()
+                self.reward_models = lora_wrapped_rms
 
             rm_tokenizer = self.reward_tokenizers[0]
             rm_tokenizer.max_length = 1024
