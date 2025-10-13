@@ -42,7 +42,7 @@ class OnlinePETConfig:
     eval_batch_size: int = field(default=1, metadata={"help": "Batch size for the evaluation dataloader."})
     rm_save_path: str = field(default="", metadata={"help": "Path to save the reward model checkpoints. If empty, no saving."})
     rm_optimizer: str = field(default="AdamW", metadata={"help": "Optimizer to use for RM update. Values: AdamW, Adafactor"})
-    rm_buffer_size: int = field(default=32, metadata={"help": "Buffer size for RM updates."})
+    rm_buffer_size: int | str = field(default='full', metadata={"help": "Buffer size for RM updates."})
     rm_deepspeed_plugin: str = field(default="", metadata={"help": "Deepspeed plugin config path for RM training"})
     relu_chosen_reward_loss: float = field(default=0.0, metadata={"help": "If > 0, use ReLU(adv_reward - chosen_reward) as additional loss"})
     relu_chosen_use_rejected_baseline: bool = field(default=False, metadata={"help": "If True, use the rejected reward as baseline for ReLU loss instead of adversarial reward."})
@@ -62,7 +62,7 @@ class OnlinePETCallback(TrainerCallback):
         self.policy_tokenizer = policy_tokenizer
         self.model_name = model_name
         self.pet_update_counter = 0
-        self.adversarial_buffer = deque(maxlen=pet_config.rm_buffer_size)
+        self.adversarial_buffer = deque(maxlen=pet_config.rm_buffer_size if isinstance(pet_config.rm_buffer_size, int) else None)
         self.num_preference_epochs = 0
 
 
@@ -262,6 +262,8 @@ class OnlinePETCallback(TrainerCallback):
     def _perform_rm_update(self, step):
         print("--- Starting RM Update ---")
         new_adversarial_data = self.reward_controller.get_and_clear_adversarial_buffer()
+        if self.pet_config.rm_buffer_size == 'full':
+            self.adversarial_buffer.clear()
         self.adversarial_buffer.extend(new_adversarial_data)
 
         effective_adv_batch_size = self.pet_config.adversarial_batch_size * self.pet_config.pessimistic_gradient_accumulation_steps
