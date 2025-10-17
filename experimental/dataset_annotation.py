@@ -413,7 +413,7 @@ def save_annotated_dataset(results, output_path="data/helpsteer2_gold.json"):
     return output_path
 
 
-def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="train"):
+def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="train", convert_to_list=True):
     """
     Load the annotated dataset from disk.
     
@@ -431,6 +431,8 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="
         return results
     elif input_path == "helpsteer2":
         dataset = load_helpsteer2_dataset(split=split)
+        if not convert_to_list:
+            return dataset
         results = []
         for i in range(len(dataset)):
             item = dataset[i]
@@ -445,6 +447,8 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="
         return results
     elif input_path == 'helpsteer3':
         dataset = load_dataset("ktolnos/helpsteer3-preference-chosenrrejected", split=split)
+        if not convert_to_list:
+            return dataset
         results = []
         for i in range(len(dataset)):
             item = dataset[i]
@@ -551,7 +555,7 @@ if __name__ == "__main__":
     # --- Mode Dispatcher ---
     if script_args.annotation_mode == "gold":
         print("--- Running in GOLD annotation mode ---")
-        dataset = load_annotated_dataset(script_args.input_path, script_args.input_split)
+        dataset = load_annotated_dataset(script_args.input_path, script_args.input_split, convert_to_list=False)
         if script_args.debug:
             dataset = dataset.select(range(25))
 
