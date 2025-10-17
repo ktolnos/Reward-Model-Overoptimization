@@ -63,7 +63,7 @@ def load_reward_model(model_name, reasoning, device=None):
         kwargs["torch_dtype"] = torch.bfloat16
         tokenizer = TokenizerWrapper(tokenizer)
 
-    print(f"Loading model {model_name} on {device}")
+    print(f"Loading model {model_name} on {device}, reasoning={reasoning}")
     if reasoning:
         model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
     else:
@@ -510,7 +510,7 @@ class ScriptArguments:
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
-    reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
+    reasoning: bool = field(default=False, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
     debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
