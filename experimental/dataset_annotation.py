@@ -519,7 +519,7 @@ class ScriptArguments:
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
-        default='/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base/train.json',
+        default='helpsteer3',
         metadata={"help": "Path to load a dataset from. Required for 'reference_reward' and 'gold' mode. Special case: 'helpsteer2' or 'helpsteer3' to load the original dataset."}
     )
     input_split: str = field(
