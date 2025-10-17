@@ -510,7 +510,7 @@ def annotate_dataset(model_name,
 class ScriptArguments:
     model_name: str = field(default="Skywork/Skywork-Reward-V2-Llama-3.1-8B",
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
-    batch_size: int = field(default=16, metadata={"help": "Batch size for evaluation"})
+    batch_size: int = field(default=64, metadata={"help": "Batch size for evaluation"})
     max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
     output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
