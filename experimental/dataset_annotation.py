@@ -413,7 +413,7 @@ def save_annotated_dataset(results, output_path="data/helpsteer2_gold.json"):
     return output_path
 
 
-def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json"):
+def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="train"):
     """
     Load the annotated dataset from disk.
     
@@ -430,7 +430,21 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json"):
         print(f"Loaded {len(results)} examples from {input_path}")
         return results
     elif input_path == "helpsteer2":
-        dataset = load_helpsteer2_dataset(split="train")
+        dataset = load_helpsteer2_dataset(split=split)
+        results = []
+        for i in range(len(dataset)):
+            item = dataset[i]
+            results.append({
+                "chosen": item["chosen"],
+                "rejected": item["rejected"],
+                "preference_strength": item["preference_strength"],
+                "does_gold_agree_with_original": True,  # Placeholder for gold evaluation
+                "chosen_reward": item["preference_strength"],  # Placeholder for gold evaluation
+                "rejected_reward": -item["preference_strength"],  # Placeholder for gold evaluation
+            })
+        return results
+    elif input_path == 'helpsteer3':
+        dataset = load_dataset("ktolnos/helpsteer3-preference-chosenrrejected", split=split)
         results = []
         for i in range(len(dataset)):
             item = dataset[i]
@@ -490,23 +504,28 @@ def annotate_dataset(model_name,
 
 @dataclass
 class ScriptArguments:
-    model_name: str = field(default="Reward-Reasoning/RRM-7B",
+    model_name: str = field(default="Skywork/Skywork-Reward-V2-Llama-3.1-8B",
                             metadata={"help": "Name of the gold reward model (for 'gold' mode)."})
     batch_size: int = field(default=16, metadata={"help": "Batch size for evaluation"})
-    max_length: int = field(default=3000, metadata={"help": "Maximum sequence length"})
-    output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05/train.json",
+    max_length: int = field(default=4096, metadata={"help": "Maximum sequence length"})
+    output_path: str = field(default="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B",
                              metadata={"help": "Path to save the dataset. Directory for 'gold' mode, file path for other modes."})
     reasoning: bool = field(default=True, metadata={"help": "If True, use reasoning reward model for 'gold' mode."})
     debug: bool = field(default=False, metadata={"help": "If True, only use 25 samples for debugging."})
 
     # Arguments for different annotation modes
     annotation_mode: str = field(
-        default="reference_reward",
+        default="gold",
         metadata={"help": "Annotation mode. One of: 'gold', 'reference_policy', 'reference_reward'."}
     )
     input_path: str = field(
         default='/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base/train.json',
-        metadata={"help": "Path to load a dataset from. Required for 'reference_reward' mode. Special case: 'helpsteer2' to load the original dataset."}
+        metadata={"help": "Path to load a dataset from. Required for 'reference_reward' and 'gold' mode. Special case: 'helpsteer2' or 'helpsteer3' to load the original dataset."}
+    )
+    input_split: str = field(
+        default='train',
+        metadata={
+            "help": "Dataset split to load ('train', 'validation', or 'test') for 'gold' mode."}
     )
     reference_policy_name: str = field(
         default="Qwen/Qwen3-0.6B",
@@ -532,7 +551,7 @@ if __name__ == "__main__":
     # --- Mode Dispatcher ---
     if script_args.annotation_mode == "gold":
         print("--- Running in GOLD annotation mode ---")
-        dataset = load_helpsteer2_dataset(split="train")
+        dataset = load_annotated_dataset(script_args.input_path, script_args.input_split)
         if script_args.debug:
             dataset = dataset.select(range(25))
 
@@ -547,7 +566,7 @@ if __name__ == "__main__":
 
     elif script_args.annotation_mode == "reference_policy":
         print("--- Running in REFERENCE POLICY annotation mode ---")
-        dataset = load_annotated_dataset(script_args.input_path)
+        dataset = load_annotated_dataset(script_args.input_path, script_args.input_split)
         if script_args.debug:
             dataset = dataset[:25]
 
