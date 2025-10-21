@@ -16,7 +16,7 @@ from trl.models import prepare_deepspeed
 from qrm_gemma_tokenizer import TokenizerWrapper
 
 tqdm.pandas()
-from grpo_utils import (build_train_eval_datasets, build_reward_function, RewardController)
+from grpo_utils import (build_train_eval_datasets, build_reward_function, RewardController, _load_reward_model)
 from online_pet import OnlinePETConfig, OnlinePETCallback
 
 from transformers import (
@@ -45,6 +45,9 @@ class ScriptArguments:
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
     reward_model_paths: list[str] = field(default='google/gemma-2b-it', metadata={'help': 'path to the reward model'})
+    rm_switch_strategy: Optional[str] = field(default='ensemble',
+                                              metadata={'help': 'Strategy for using multiple reward models. '
+                                                                'Options: ensemble, sequential'})
     sigmoid_rewards: Optional[bool] = field(default=False,
                                             metadata={'help': 'if True, use sigmoid to normalize rewards'})
     reference_rewards: Optional[bool] = field(default=False, metadata={
@@ -73,36 +76,37 @@ if __name__ == "__main__":
 
     reward_models = []
     reward_tokenizers = []
-    for reward_model_path in script_args.reward_model_paths:
-        if 'RRM' in reward_model_path:
-            reward_model = AutoModelForCausalLM.from_pretrained(
-                reward_model_path,
-                trust_remote_code=model_args.trust_remote_code,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
-            )
-        else:
-            reward_model = AutoModelForSequenceClassification.from_pretrained(
-                reward_model_path, trust_remote_code=model_args.trust_remote_code,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
-            )
-        reward_tokenizer = AutoTokenizer.from_pretrained(reward_model_path,
-                                                         trust_remote_code=model_args.trust_remote_code,
-                                                         padding_side="left",
-                                                         )
-        if reward_tokenizer.pad_token is None:
-            reward_tokenizer.pad_token = reward_tokenizer.eos_token
-        reward_tokenizer.max_length = script_args.max_length
-        reward_model.config.pad_token_id = reward_tokenizer.pad_token_id
 
-        reward_models.append(reward_model)
+    # Load all tokenizers first, as they are small and needed for all strategies.
+    for reward_model_path in script_args.reward_model_paths:
+        tokenizer = AutoTokenizer.from_pretrained(
+            reward_model_path,
+            trust_remote_code=model_args.trust_remote_code,
+            padding_side="left",
+        )
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.max_length = script_args.max_length
 
         if 'QRM' in reward_model_path:
             print('wrapping QRM tokenizer')
-            reward_tokenizer = TokenizerWrapper(reward_tokenizer, reward_model_path)
+            tokenizer = TokenizerWrapper(tokenizer, reward_model_path)
 
-        reward_tokenizers.append(reward_tokenizer)
+        reward_tokenizers.append(tokenizer)
+
+    # Handle reward model loading based on the strategy
+    if script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1:
+        print("Sequential RM strategy: RMs will be loaded on demand.")
+        reward_models = [None] * len(script_args.reward_model_paths)
+    else:
+        print("Ensemble RM strategy: Loading all RMs into memory.")
+        for i, reward_model_path in enumerate(script_args.reward_model_paths):
+            reward_model = _load_reward_model(
+                reward_model_path,
+                reward_tokenizers[i],
+                trust_remote_code=model_args.trust_remote_code
+            )
+            reward_models.append(reward_model)
 
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
@@ -169,14 +173,17 @@ if __name__ == "__main__":
     logging_steps = int(training_args.logging_steps * len(train_dataset))
     print("Logging steps:", logging_steps)
     reward_controller.logging_steps = logging_steps
-    if trainer.is_deepspeed_enabled:
-        for reward_model in reward_models:
-            prepare_deepspeed(reward_model, trainer.accelerator)
-    else:
-        for reward_model in reward_models:
-            trainer.accelerator.prepare_model(
-                reward_model, evaluation_mode=True, device_placement=True
-            )
+
+    if not (script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1):
+        if trainer.is_deepspeed_enabled:
+            for reward_model in reward_models:
+                prepare_deepspeed(reward_model, trainer.accelerator)
+        else:
+            for reward_model in reward_models:
+                trainer.accelerator.prepare_model(
+                    reward_model, evaluation_mode=True, device_placement=True
+                )
+
     trainer.train()
 
     # Save and push to hub

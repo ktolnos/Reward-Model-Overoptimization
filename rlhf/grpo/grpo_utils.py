@@ -1,3 +1,4 @@
+import gc
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -10,6 +11,7 @@ from tqdm import tqdm
 import datasets
 import numpy as np
 import pandas as pd
+from transformers import AutoModelForSequenceClassification, AutoModelForCausalLM
 from trl import GRPOTrainer
 import wandb
 
@@ -85,13 +87,35 @@ def post_process_common_dataset(ds, tokenizer, max_length):
     return ds
 
 
+def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
+    """Loads a reward model from the given path."""
+    # print(f"Loading reward model from {model_path}")
+    if 'RRM' in model_path:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            trust_remote_code=trust_remote_code,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+        )
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_path,
+            trust_remote_code=trust_remote_code,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+        )
+    model.config.pad_token_id = tokenizer.pad_token_id
+    return model
+
+
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
 def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
-        should_log = controller.trainer.state.global_step % controller.logging_steps == 0
+        should_log = controller.trainer.state.global_step > 0 and controller.trainer.state.global_step % controller.logging_steps == 0
 
+        # --- Common Setup ---
         reference_rewards = None
         if script_args.reference_rewards:
             reference_rewards = kwargs.get('reference_reward', None)
@@ -100,49 +124,99 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 reference_rewards = torch.stack(reference_rewards)
 
         texts = [p + c for p, c in zip(prompts, completions)]
-        rewards = []
-        rewards_dict = {}
-        for reward_model, reward_tokenizer in zip(reward_models, reward_tokenizers):
-            rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=controller)
-            rew_mean_sum[reward_model] += rew.mean().item()
-            rew_mean_count[reward_model] += 1
-            rewards_dict[reward_model] = rew.detach()
+
+        if script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1:
+            if script_args.adv_rm_lambda != 0:
+                raise ValueError("adv_rm_lambda cannot be used with rm_switch_strategy='sequential'")
+
+            num_rms = len(script_args.reward_model_paths)
+            current_step = controller.trainer.state.global_step
+            total_steps = controller.trainer.state.max_steps
+            rm_index = min(int(current_step / total_steps * num_rms), num_rms - 1) if total_steps > 0 else 0
+
+            # On-demand loading logic
+            loaded_idx = -1
+            for i, m in enumerate(reward_models):
+                if m is not None:
+                    loaded_idx = i
+                    break
+
+            if loaded_idx != rm_index:
+                if loaded_idx != -1:
+                    print(f"Unloading RM {loaded_idx}")
+                    reward_models[loaded_idx] = None
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
+                print(f"Loading RM {rm_index} on demand.")
+                reward_model_path = script_args.reward_model_paths[rm_index]
+                reward_tokenizer = reward_tokenizers[rm_index]
+                reward_model = _load_reward_model(reward_model_path, reward_tokenizer, trust_remote_code=True)
+
+                if controller.trainer.is_deepspeed_enabled:
+                    raise NotImplementedError("On-demand RM loading is not compatible with DeepSpeed.")
+
+                reward_models[rm_index] = controller.trainer.accelerator.prepare_model(reward_model,
+                                                                                         evaluation_mode=True)
+
             if should_log and wandb.run is not None:
-                wandb.log({
-                    f"reward/{reward_model.config._name_or_path}": rew_mean_sum[reward_model] / rew_mean_count[reward_model],
-                }, step=controller.trainer.state.global_step)
+                wandb.log({"reward/active_rm_index": rm_index}, step=controller.trainer.state.global_step)
 
+            models_to_process = [(reward_models[rm_index], reward_tokenizers[rm_index])]
+        else:
+            models_to_process = zip(reward_models, reward_tokenizers)
+
+        # --- Step 2: Calculate raw rewards and log ---
+        all_rewards_raw = []
+        rewards_dict = {}
+        for reward_model, reward_tokenizer in models_to_process:
+            model_name = reward_model.config._name_or_path
+            rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts,
+                             reward_controller=controller)
+            all_rewards_raw.append(rew)
+            rewards_dict[model_name] = rew.detach()
+
+            rew_mean_sum[model_name] += rew.mean().item()
+            rew_mean_count[model_name] += 1
+            if should_log and wandb.run is not None:
+                wandb.log({f"reward/{model_name}": rew_mean_sum[model_name] / rew_mean_count[model_name]},
+                          step=controller.trainer.state.global_step)
+
+        # --- Step 3: Process and aggregate rewards ---
+        processed_rewards = []
+        for rew in all_rewards_raw:
+            processed_rew = rew
             if script_args.reference_rewards and script_args.adv_rm_lambda == 0:
-                rew = rew - reference_rewards
+                processed_rew = processed_rew - reference_rewards
             if script_args.sigmoid_rewards:
-                rew = torch.sigmoid(rew)
-            rewards.append(rew)
+                processed_rew = torch.sigmoid(processed_rew)
+            processed_rewards.append(processed_rew)
 
-        rewards = torch.stack(rewards, dim=1)  # Shape (B*G, N)
-        if script_args.adv_rm_lambda != 0:
-            assert rewards.shape[1] == 2, "Adv-RM requires exactly 2 reward models"
+        rewards_tensor = torch.stack(processed_rewards, dim=1)
+
+        if script_args.rm_switch_strategy == 'sequential' or len(script_args.reward_model_paths) == 1:
+            reward = rewards_tensor.squeeze(1)
+        elif script_args.adv_rm_lambda != 0:
+            assert rewards_tensor.shape[1] == 2, "Adv-RM requires exactly 2 reward models"
             assert reference_rewards is not None, "Reference rewards must be provided for Adv-RM"
-            rewards_above_ref = rewards[:, 0] - script_args.adv_rm_lambda * rewards[:, 1]
-            rewards_below_ref = rewards[:, 0] - 25
-            reward = torch.where(rewards[:, 0] > reference_rewards, rewards_above_ref, rewards_below_ref)
+            rewards_above_ref = rewards_tensor[:, 0] - script_args.adv_rm_lambda * rewards_tensor[:, 1]
+            rewards_below_ref = rewards_tensor[:, 0] - 25
+            reward = torch.where(rewards_tensor[:, 0] > reference_rewards, rewards_above_ref, rewards_below_ref)
         elif script_args.ensemble_aggregation == 'mean':
-            reward = rewards.mean(dim=1)
+            reward = rewards_tensor.mean(dim=1)
         elif script_args.ensemble_aggregation == 'min':
-            reward = rewards.min(dim=1).values
+            reward = rewards_tensor.min(dim=1).values
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
 
         if controller.k_top_responses > 0:
             # Group rewards by prompt, since prompts are repeated for each completion in a group.
-            # This is robust to variable batch sizes.
             group_indices = defaultdict(list)
             for i, p in enumerate(prompts):
                 group_indices[p].append(i)
 
             for p, indices in group_indices.items():
                 group_rewards = reward[torch.tensor(indices, device=reward.device)]
-
-                # Find top k in this group
                 top_k_indices_in_group = torch.topk(
                     group_rewards, min(controller.k_top_responses, len(group_rewards))
                 ).indices
@@ -154,7 +228,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                         (prompts[original_idx], completions[original_idx], reward[original_idx].item(), ref_rew)
                     )
 
-        if controller.save_path is not None:
+        if controller.save_path is not None and should_log:
             new_data = {
                 'prompt': prompts,
                 'completion': completions,
@@ -171,15 +245,17 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                     new_data[k] = [v] * len(prompts)
 
             for reward_model in reward_models:
-                new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[reward_model].tolist()
-            controller.generations_df = pd.concat([controller.generations_df, pd.DataFrame(new_data)], ignore_index=True)
-            if should_log:
-                controller.generations_df.to_csv(controller.save_path, index=False)
+                if reward_model is not None and reward_model.config._name_or_path in rewards_dict:
+                    new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[
+                        reward_model.config._name_or_path].tolist()
+            controller.generations_df = pd.concat([controller.generations_df, pd.DataFrame(new_data)],
+                                                  ignore_index=True)
+            controller.generations_df.to_csv(controller.save_path, index=False)
 
         if should_log:
-            for reward_model in reward_models:
-                rew_mean_sum[reward_model] = 0
-                rew_mean_count[reward_model] = 0
+            for model_path in rew_mean_sum.keys():
+                rew_mean_sum[model_path] = 0
+                rew_mean_count[model_path] = 0
         return reward.tolist()
 
     return model_reward_func
