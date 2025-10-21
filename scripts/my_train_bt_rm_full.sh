@@ -27,13 +27,14 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
 dataset_name=(
-  'gagan3012/helpsteer2-preference-v2'
-  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
-  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
-  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
+   '/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B'
+#  'gagan3012/helpsteer2-preference-v2'
+#  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
+#  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
+#  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
 base_model='Qwen/Qwen3-Embedding-8B'
-seed=43
+seed=42
 wandb_name="${seed}_BT_RM_Qwen3-Embedding-8B_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
