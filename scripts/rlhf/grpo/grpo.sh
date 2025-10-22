@@ -70,7 +70,8 @@ reward_model_paths=(
 #     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2/logs/checkpoint-136/"
 #      "nicolinho/QRM-Llama3.1-8B-v2"
-      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B-helpsteer3_963211_len2000_fulltrain_2e-05_datahelpsteer3-preference-chosenrrejected/logs/checkpoint-1142"
+#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B-helpsteer3_963211_len2000_fulltrain_2e-05_datahelpsteer3-preference-chosenrrejected/logs/checkpoint-1142"
+      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 )
 
 export WANDB_RUN_GROUP=${log_dir}
@@ -114,7 +115,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
-    --online_pet_enabled True \
+    --online_pet_enabled False \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
