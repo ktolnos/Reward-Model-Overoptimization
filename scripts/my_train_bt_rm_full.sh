@@ -4,7 +4,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=168:00:00
+#SBATCH --time=72:00:00
+#SBATCH --qos=high
+
 
 export HF_HOME="/nas/ucb/eop/cache"
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
