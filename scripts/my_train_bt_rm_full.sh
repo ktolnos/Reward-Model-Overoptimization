@@ -59,5 +59,5 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
     --dataset "${dataset_name[@]}" \
-    --gradient_checkpointing True \
+    --gradient_checkpointing False \
     --seed ${seed} \
