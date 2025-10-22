@@ -62,6 +62,9 @@ class ScriptArguments:
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
+torch.manual_seed(script_args.seed)
+np.random.seed(script_args.seed)
+
 model_name_split = script_args.base_model.split("/")[-1]
 dataset_name = script_args.dataset[0]
 if script_args.use_lora:
