@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=72:00:00
+#SBATCH --time=12:00:00
 #SBATCH --qos=high
 
 
@@ -36,14 +36,14 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
 base_model='Qwen/Qwen3-0.6B'
-seed=42
+seed=43
 wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
-main_process_port=9994
+main_process_port=9975
 
 learning_rate=2e-5
 max_length=2000
-num_train_epochs=10
+num_train_epochs=1
 gradient_accumulation_steps=8
 per_device_train_batch_size=8
 per_device_eval_batch_size=8
