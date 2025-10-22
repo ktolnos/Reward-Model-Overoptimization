@@ -36,10 +36,10 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
 base_model='Qwen/Qwen3-0.6B'
-seed=46
+seed=47
 wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
-main_process_port=9978
+main_process_port=9979
 
 learning_rate=2e-5
 max_length=2000
