@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=24:00:00
+#SBATCH --time=168:00:00
 
 export HF_HOME="/nas/ucb/eop/cache"
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
@@ -27,24 +27,24 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
 dataset_name=(
-   '/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B'
+   'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k'
 #  'gagan3012/helpsteer2-preference-v2'
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
-base_model='Qwen/Qwen3-Embedding-8B'
+base_model='Qwen/Qwen3-06B'
 seed=42
-wandb_name="${seed}_BT_RM_Qwen3-Embedding-8B_${SLURM_JOB_ID}"
+wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}"
 log_dir='../save_reward_models'
 main_process_port=9994
 
 learning_rate=2e-5
 max_length=2000
-num_train_epochs=2
-gradient_accumulation_steps=64
-per_device_train_batch_size=1
-per_device_eval_batch_size=1
+num_train_epochs=10
+gradient_accumulation_steps=4
+per_device_train_batch_size=16
+per_device_eval_batch_size=16
 
 cd ../reward_models
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${main_process_port} run_reward_models_train.py \
