@@ -4,6 +4,9 @@ import pandas as pd
 import numpy as np
 
 from datasets import load_dataset
+from huggingface_hub import login
+
+login()
 
 ds = load_dataset('/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B')
 
