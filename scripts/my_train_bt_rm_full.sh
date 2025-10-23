@@ -58,6 +58,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
+    --lr_scheduler_type "constant" \
     --dataset "${dataset_name[@]}" \
     --gradient_checkpointing False \
     --seed ${seed} \
