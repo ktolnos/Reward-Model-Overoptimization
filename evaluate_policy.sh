@@ -3,8 +3,9 @@
 #SBATCH --job-name=evaluate_policy
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
-#SBATCH --gres=shard:13
+#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=24:00:00
+#SBATCH --qos=high
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 export HF_HOME="/nas/ucb/eop/cache"
@@ -13,7 +14,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251011_210809"
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251023_022818"
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
