@@ -336,7 +336,7 @@ def main():
     
     # --- Common Setup ---
     print("Loading evaluation dataset...")
-    split = "test" if args.dataset_name.startswith("/") else "validation" if args.dataset_name=='ktolnos/helpsteer3-preference-chosenrrejected' else "train"
+    split = "test" if args.dataset_name.startswith("/") or 'ktolnos/helpsteer3_gold' in args.dataset_name else "validation" if args.dataset_name=='ktolnos/helpsteer3-preference-chosenrrejected' else "train"
     print('Using dataset split:', split)
     dataset = load_dataset(args.dataset_name, split=split)
     if args.debug:
