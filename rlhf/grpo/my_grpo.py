@@ -48,6 +48,8 @@ class ScriptArguments:
     rm_switch_strategy: Optional[str] = field(default='ensemble',
                                               metadata={'help': 'Strategy for using multiple reward models. '
                                                                 'Options: ensemble, sequential'})
+    rm_switches_multiplier: Optional[int] = field(default=1,
+                                                 metadata={'help': 'Number of times we will use each reward model'})
     sigmoid_rewards: Optional[bool] = field(default=False,
                                             metadata={'help': 'if True, use sigmoid to normalize rewards'})
     reference_rewards: Optional[bool] = field(default=False, metadata={

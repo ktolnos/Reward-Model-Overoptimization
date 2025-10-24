@@ -132,8 +132,9 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             num_rms = len(script_args.reward_model_paths)
             current_step = controller.trainer.state.global_step
             total_steps = controller.trainer.state.max_steps
-            rm_index = min(int(current_step / total_steps * num_rms), num_rms - 1) if total_steps > 0 else 0
-
+            # Determine which RM to load based on the current training step.
+            # We train with each rm rm_switches_multiplier times and for an equal portion of the total steps
+            rm_index = ((current_step * num_rms * script_args.rm_switches_multiplier) // total_steps ) % num_rms
             # On-demand loading logic
             loaded_idx = -1
             for i, m in enumerate(reward_models):
