@@ -142,7 +142,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --use_lora_for_rm True \
-    --rm_switch_strategy 'ensemble' \
+    --rm_switch_strategy 'sequential' \
+    --rm_switches_multiplier 3 \
     || exit 1
 #    --rm_switch_strategy 'sequential' \
 #    --use_peft True \
