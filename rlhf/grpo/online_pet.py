@@ -297,35 +297,36 @@ class OnlinePETCallback(TrainerCallback):
 
                 # --- Pessimistic Loss ---
                 pessimistic_loss_item = 0
-                for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
-                    adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
+                if self.pet_config.pessimistic_loss_weight != 0.0:
+                    for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
+                        adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
 
-                    rm = self.reward_models[0]
-                    adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
-                    rm_tokenizer = self.reward_tokenizers[0]
-                    texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
-                    adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts, require_grad=True)
+                        rm = self.reward_models[0]
+                        adv_prompts, adv_responses, _, adv_ref_rewards = zip(*adv_batch)
+                        rm_tokenizer = self.reward_tokenizers[0]
+                        texts = [p + c for p, c in zip(adv_prompts, adv_responses)]
+                        adv_rewards_new = get_reward(rm, rm_tokenizer, adv_prompts, adv_responses, texts, require_grad=True)
 
-                    pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
-                    if adv_ref_rewards[0] is not None:
-                        adv_ref_rewards = torch.tensor(adv_ref_rewards, device=self.accelerator.device)
-                        mask = adv_rewards_new > adv_ref_rewards
-                        if mask.any():
-                            filtered_adv_rewards = adv_rewards_new[mask]
-                            filtered_ref_rewards = adv_ref_rewards[mask]
-                            pessimistic_loss = (filtered_adv_rewards - filtered_ref_rewards).mean()
-                    else:
-                        pessimistic_loss = adv_rewards_new.mean()
+                        pessimistic_loss = torch.tensor(0.0, device=self.accelerator.device)
+                        if adv_ref_rewards[0] is not None:
+                            adv_ref_rewards = torch.tensor(adv_ref_rewards, device=self.accelerator.device)
+                            mask = adv_rewards_new > adv_ref_rewards
+                            if mask.any():
+                                filtered_adv_rewards = adv_rewards_new[mask]
+                                filtered_ref_rewards = adv_ref_rewards[mask]
+                                pessimistic_loss = (filtered_adv_rewards - filtered_ref_rewards).mean()
+                        else:
+                            pessimistic_loss = adv_rewards_new.mean()
 
-                    pessimistic_loss *= self.pet_config.pessimistic_loss_weight
-                    pessimistic_loss_item += pessimistic_loss.item()
+                        pessimistic_loss *= self.pet_config.pessimistic_loss_weight
+                        pessimistic_loss_item += pessimistic_loss.item()
 
-                    scaled_pessimistic_loss = pessimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
-                    if scaled_pessimistic_loss.requires_grad:
-                        self.accelerator.backward(scaled_pessimistic_loss)
+                        scaled_pessimistic_loss = pessimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
+                        if scaled_pessimistic_loss.requires_grad:
+                            self.accelerator.backward(scaled_pessimistic_loss)
 
-                del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
-                torch.cuda.empty_cache()
+                    del pessimistic_loss, scaled_pessimistic_loss, adv_rewards_new, adv_ref_rewards
+                    torch.cuda.empty_cache()
 
                 # --- BT Loss on Preference Data ---
                 bt_loss_item = 0

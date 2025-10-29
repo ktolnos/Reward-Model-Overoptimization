@@ -73,15 +73,14 @@ reward_model_paths=(
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B-helpsteer3_963211_len2000_fulltrain_2e-05_datahelpsteer3-preference-chosenrrejected/logs/checkpoint-1142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-1420"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
-#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_44_BT_RM_Qwen/Qwen3-0.6B_974245_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_45_BT_RM_Qwen/Qwen3-0.6B_974246_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_46_BT_RM_Qwen/Qwen3-0.6B_974247_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
-      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_47_BT_RM_Qwen/Qwen3-0.6B_974254_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_47_BT_RM_Qwen/Qwen3-0.6B_974254_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_48_BT_RM_Qwen/Qwen3-0.6B_974255_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_49_BT_RM_Qwen/Qwen3-0.6B_974256_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_50_BT_RM_Qwen/Qwen3-0.6B_974257_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
-
 )
 
 export WANDB_RUN_GROUP=${log_dir}
@@ -125,13 +124,13 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --sigmoid_rewards False \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
-    --online_pet_enabled False \
+    --online_pet_enabled True \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
-    --pessimistic_loss_weight 0.01 \
-    --relu_chosen_reward_loss 0.1 \
+    --pessimistic_loss_weight 0 \
+    --relu_chosen_reward_loss 0 \
     --relu_chosen_use_rejected_baseline True \
     --rm_update_steps 1 \
     --rm_update_learning_rate 1e-5 \
@@ -139,8 +138,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_optimizer 'AdamW' \
     --rm_buffer_size 'full' \
     --pessimistic_gradient_accumulation_steps 16 \
-    --bt_gradient_accumulation_steps 16 \
-    --adversarial_batch_size 2 \
+    --bt_gradient_accumulation_steps 32 \
+    --adversarial_batch_size 1 \
     --preference_batch_size 2 \
     --use_lora_for_rm True \
     || exit 1
