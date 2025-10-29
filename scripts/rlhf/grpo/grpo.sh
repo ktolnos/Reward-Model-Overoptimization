@@ -53,7 +53,7 @@ export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9991
+export MASTER_PORT=9992
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
@@ -133,15 +133,14 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --relu_chosen_reward_loss 0 \
     --relu_chosen_use_rejected_baseline True \
     --rm_update_steps 1 \
-    --rm_update_learning_rate 1e-5 \
+    --rm_update_learning_rate 4e-5 \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
-    --rm_buffer_size 'full' \
+    --rm_buffer_size 512 \
     --pessimistic_gradient_accumulation_steps 16 \
-    --bt_gradient_accumulation_steps 32 \
-    --adversarial_batch_size 1 \
+    --bt_gradient_accumulation_steps 16 \
+    --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --use_lora_for_rm True \
     || exit 1
 #    --rm_switches_multiplier 3 \
 #    --rm_switch_strategy 'sequential' \
