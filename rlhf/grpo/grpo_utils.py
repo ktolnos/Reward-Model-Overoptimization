@@ -145,6 +145,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             if loaded_idx != rm_index:
                 if loaded_idx != -1:
                     print(f"Unloading RM {loaded_idx}")
+                    reward_models[loaded_idx].to('cpu')
                     reward_models[loaded_idx] = None
                     gc.collect()
                     torch.cuda.empty_cache()
