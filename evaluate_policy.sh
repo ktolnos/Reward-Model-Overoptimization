@@ -14,7 +14,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251023_022716"
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251023_022818"
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
@@ -26,7 +26,7 @@ TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/
 # Name of the gold reward model
 #GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 #GOLD_RM_NAME="LxzGordon/URM-LLaMa-3.1-8B"
-GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
+GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Qwen3-8B"
 
 # Dataset name
 #DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
