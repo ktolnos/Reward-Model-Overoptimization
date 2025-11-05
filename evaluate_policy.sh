@@ -14,7 +14,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251029_215740"
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251031_170013"
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
