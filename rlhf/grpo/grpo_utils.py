@@ -182,7 +182,7 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
 
             if script_args.rm_subtract_mean_reward_per_model:
-                rew -= rew_mean_for_model
+                rew = rew - rew_mean_for_model
             all_rewards_raw.append(rew)
 
             if should_log and wandb.run is not None:
