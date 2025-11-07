@@ -122,6 +122,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --trust_remote_code True \
     --reference_rewards False \
     --sigmoid_rewards False \
+    --rm_subtract_mean_reward_per_model True \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
     --online_pet_enabled False \
@@ -141,9 +142,10 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --rm_switches_multiplier 50 \
-    --rm_switch_strategy 'sequential' \
     || exit 1
+
+#    --rm_switches_multiplier 50 \
+#    --rm_switch_strategy 'sequential' \
 #    --use_peft True \
 #    --lora_r 32 \
 #    --lora_alpha 64 \

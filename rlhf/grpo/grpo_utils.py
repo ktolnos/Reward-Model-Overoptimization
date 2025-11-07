@@ -175,14 +175,19 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             model_name = reward_model.config._name_or_path
             rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts,
                              reward_controller=controller)
-            all_rewards_raw.append(rew)
             rewards_dict[model_name] = rew.detach()
 
             rew_mean_sum[model_name] += rew.mean().item()
             rew_mean_count[model_name] += 1
+            rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
+
+            if script_args.rm_subtract_mean_reward_per_model:
+                rew -= rew_mean_for_model
+            all_rewards_raw.append(rew)
+
             if should_log and wandb.run is not None:
-                wandb.log({f"reward/{model_name}": rew_mean_sum[model_name] / rew_mean_count[model_name]},
-                          step=controller.trainer.state.global_step)
+                wandb.log({f"reward/{model_name}": rew_mean_for_model},
+                          step=wandb.run.step)
 
         # --- Step 3: Process and aggregate rewards ---
         processed_rewards = []

@@ -62,6 +62,7 @@ class ScriptArguments:
     adv_rm_lambda: Optional[float] = field(default=0.0,
                                            metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
                                                              'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
+    rm_subtract_mean_reward_per_model: Optional[bool] = field(default=False, metadata={'help': 'whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts'})
 
 
 if __name__ == "__main__":
