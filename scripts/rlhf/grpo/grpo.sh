@@ -24,10 +24,10 @@ export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
-log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)"
+log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 #base_model_name="Qwen/Qwen3-0.6B" # policy base model
 base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
-dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
+dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference"
@@ -49,11 +49,36 @@ wandb_name="${SLURM_JOB_ID}_$(date +%Y%m%d_%H%M%S)_lr${learning_rate}_batch$(($p
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
+MIN_PORT=9900
+MAX_PORT=9999
+
+is_port_in_use() {
+    ss -lntu | grep -q ":$1 "
+}
+
+IDEAL_PORT=$((MIN_PORT + (SLURM_JOB_ID % (MAX_PORT - MIN_PORT + 1))))
+
+if ! is_port_in_use "${IDEAL_PORT}"; then
+    export MASTER_PORT=${IDEAL_PORT}
+else
+    for port in $(seq ${MIN_PORT} ${MAX_PORT}); do
+        if ! is_port_in_use "${port}"; then
+            export MASTER_PORT=${port}
+            break
+        fi
+    done
+fi
+
+if [[ -z "${MASTER_PORT}" ]]; then
+    echo "ERROR: Could not find any free port in the range ${MIN_PORT}-${MAX_PORT}." >&2
+    exit 1
+fi
+
+
 export RANK=0
 export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
-export MASTER_PORT=9998
 export WANDB_PROJECT="grpo"
 export WANDB_RUN_NAME=${wandb_name}
 
