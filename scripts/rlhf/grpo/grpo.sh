@@ -97,8 +97,8 @@ reward_model_paths=(
 #      "nicolinho/QRM-Llama3.1-8B-v2"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B-helpsteer3_963211_len2000_fulltrain_2e-05_datahelpsteer3-preference-chosenrrejected/logs/checkpoint-1142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-1420"
-      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
-#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_44_BT_RM_Qwen/Qwen3-0.6B_974245_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_45_BT_RM_Qwen/Qwen3-0.6B_974246_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_46_BT_RM_Qwen/Qwen3-0.6B_974247_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
@@ -143,7 +143,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --gradient_checkpointing False \
-    --scale_rewards False \
+    --scale_rewards True \
     --trust_remote_code True \
     --reference_rewards False \
     --sigmoid_rewards False \
