@@ -27,7 +27,7 @@ export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 #base_model_name="Qwen/Qwen3-0.6B" # policy base model
 base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
-dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
+dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B_reward_Qwen-Embedding-8B-42"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference"
@@ -41,7 +41,7 @@ gpu=0 #,1,2,3
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
-learning_rate="5e-7"
+learning_rate="2e-6"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 # shellcheck disable=SC2004
@@ -98,7 +98,7 @@ reward_model_paths=(
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen3-0.6B-helpsteer3_963211_len2000_fulltrain_2e-05_datahelpsteer3-preference-chosenrrejected/logs/checkpoint-1142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-1420"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
-      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+#      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_43_BT_RM_Qwen/Qwen3-0.6B_974244_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_44_BT_RM_Qwen/Qwen3-0.6B_974245_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_45_BT_RM_Qwen/Qwen3-0.6B_974246_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_46_BT_RM_Qwen/Qwen3-0.6B_974247_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
@@ -106,6 +106,7 @@ reward_model_paths=(
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_48_BT_RM_Qwen/Qwen3-0.6B_974255_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_49_BT_RM_Qwen/Qwen3-0.6B_974256_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_50_BT_RM_Qwen/Qwen3-0.6B_974257_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+      "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_982417_helpsteer3_gold_full_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B/logs/checkpoint-569"
 )
 
 export WANDB_RUN_GROUP=${log_dir}
@@ -113,9 +114,9 @@ export WANDB_RUN_GROUP=${log_dir}
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
-    --num_generations 8 \
+    --num_generations 16 \
     --num_train_epochs 1 \
-    --temperature 0.9 \
+    --temperature 1.05 \
     --max_prompt_length 1024 \
     --max_completion_length 1024 \
     --epsilon_high 0.28 \
@@ -131,8 +132,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --warmup_ratio=0.1 \
-    --lr_scheduler_type=cosine \
+    --warmup_ratio=0 \
+    --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
     --ensemble_aggregation "min" \
