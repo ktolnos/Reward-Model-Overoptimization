@@ -157,8 +157,8 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
     --move_policy_to_cpu True \
-    --pessimistic_loss_weight 0 \
-    --relu_chosen_reward_loss 0 \
+    --pessimistic_loss_weight 0.01 \
+    --relu_chosen_reward_loss 0.1 \
     --relu_chosen_use_rejected_baseline True \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
