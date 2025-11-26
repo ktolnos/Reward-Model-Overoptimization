@@ -164,10 +164,10 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_update_learning_rate 4e-5 \
     --k_top_responses 8 \
     --rm_optimizer 'AdamW' \
-    --rm_buffer_size 'full' \
+    --rm_buffer_size 512 \
     --pessimistic_gradient_accumulation_steps 16 \
     --bt_gradient_accumulation_steps 16 \
-    --adversarial_batch_size 2 \
+    --adversarial_batch_size 1 \
     --preference_batch_size 2 \
     || exit 1
 
