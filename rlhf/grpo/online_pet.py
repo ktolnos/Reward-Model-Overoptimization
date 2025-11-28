@@ -35,6 +35,7 @@ class OnlinePETConfig:
     rm_gradient_checkpointing: bool = field(default=False, metadata={"help": "Enable gradient checkpointing for reward models."})
     rm_update_learning_rate: float = field(default=4e-5, metadata={"help": "Learning rate for the reward model optimizer."})
     pessimistic_loss_weight: float = field(default=0.1, metadata={"help": "Weight for the pessimistic loss component."})
+    cql_optimistic_loss_weight: float = field(default=0, metadata={"help": "Weight for the CQL optimistic loss component."})
     bt_loss_weight: float = field(default=1.0, metadata={"help": "Weight for the BT loss component."})
     preference_dataset_path: str = field(default="", metadata={"help": "Path to the original preference dataset for BT loss."})
     preference_batch_size: int = field(default=1, metadata={"help": "Batch size for the preference dataset dataloader."})
@@ -297,6 +298,7 @@ class OnlinePETCallback(TrainerCallback):
 
                 # --- Pessimistic Loss ---
                 pessimistic_loss_item = 0
+                optimistic_loss_item = 0
                 if self.pet_config.pessimistic_loss_weight != 0.0:
                     for i in range(self.pet_config.pessimistic_gradient_accumulation_steps):
                         adv_batch = [next(adv_buffer_iterator) for _ in range(self.pet_config.adversarial_batch_size)]
@@ -322,6 +324,24 @@ class OnlinePETCallback(TrainerCallback):
                         pessimistic_loss_item += pessimistic_loss.item()
 
                         scaled_pessimistic_loss = pessimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
+
+                        if self.pet_config.cql_optimistic_loss_weight != 0.0:
+                            preference_batch = self._get_preference_batch()
+                            
+                            chosen_rewards = rm(
+                                input_ids=preference_batch['input_ids_chosen'].to(self.accelerator.device),
+                                attention_mask=preference_batch['attention_mask_chosen'].to(self.accelerator.device)
+                            ).logits.squeeze(-1)
+
+                            optimistic_loss = -chosen_rewards.mean()
+                            optimistic_loss *= self.pet_config.cql_optimistic_loss_weight
+                            optimistic_loss_item += optimistic_loss.item()
+                            
+                            scaled_optimistic_loss = optimistic_loss / self.pet_config.pessimistic_gradient_accumulation_steps
+                            
+                            if scaled_optimistic_loss.requires_grad:
+                                self.accelerator.backward(scaled_optimistic_loss)
+                            
                         if scaled_pessimistic_loss.requires_grad:
                             self.accelerator.backward(scaled_pessimistic_loss)
 
@@ -376,6 +396,7 @@ class OnlinePETCallback(TrainerCallback):
                 self.rm_optimizer.step()
 
                 avg_pess_loss = pessimistic_loss_item / self.pet_config.pessimistic_gradient_accumulation_steps
+                avg_optimistic_loss = optimistic_loss_item / self.pet_config.pessimistic_gradient_accumulation_steps
                 avg_bt_loss = (bt_loss_item / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 avg_bt_accuracy = (bt_accuracy / self.pet_config.bt_gradient_accumulation_steps) if self.pet_config.bt_gradient_accumulation_steps > 0 else 0
                 total_avg_loss = avg_pess_loss + avg_bt_loss
@@ -392,6 +413,7 @@ class OnlinePETCallback(TrainerCallback):
                         "update/bt_accuracy": avg_bt_accuracy,
                         "update/num_preference_epochs": self.num_preference_epochs,
                         "update/relu_chosen_loss": avg_relu_chosen_loss,
+                        "update/optimistic_loss": avg_optimistic_loss
                     }
                     wandb.log(log_data, step=wandb.run.step)
 
