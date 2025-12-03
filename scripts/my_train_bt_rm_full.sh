@@ -86,5 +86,4 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --lr_scheduler_type "constant" \
     --dataset "${dataset_name[@]}" \
     --gradient_checkpointing False \
-    --warmup_ratio 0 \
     --seed ${seed} \
