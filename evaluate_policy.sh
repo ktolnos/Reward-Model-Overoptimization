@@ -70,7 +70,7 @@ python evaluate_policy.py \
     --num_responses_per_prompt 1 \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
-    --evaluate_with_training_rm True \
+    --evaluate_with_training_rm False \
     --evaluate_with_llm_judge False \
     --llm_judge_model_name "tngtech/deepseek-r1t2-chimera:free" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
