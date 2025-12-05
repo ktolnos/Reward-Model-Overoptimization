@@ -147,7 +147,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
-    --ensemble_aggregation "mean" \
+    --ensemble_aggregation "min" \
     --save_steps 0.05 \
     --run_name ${wandb_name} \
     --logging_steps 0.01 \
@@ -179,7 +179,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --rm_switches_multiplier 5 \
-    --rm_switch_strategy 'ensemble' \
+    --rm_switch_strategy 'sequential' \
     || exit 1
 #    --relu_chosen_reward_loss 0.1 \
 #    --relu_chosen_use_rejected_baseline True \
