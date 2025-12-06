@@ -110,7 +110,7 @@ def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
 
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
-def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController):
+def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController, policy_tokenizer=None):
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
         should_log = controller.trainer.state.global_step > 0 and controller.trainer.state.global_step % controller.logging_steps == 0
@@ -215,6 +215,41 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             reward = rewards_tensor.min(dim=1).values
         else:
             raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
+
+        if script_args.penalize_non_truncated:
+            assert policy_tokenizer is not None, "policy_tokenizer must be provided if penalize_non_truncated is True"
+            completion_ids = kwargs.get('completion_ids', None)
+            assert completion_ids is not None, "completion_ids must be provided if penalize_non_truncated is True"
+
+            # Flatten completion_ids to check for EOS across the batch
+            # completion_ids is likely a list of tensors or list of lists
+            has_eos_list = []
+            for c_ids in completion_ids:
+                if isinstance(c_ids, torch.Tensor):
+                    c_ids = c_ids.tolist()
+                if policy_tokenizer.eos_token_id in c_ids:
+                    has_eos_list.append(True)
+                else:
+                    has_eos_list.append(False)
+            
+            has_eos = torch.tensor(has_eos_list, device=reward.device)
+            
+            # non-truncated = has_eos (finished naturally)
+            # truncated = ~has_eos (hit max length)
+            
+            non_truncated_indices = torch.nonzero(has_eos).squeeze(1)
+            truncated_indices = torch.nonzero(~has_eos).squeeze(1)
+            
+            if len(non_truncated_indices) > 0 and len(truncated_indices) > 0:
+                 min_truncated_reward = reward[truncated_indices].min()
+                 # Penalize non-truncated to be lower than min_truncated_reward
+                 margin = 1.0
+                 target_reward = min_truncated_reward - margin
+                 
+                 # Only lower them if they are higher
+                 current_non_truncated_rewards = reward[non_truncated_indices]
+                 new_rewards = torch.min(current_non_truncated_rewards, target_reward)
+                 reward[non_truncated_indices] = new_rewards
 
         if controller.k_top_responses > 0:
             # Group rewards by prompt, since prompts are repeated for each completion in a group.

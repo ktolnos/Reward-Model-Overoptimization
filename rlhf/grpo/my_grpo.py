@@ -63,6 +63,7 @@ class ScriptArguments:
                                            metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
                                                              'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
     rm_subtract_mean_reward_per_model: Optional[bool] = field(default=False, metadata={'help': 'whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts'})
+    penalize_non_truncated: Optional[bool] = field(default=False, metadata={'help': 'if True, penalize non-truncated completions'})
 
 
 if __name__ == "__main__":
@@ -142,7 +143,7 @@ if __name__ == "__main__":
         save_path=script_args.save_generations_path,
         k_top_responses=pet_config.k_top_responses if pet_config.online_pet_enabled else 0
     )
-    reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller)
+    reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller, policy_tokenizer)
 
     pet_callback = OnlinePETCallback(
         pet_config=pet_config,
