@@ -63,7 +63,7 @@ class ScriptArguments:
                                            metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
                                                              'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
     rm_subtract_mean_reward_per_model: Optional[bool] = field(default=False, metadata={'help': 'whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts'})
-    penalize_non_truncated: Optional[bool] = field(default=False, metadata={'help': 'if True, penalize non-truncated completions'})
+    penalize_no_eos: Optional[bool] = field(default=False, metadata={'help': 'if True, penalize completions that do not contain an EOS token'})
 
 
 if __name__ == "__main__":

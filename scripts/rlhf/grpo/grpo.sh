@@ -180,7 +180,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --preference_batch_size 2 \
     --rm_switches_multiplier 5 \
     --rm_switch_strategy 'ensemble' \
-    --penalize_non_truncated True \
+    --penalize_no_eos True \
     || exit 1
 #    --relu_chosen_reward_loss 0.1 \
 #    --relu_chosen_use_rejected_baseline True \
