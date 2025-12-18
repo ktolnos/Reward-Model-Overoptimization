@@ -109,6 +109,10 @@ class ScriptArguments:
         default=None,
         metadata={"help": "Number of prompts to randomly subsample from the dataset. If None, uses the full dataset."}
     )
+    kl_base_model_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to a base policy model for KL divergence calculation. If specified, KL(policy || base) is logged."}
+    )
 
 def load_reward_model_impl(model_path_or_name, device):
     model, tokenizer = load_reward_model(model_path_or_name, reasoning=False, device=device)
@@ -138,6 +142,87 @@ def get_reward_score(model, tokenizer, texts, device, batch_size=8):
     
     return np.array(all_scores)
 
+def get_log_probs_from_ids(model, full_ids_list, prompt_lens_list, device, batch_size=4):
+    """Compute per-token log probabilities directly from token IDs.
+    
+    Args:
+        model: The language model.
+        full_ids_list: List of full sequence token IDs (prompt + response), already stripped of trailing padding.
+        prompt_lens_list: List of prompt lengths for each sequence.
+        device: Device to run on.
+        batch_size: Batch size for processing.
+    
+    Returns:
+        Tuple of (sum_log_probs, mean_log_probs) arrays over response tokens only.
+    """
+    all_sum_log_probs = []
+    all_mean_log_probs = []
+    
+    for i in range(0, len(full_ids_list), batch_size):
+        batch_full_ids = full_ids_list[i:i + batch_size]
+        batch_prompt_lens = prompt_lens_list[i:i + batch_size]
+        
+        # Pad sequences to same length (left-padding for batching)
+        max_len = max(len(ids) for ids in batch_full_ids)
+        padded_ids = []
+        attention_masks = []
+        
+        for ids in batch_full_ids:
+            pad_len = max_len - len(ids)
+            # Left-pad with pad_token_id
+            padded = [model.config.pad_token_id] * pad_len + list(ids)
+            # Mask: 0 for our added left-padding, 1 for actual data
+            mask = [0] * pad_len + [1] * len(ids)
+            padded_ids.append(padded)
+            attention_masks.append(mask)
+        
+        input_ids = torch.tensor(padded_ids, device=device)
+        attention_mask = torch.tensor(attention_masks, device=device)
+        
+        with torch.no_grad():
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
+        
+        # Shift logits and labels for causal LM
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = input_ids[:, 1:].contiguous()
+        
+        # Compute log probs
+        log_probs = torch.log_softmax(shift_logits, dim=-1)
+        token_log_probs = log_probs.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
+        
+        for j in range(input_ids.size(0)):
+            # Calculate padding length using attention_mask (more robust)
+            pad_len = (attention_mask[j] == 0).sum().item()
+            prompt_len = batch_prompt_lens[j]
+            
+            # Response starts at: pad_len + prompt_len
+            # In shifted coordinates (index i predicts token i+1):
+            # We want the log prob FOR the first response token.
+            # Input at (pad_len + prompt_len - 1) predicts (pad_len + prompt_len).
+            response_start_idx = pad_len + prompt_len - 1
+            
+            # Valid content length from attention_mask
+            valid_len = attention_mask[j].sum().item()
+            # Response ends at (pad_len + valid_len - 1) in shifted indices
+            response_end_idx = pad_len + valid_len - 1
+            
+            if response_start_idx >= response_end_idx:
+                # Edge case: empty response
+                all_sum_log_probs.append(0.0)
+                all_mean_log_probs.append(0.0)
+                continue
+
+            response_log_probs = token_log_probs[j, response_start_idx:response_end_idx]
+            
+            sum_lp = response_log_probs.sum().item()
+            mean_lp = response_log_probs.mean().item()
+            
+            all_sum_log_probs.append(sum_lp)
+            all_mean_log_probs.append(mean_lp)
+    
+    return np.array(all_sum_log_probs), np.array(all_mean_log_probs)
+
 
 def collate_batch(input_ids_list, attention_mask_list, tokenizer):
     """Collate and pad a batch of input sequences to the longest sequence in the batch."""
@@ -162,42 +247,87 @@ def collate_batch(input_ids_list, attention_mask_list, tokenizer):
         torch.tensor(padded_attention_mask)
     )
 
-def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, max_new_tokens=512, batch_size=8, num_responses=1):
-    """Generate responses for a batch of input_ids."""
+def generate_responses(model, tokenizer, input_ids_list, attention_mask_list, max_new_tokens=512, batch_size=8, num_responses=1, return_ids=False):
+    """Generate responses for a batch of input_ids.
+    
+    Args:
+        return_ids: If True, also return the full token IDs (prompt + response) and prompt lengths.
+    
+    Returns:
+        If return_ids=False: List of response texts.
+        If return_ids=True: Tuple of (response_texts, full_ids_list, prompt_lens_list).
+    """
     all_responses = []
+    all_full_ids = []  # Full sequences: prompt + response
+    all_prompt_lens = []  # Prompt lengths for each sequence
     
     for i in range(0, len(input_ids_list), batch_size):
         batch_input_ids = input_ids_list[i:i + batch_size]
         batch_attention_mask = attention_mask_list[i:i + batch_size]
         
+        # Store original prompt lengths (before padding)
+        original_prompt_lens = [len(ids) for ids in batch_input_ids]
+        
         # Collate and pad the batch to the longest sequence in this batch
-        batch_input_ids, batch_attention_mask = collate_batch(
+        batch_input_ids_padded, batch_attention_mask_padded = collate_batch(
             batch_input_ids,
             batch_attention_mask,
             tokenizer
         )
         
         # Move to device
-        batch_input_ids = batch_input_ids.to(model.device)
-        batch_attention_mask = batch_attention_mask.to(model.device)
+        batch_input_ids_padded = batch_input_ids_padded.to(model.device)
+        batch_attention_mask_padded = batch_attention_mask_padded.to(model.device)
+        
+        # Store the padded prompt length for slicing the generated text
+        padded_prompt_len = batch_input_ids_padded.shape[1]
         
         with torch.no_grad():
             # Generate multiple responses per prompt
             for _ in range(num_responses):
                 outputs = model.generate(
-                    input_ids=batch_input_ids,
-                    attention_mask=batch_attention_mask,
+                    input_ids=batch_input_ids_padded,
+                    attention_mask=batch_attention_mask_padded,
                     max_new_tokens=max_new_tokens,
                     do_sample=True,
                     temperature=0.7,
                     top_p=0.9,
                     pad_token_id=tokenizer.pad_token_id,
-                    num_return_sequences=1  # We handle multiple responses in the outer loop
+                    num_return_sequences=1
                 )
                 
-                responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                # Slice tokens to get only the generated response (not prompt) for text
+                generated_tokens = outputs[:, padded_prompt_len:]
+                responses = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
                 all_responses.extend(responses)
+                
+                if return_ids:
+                    # For each sequence in batch, extract the actual (non-padded) full sequence
+                    for j in range(outputs.size(0)):
+                        # Find where actual content starts (skip left-padding)
+                        attn = batch_attention_mask_padded[j]
+                        first_non_pad = (attn == 1).nonzero(as_tuple=True)[0][0].item() if (attn == 1).any() else 0
+                        
+                        # Extract full sequence (may include trailing padding)
+                        raw_seq = outputs[j, first_non_pad:].tolist()
+                        
+                        # FIX: Strip trailing padding / stop at EOS
+                        cleaned_seq = []
+                        for token_id in raw_seq:
+                            cleaned_seq.append(token_id)
+                            # If we hit EOS, stop (include EOS in calculation)
+                            if token_id == tokenizer.eos_token_id:
+                                break
+                            # If we hit PAD (and it's not EOS), stop and exclude PAD
+                            if token_id == tokenizer.pad_token_id and token_id != tokenizer.eos_token_id:
+                                cleaned_seq.pop()  # Remove the pad we just added
+                                break
+                        
+                        all_full_ids.append(cleaned_seq)
+                        all_prompt_lens.append(original_prompt_lens[j])
     
+    if return_ids:
+        return all_responses, all_full_ids, all_prompt_lens
     return all_responses
 
 def load_policy_model(model_path, tokenizer, device):
@@ -523,6 +653,13 @@ def main():
         if args.evaluate_with_training_rm:
             training_rm, training_rm_tokenizer = load_reward_model_impl(args.training_rm_path, args.device)
         gold_rm, gold_rm_tokenizer = load_reward_model_impl(args.gold_rm_name, args.device)
+        
+        # Load base policy for KL calculation if specified
+        base_policy_model = None
+        kl_reward_data = []  # Accumulate (checkpoint, mean_kl, mean_gold_reward) for final plot
+        if args.kl_base_model_path:
+            print(f"Loading base policy for KL from {args.kl_base_model_path}...")
+            base_policy_model = load_policy_model(args.kl_base_model_path, tokenizer, args.device)
 
         for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
             checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
@@ -535,15 +672,28 @@ def main():
                     args.device
                 )
                 
-                responses = generate_responses(
-                    model,
-                    tokenizer,
-                    input_ids_list,
-                    attention_mask_list,
-                    max_new_tokens=args.max_new_tokens,
-                    batch_size=args.generation_batch_size,
-                    num_responses=args.num_responses_per_prompt
-                )
+                # Generate responses (with token IDs if we need KL)
+                if base_policy_model is not None:
+                    responses, full_ids_list, prompt_lens_list = generate_responses(
+                        model,
+                        tokenizer,
+                        input_ids_list,
+                        attention_mask_list,
+                        max_new_tokens=args.max_new_tokens,
+                        batch_size=args.generation_batch_size,
+                        num_responses=args.num_responses_per_prompt,
+                        return_ids=True
+                    )
+                else:
+                    responses = generate_responses(
+                        model,
+                        tokenizer,
+                        input_ids_list,
+                        attention_mask_list,
+                        max_new_tokens=args.max_new_tokens,
+                        batch_size=args.generation_batch_size,
+                        num_responses=args.num_responses_per_prompt
+                    )
 
                 print(responses[:5])
 
@@ -578,6 +728,33 @@ def main():
                     checkpoint_results["training_rm/std"] = float(np.std(training_rm_scores))
                     if not args.disable_wandb:
                         checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(training_rm_scores)
+                
+                # KL calculation using token IDs directly (no re-tokenization)
+                if base_policy_model is not None:
+                    # Get log probs from policy model
+                    policy_sum_lp, policy_mean_lp = get_log_probs_from_ids(
+                        model, full_ids_list, prompt_lens_list, args.device, batch_size=4
+                    )
+                    
+                    # Get log probs from base model
+                    base_sum_lp, base_mean_lp = get_log_probs_from_ids(
+                        base_policy_model, full_ids_list, prompt_lens_list, args.device, batch_size=4
+                    )
+                    
+                    # KL(policy || base) = E_policy[log(policy) - log(base)]
+                    kl_per_sample = policy_mean_lp - base_mean_lp
+                    kl_mean = float(np.mean(kl_per_sample))
+                    kl_std = float(np.std(kl_per_sample))
+                    
+                    checkpoint_results["kl/mean"] = kl_mean
+                    checkpoint_results["kl/std"] = kl_std
+                    
+                    # Accumulate data for the final aggregate plot
+                    kl_reward_data.append({
+                        "checkpoint": checkpoint_num,
+                        "kl": kl_mean,
+                        "gold_reward": float(np.mean(gold_rm_scores))
+                    })
 
                 if not args.disable_wandb:
                     wandb.log(checkpoint_results)
@@ -592,6 +769,19 @@ def main():
                 if 'model' in locals():
                     del model
                 torch.cuda.empty_cache()
+        
+        # After all checkpoints, create a single aggregate plot of Gold Reward vs KL
+        if kl_reward_data and not args.disable_wandb:
+            kl_reward_table = wandb.Table(
+                columns=["checkpoint", "kl", "gold_reward"],
+                data=[[d["checkpoint"], d["kl"], d["gold_reward"]] for d in kl_reward_data]
+            )
+            wandb.log({
+                "gold_reward_vs_kl": wandb.plot.scatter(
+                    kl_reward_table, "kl", "gold_reward",
+                    title="Gold Reward vs KL (across checkpoints)"
+                )
+            })
 
     if results:
         results_df = pd.DataFrame(results)
