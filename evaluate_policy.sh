@@ -74,6 +74,7 @@ python evaluate_policy.py \
     --evaluate_with_llm_judge False \
     --llm_judge_model_name "tngtech/deepseek-r1t2-chimera:free" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
+    --kl_base_model_path "Qwen/Qwen3-0.6B" \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     ${DEBUG_MODE:-} \
