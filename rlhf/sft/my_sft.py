@@ -60,7 +60,13 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         kwargs = {"return_tensors": "pt"}
         # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
         messages = example['chosen']
-        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        # Split into prompt (all but last) and response (last) cases
+        messages_acc = messages[:-1]
+        last_response = messages[-1]['content']
+
+        # Apply chat template with enable_thinking=False to match GRPO behavior
+        prompt = tokenizer.apply_chat_template(messages_acc, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        prompt_plus_response = prompt + last_response
         tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
 
         return {
@@ -86,7 +92,8 @@ if __name__ == "__main__":
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
-        trust_remote_code=model_args.trust_remote_code
+        trust_remote_code=model_args.trust_remote_code,
+        padding_side="left",
     )
     
     # Ensure pad token exists
@@ -102,7 +109,6 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
-        torch_dtype=torch_dtype,
     )
     
     # Resize token embeddings if needed
