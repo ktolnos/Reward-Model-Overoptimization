@@ -77,8 +77,8 @@ def post_process_common_dataset(ds, tokenizer, script_args):
 
     ds = ds.map(formatting_func,
                 remove_columns=ds.column_names,
-                batched=False, num_proc=30)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=30)
+                batched=False, num_proc=10)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=10)
     ds.set_format(type="torch")
     return ds
 
@@ -134,7 +134,6 @@ if __name__ == "__main__":
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
-        peft_config=peft_config,
     )
     
     # Train the model
