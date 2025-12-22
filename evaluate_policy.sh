@@ -45,6 +45,15 @@ OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jso
 WANDB_PROJECT="policy-evaluation"
 WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --run_name) WANDB_RUN_NAME="$2"; shift ;;
+        --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 echo "Running evaluation with the following settings:"
 echo "Checkpoints Directory: $CHECKPOINTS_DIR"
 echo "Training RM Path: $TRAINING_RM_PATH"
@@ -74,7 +83,7 @@ python evaluate_policy.py \
     --evaluate_with_llm_judge False \
     --llm_judge_model_name "tngtech/deepseek-r1t2-chimera:free" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
-    --kl_base_model_path "Qwen/Qwen3-0.6B-Base" \
+    --kl_base_model_path "${KL_BASE_MODEL_PATH:-Qwen/Qwen3-0.6B-Base}" \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     ${DEBUG_MODE:-} \

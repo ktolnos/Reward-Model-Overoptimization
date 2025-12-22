@@ -47,8 +47,17 @@ per_device_train_batch_size=1
 gradient_accumulation_steps=32
 # shellcheck disable=SC2004
 COMMIT_MSG=$(git log -1 --pretty=%s)
+DEFAULT_WANDB_NAME="${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
+wandb_name="$DEFAULT_WANDB_NAME"
 
-wandb_name="${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
+# Parse named arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --run_name) wandb_name="$2_${SLURM_JOB_ID}"; shift ;;
+        *) ;;
+    esac
+    shift
+done
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
@@ -215,4 +224,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #     --report_to "none" \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh
+sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}"
