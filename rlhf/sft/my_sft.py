@@ -30,7 +30,7 @@ SIMPLE_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 
 
 @dataclass
 class ScriptArguments:
-    max_length: Optional[int] = field(default=1024)
+    max_length_filter: Optional[int] = field(default=1024)
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
 
@@ -72,7 +72,7 @@ def post_process_common_dataset(ds, tokenizer, script_args):
     ds = ds.map(formatting_func,
                 remove_columns=ds.column_names,
                 batched=False, num_proc=30)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length, num_proc=30)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=30)
     ds.set_format(type="torch")
     return ds
 

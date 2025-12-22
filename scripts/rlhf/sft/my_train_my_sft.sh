@@ -106,6 +106,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --lora_r 8 \
     --lora_alpha 16 \
     --lora_dropout 0.05 \
+    --max_length_filter 1024 \
     --max_length 1024 \
     --trust_remote_code True
 
