@@ -14,7 +14,7 @@ cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
 
 # Directory containing the checkpoints
-CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251208_185714_998973"
+CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20251218_235134_1005175"
 if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
   CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
 fi
@@ -74,7 +74,7 @@ python evaluate_policy.py \
     --evaluate_with_llm_judge False \
     --llm_judge_model_name "tngtech/deepseek-r1t2-chimera:free" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
-    --kl_base_model_path "Qwen/Qwen3-0.6B" \
+    --kl_base_model_path "Qwen/Qwen3-0.6B-Base" \
     --use_dataset_response_as_baseline False \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     ${DEBUG_MODE:-} \
