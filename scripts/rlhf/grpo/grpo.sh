@@ -46,7 +46,9 @@ learning_rate="1e-6"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 # shellcheck disable=SC2004
-wandb_name="${SLURM_JOB_ID}_$(date +%Y%m%d_%H%M%S)_lr${learning_rate}_batch$(($per_device_train_batch_size * $gradient_accumulation_steps))_rmQwen06B_Full_helpsteer2_gold"
+COMMIT_MSG=$(git log -1 --pretty=%s)
+
+wandb_name="${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
@@ -135,7 +137,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0.04 \
+    --beta 0.0 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --wandb_log_unique_prompts True \
