@@ -92,7 +92,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
     --gradient_accumulation_steps 4 \
-    --evaluation_strategy "steps" \
+    --eval_strategy "steps" \
     --eval_steps 500 \
     --save_strategy "epoch" \
     --save_total_limit 3 \
@@ -102,13 +102,9 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --logging_steps 20 \
     --report_to "wandb" \
     --run_name ${wandb_name} \
-    --use_lora False \
-    --lora_r 8 \
-    --lora_alpha 16 \
-    --lora_dropout 0.05 \
     --max_length_filter 1024 \
     --max_length 1024 \
-    --trust_remote_code True
+    --trust_remote_code True || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"
 sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}"
