@@ -88,7 +88,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --model_name_or_path ${base_model_name} \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir} \
-    --num_train_epochs 2 \
+    --num_train_epochs 20 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
     --gradient_accumulation_steps 4 \
@@ -96,7 +96,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --eval_steps 500 \
     --save_strategy "epoch" \
     --save_total_limit 3 \
-    --learning_rate 5e-5 \
+    --learning_rate 1e-5 \
     --warmup_ratio 0 \
     --lr_scheduler_type "constant" \
     --logging_steps 20 \
