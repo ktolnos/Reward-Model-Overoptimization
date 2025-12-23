@@ -25,8 +25,9 @@ export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
-#base_model_name="Qwen/Qwen3-0.6B" # policy base model
-base_model_name="Qwen/Qwen3-0.6B-Base" # policy base model
+# base_model_name="Qwen/Qwen3-0.6B"
+# base_model_name="Qwen/Qwen3-0.6B-Base"
+base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20251222_220830_1007442/checkpoint-318"
 dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
 # dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05"
@@ -146,7 +147,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0.0 \
+    --beta 0.02 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --wandb_log_unique_prompts True \
