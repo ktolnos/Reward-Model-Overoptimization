@@ -95,7 +95,6 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --eval_strategy "steps" \
     --eval_steps 500 \
     --save_strategy "epoch" \
-    --save_total_limit 3 \
     --learning_rate 1e-5 \
     --warmup_ratio 0 \
     --lr_scheduler_type "constant" \
