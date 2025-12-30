@@ -18,6 +18,7 @@ import wandb
 tqdm.pandas()
 import matplotlib.pyplot as plt
 from reward_utils import get_reward
+from rlhf.prompt_utils import build_prompt_from_chosen
 
 @dataclass
 class RewardController:
@@ -56,14 +57,11 @@ def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=
 
 def post_process_common_dataset(ds, tokenizer, max_length):
     def formatting_func(example):
-        messages = example['chosen'][:-1]
-        chat = tokenizer.apply_chat_template(messages, tokenize=True,
-                                             add_generation_prompt=True,
-                                             enable_thinking=False,
-                                             truncation=True,
-                                             max_length=max_length,
-                                             )
-        prompt = tokenizer.decode(chat, skip_special_tokens=False) # This way we limit max_length
+        prompt = build_prompt_from_chosen(
+            example['chosen'],
+            tokenizer,
+            max_length=max_length,
+        )
         return {
             "prompt": prompt,
         }

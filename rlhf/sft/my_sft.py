@@ -16,6 +16,8 @@ from transformers import (
     HfArgumentParser,
 )
 
+from rlhf.prompt_utils import build_prompt_plus_response_from_chosen
+
 from trl import (
     ModelConfig,
     SFTConfig,
@@ -59,14 +61,10 @@ def post_process_common_dataset(ds, tokenizer, script_args):
     def formatting_func(example):
         kwargs = {"return_tensors": "pt"}
         # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
-        messages = example['chosen']
-        # Split into prompt (all but last) and response (last) cases
-        messages_acc = messages[:-1]
-        last_response = messages[-1]['content']
-
-        # Apply chat template with enable_thinking=False to match GRPO behavior
-        prompt = tokenizer.apply_chat_template(messages_acc, tokenize=False, add_generation_prompt=True, enable_thinking=False)
-        prompt_plus_response = prompt + last_response
+        prompt_plus_response = build_prompt_plus_response_from_chosen(
+            example['chosen'],
+            tokenizer,
+        )
         tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
 
         return {

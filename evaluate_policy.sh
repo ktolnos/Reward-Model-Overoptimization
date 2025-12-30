@@ -76,7 +76,6 @@ python evaluate_policy.py \
     --generation_batch_size 32 \
     --max_length 1024 \
     --device "cuda" \
-    --num_responses_per_prompt 1 \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
     --evaluate_with_training_rm False \

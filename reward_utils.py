@@ -52,6 +52,15 @@ def is_reasoning(reward_model):
     else:
         raise ValueError(f"{reward_model} is not a recognized model.")
 
+
+def build_reward_texts(prompts, completions, texts=None):
+    if texts is not None:
+        return texts
+    if prompts is None or completions is None:
+        raise ValueError("prompts and completions must be provided when texts is None.")
+    return [p + c for p, c in zip(prompts, completions)]
+
+
 def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None, require_grad=False):
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
@@ -60,8 +69,7 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, rewa
 
 
 def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, require_grad):
-    if texts is None:
-        texts = [p + c for p, c in zip(prompts, completions)]
+    texts = build_reward_texts(prompts, completions, texts)
     reward_inputs = reward_tokenizer(
         text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
     )
