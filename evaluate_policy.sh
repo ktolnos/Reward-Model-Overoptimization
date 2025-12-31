@@ -9,6 +9,7 @@
 
 export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
 export HF_HOME="/nas/ucb/eop/cache"
+export VLLM_USE_V1=0
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 source .bashrc
