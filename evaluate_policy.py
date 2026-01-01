@@ -315,8 +315,8 @@ def generate_responses_vllm(
             all_responses.append(generated_text)
 
             if collect_logprobs:
-                prompt_ids = output.prompt_token_ids
-                response_ids = completion.token_ids
+                prompt_ids = list(output.prompt_token_ids)
+                response_ids = list(completion.token_ids)
                 full_ids = prompt_ids + response_ids
                 all_full_ids.append(full_ids)
                 all_prompt_lens.append(len(prompt_ids))
