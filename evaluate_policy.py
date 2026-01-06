@@ -894,7 +894,7 @@ def main():
                             args.batch_size,
                         )
 
-                    print("\n\nreward texts\n\n", reward_texts[:2])
+                    print("\n\nreward texts\n\n", "\n;\n".join(reward_texts[:2]))
 
                     gold_rm_scores = get_reward_score(
                         gold_rm,
