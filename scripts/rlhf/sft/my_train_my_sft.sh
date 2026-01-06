@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=12:00:00
+#SBATCH --time=8:00:00
 #SBATCH --qos=high
 
 # Go to the root of the repo
@@ -88,7 +88,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --model_name_or_path ${base_model_name} \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir} \
-    --num_train_epochs 20 \
+    --num_train_epochs 10 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
     --gradient_accumulation_steps 4 \
