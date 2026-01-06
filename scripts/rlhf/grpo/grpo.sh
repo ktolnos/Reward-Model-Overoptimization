@@ -149,7 +149,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --beta 0.02 \
     --log_completions True \
     --loss_type "dr_grpo" \
-    --wandb_log_unique_prompts True \
+    --log_unique_prompts True \
     --disable_dropout True \
     --bf16 True \
     --dataset_path ${dataset_path} \
@@ -166,7 +166,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --gradient_checkpointing False \
-    --scale_rewards True \
+    --scale_rewards 'batch' \
     --trust_remote_code True \
     --reference_rewards False \
     --sigmoid_rewards False \
