@@ -193,7 +193,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_switch_strategy 'ensemble' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
-    --max_model_len 2048 \
+    --vllm_max_model_length 2048 \
     || exit 1
 #    --relu_chosen_reward_loss 0.1 \
 #    --relu_chosen_use_rejected_baseline True \
