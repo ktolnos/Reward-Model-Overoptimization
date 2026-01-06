@@ -884,8 +884,6 @@ def main():
                         )
                     )
 
-                    print(responses[:2])
-
                     reward_texts = build_reward_texts(prompts_list, responses)
                     if args.evaluate_with_training_rm:
                         training_rm_scores = get_reward_score(
@@ -895,6 +893,8 @@ def main():
                             args.device,
                             args.batch_size,
                         )
+
+                    print("\n\nreward texts\n\n", reward_texts[:2])
 
                     gold_rm_scores = get_reward_score(
                         gold_rm,
