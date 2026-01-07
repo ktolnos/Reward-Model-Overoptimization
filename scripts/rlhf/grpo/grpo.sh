@@ -7,6 +7,8 @@
 #SBATCH --time=168:00:00
 #SBATCH --qos=high
 
+#SELECTGPU A100-SXM4-80GB, A100-PCI-80GB
+
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
 export HF_HOME="/nas/ucb/eop/cache"
 export TMPDIR="/nas/ucb/eop/temp"
