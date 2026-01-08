@@ -45,7 +45,7 @@ gpu=0 #,1,2,3
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
-learning_rate="5e-7"
+learning_rate="1e-6"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 # shellcheck disable=SC2004
@@ -141,14 +141,14 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     rlhf/grpo/my_grpo.py \
     --num_generations 16 \
     --num_train_epochs 1 \
-    --temperature 0.8 \
+    --temperature 1 \
     --max_completion_length 1024 \
     --epsilon_high 0.28 \
     --mask_truncated_completions False \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0.02 \
+    --beta 0.08 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \
