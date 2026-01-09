@@ -130,8 +130,8 @@ reward_model_paths=(
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_15_BT_RM_Qwen/Qwen3-0.6B_995143_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_16_BT_RM_Qwen/Qwen3-0.6B_995144_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_17_BT_RM_Qwen/Qwen3-0.6B_995145_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_18_BT_RM_Qwen/Qwen3-0.6B_995146_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_19_BT_RM_Qwen/Qwen3-0.6B_995148_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_18_BT_RM_Qwen/Qwen3-0.6B_995146_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_19_BT_RM_Qwen/Qwen3-0.6B_995148_helpsteer3_gold_10k_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-284/"
 )
 
 export WANDB_RUN_GROUP=${log_dir}
@@ -175,13 +175,13 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_subtract_mean_reward_per_model True \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
-    --online_pet_enabled False \
+    --online_pet_enabled True \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
-    --move_rm_to_cpu True \
-    --move_policy_to_cpu True \
-    --pessimistic_loss_weight 0.01 \
-    --cql_optimistic_loss_weight 0.01 \
+    --move_rm_to_cpu False \
+    --move_policy_to_cpu False \
+    --pessimistic_loss_weight 0.005 \
+    --cql_optimistic_loss_weight 0.005 \
     --rm_update_steps 1 \
     --rm_update_learning_rate 4e-5 \
     --k_top_responses 16 \
