@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64gb
+#SBATCH --mem=128gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=168:00:00
 #SBATCH --qos=high
@@ -191,7 +191,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --rm_switches_multiplier 3 \
+    --rm_switches_multiplier 50 \
     --rm_switch_strategy 'sequential' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
