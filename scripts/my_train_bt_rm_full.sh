@@ -5,7 +5,7 @@
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=8:00:00
-#SBATCH --qos=normal
+#SBATCH --qos=default
 
 
 export HF_HOME="/nas/ucb/eop/cache"
