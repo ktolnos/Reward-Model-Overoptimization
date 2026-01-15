@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from reward_utils import get_reward
 from rlhf.prompt_utils import build_prompt_from_chosen
 
+
 @dataclass
 class RewardController:
     trainer: GRPOTrainer = None
@@ -36,7 +37,9 @@ class RewardController:
                 self.generations_df = pd.read_csv(self.save_path)
             else:
                 print(f"Creating new generations file at {self.save_path}")
-                self.generations_df = pd.DataFrame(columns=['prompt', 'completion', 'reward'])
+                self.generations_df = pd.DataFrame(
+                    columns=["prompt", "completion", "reward"]
+                )
 
     def get_and_clear_adversarial_buffer(self):
         buffer_copy = list(self.adversarial_responses_buffer)
@@ -44,21 +47,28 @@ class RewardController:
         return buffer_copy
 
 
-def build_train_eval_datasets(data_path_train, tokenizer, eval_proportion, size=None, max_length=512,):
+def build_train_eval_datasets(
+    data_path_train,
+    tokenizer,
+    eval_proportion,
+    size=None,
+    max_length=512,
+):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
         ds = ds.select(range(0, size))
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
-    ds_train = ds_dict['train']
-    ds_eval = ds_dict['test']
+    ds_train = ds_dict["train"]
+    ds_eval = ds_dict["test"]
     ds_train = post_process_common_dataset(ds_train, tokenizer, max_length)
     ds_eval = post_process_common_dataset(ds_eval, tokenizer, max_length)
     return ds_train, ds_eval
 
+
 def post_process_common_dataset(ds, tokenizer, max_length):
     def formatting_func(example):
         prompt = build_prompt_from_chosen(
-            example['chosen'],
+            example["chosen"],
             tokenizer,
             max_length=max_length,
         )
@@ -67,20 +77,20 @@ def post_process_common_dataset(ds, tokenizer, max_length):
         }
 
     columns_to_remove = ds.column_names
-    if 'reference_reward' in columns_to_remove:
-        columns_to_remove.remove('reference_reward')
-    if 'reference_reward_1' in columns_to_remove:
-        columns_to_remove.remove('reference_reward_1')
-    if 'reference_reward_2' in columns_to_remove:
-        columns_to_remove.remove('reference_reward_2')
-    if 'reference_response_1' in columns_to_remove:
-        columns_to_remove.remove('reference_response_1')
-    if 'reference_response_2' in columns_to_remove:
-        columns_to_remove.remove('reference_response_2')
+    if "reference_reward" in columns_to_remove:
+        columns_to_remove.remove("reference_reward")
+    if "reference_reward_1" in columns_to_remove:
+        columns_to_remove.remove("reference_reward_1")
+    if "reference_reward_2" in columns_to_remove:
+        columns_to_remove.remove("reference_reward_2")
+    if "reference_response_1" in columns_to_remove:
+        columns_to_remove.remove("reference_response_1")
+    if "reference_response_2" in columns_to_remove:
+        columns_to_remove.remove("reference_response_2")
     print(columns_to_remove, " will be removed")
-    ds = ds.map(formatting_func,
-                remove_columns=columns_to_remove,
-                batched=False, num_proc=30)
+    ds = ds.map(
+        formatting_func, remove_columns=columns_to_remove, batched=False, num_proc=30
+    )
     ds.set_format(type="torch")
     return ds
 
@@ -88,7 +98,7 @@ def post_process_common_dataset(ds, tokenizer, max_length):
 def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
     """Loads a reward model from the given path."""
     # print(f"Loading reward model from {model_path}")
-    if 'RRM' in model_path:
+    if "RRM" in model_path:
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             trust_remote_code=trust_remote_code,
@@ -108,31 +118,52 @@ def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
 
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
-def build_reward_function(reward_models, reward_tokenizers, script_args, controller: RewardController, policy_tokenizer=None):
+
+
+def build_reward_function(
+    reward_models,
+    reward_tokenizers,
+    script_args,
+    controller: RewardController,
+    policy_tokenizer=None,
+):
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
-        should_log = controller.trainer.state.global_step > 0 and controller.trainer.state.global_step % controller.logging_steps == 0
+        should_log = (
+            controller.trainer.state.global_step > 0
+            and controller.trainer.state.global_step % controller.logging_steps == 0
+        )
 
         # --- Common Setup ---
         reference_rewards = None
         if script_args.reference_rewards:
-            reference_rewards = kwargs.get('reference_reward', None)
-            assert reference_rewards is not None, "Reference rewards must be provided in the dataset if reference_rewards is True"
+            reference_rewards = kwargs.get("reference_reward", None)
+            assert (
+                reference_rewards is not None
+            ), "Reference rewards must be provided in the dataset if reference_rewards is True"
             if isinstance(reference_rewards, list):
                 reference_rewards = torch.stack(reference_rewards)
 
         texts = [p + c for p, c in zip(prompts, completions)]
 
-        if script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1:
+        if (
+            script_args.rm_switch_strategy == "sequential"
+            and len(script_args.reward_model_paths) > 1
+        ):
             if script_args.adv_rm_lambda != 0:
-                raise ValueError("adv_rm_lambda cannot be used with rm_switch_strategy='sequential'")
+                raise ValueError(
+                    "adv_rm_lambda cannot be used with rm_switch_strategy='sequential'"
+                )
 
             num_rms = len(script_args.reward_model_paths)
             current_step = controller.trainer.state.global_step
             total_steps = controller.trainer.state.max_steps
             # Determine which RM to load based on the current training step.
             # We train with each rm rm_switches_multiplier times and for an equal portion of the total steps
-            rm_index = ((current_step * num_rms * script_args.rm_switches_multiplier) // total_steps ) % num_rms
+            rm_index = (
+                (current_step * num_rms * script_args.rm_switches_multiplier)
+                // total_steps
+            ) % num_rms
             # On-demand loading logic
             loaded_idx = -1
             for i, m in enumerate(reward_models):
@@ -143,7 +174,9 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             if loaded_idx != rm_index:
                 if loaded_idx != -1:
                     print(f"Unloading RM {loaded_idx}")
-                    reward_models[loaded_idx].to('cpu')
+                    controller.trainer.accelerator.free_memory(
+                        reward_models[loaded_idx]
+                    )
                     reward_models[loaded_idx] = None
                     gc.collect()
                     torch.cuda.empty_cache()
@@ -151,16 +184,24 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                 print(f"Loading RM {rm_index} on demand.")
                 reward_model_path = script_args.reward_model_paths[rm_index]
                 reward_tokenizer = reward_tokenizers[rm_index]
-                reward_model = _load_reward_model(reward_model_path, reward_tokenizer, trust_remote_code=True)
+                reward_model = _load_reward_model(
+                    reward_model_path, reward_tokenizer, trust_remote_code=True
+                )
 
                 if controller.trainer.is_deepspeed_enabled:
-                    raise NotImplementedError("On-demand RM loading is not compatible with DeepSpeed.")
+                    raise NotImplementedError(
+                        "On-demand RM loading is not compatible with DeepSpeed."
+                    )
 
-                reward_models[rm_index] = controller.trainer.accelerator.prepare_model(reward_model,
-                                                                                         evaluation_mode=True)
+                reward_models[rm_index] = controller.trainer.accelerator.prepare_model(
+                    reward_model, evaluation_mode=True
+                )
 
             if should_log and wandb.run is not None:
-                wandb.log({"reward/active_rm_index": rm_index}, step=controller.trainer.state.global_step)
+                wandb.log(
+                    {"reward/active_rm_index": rm_index},
+                    step=controller.trainer.state.global_step,
+                )
 
             models_to_process = [(reward_models[rm_index], reward_tokenizers[rm_index])]
         else:
@@ -171,8 +212,14 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
         rewards_dict = {}
         for reward_model, reward_tokenizer in models_to_process:
             model_name = reward_model.config._name_or_path
-            rew = get_reward(reward_model, reward_tokenizer, prompts, completions, texts,
-                             reward_controller=controller)
+            rew = get_reward(
+                reward_model,
+                reward_tokenizer,
+                prompts,
+                completions,
+                texts,
+                reward_controller=controller,
+            )
             rewards_dict[model_name] = rew.detach()
 
             rew_mean_sum[model_name] += rew.mean().item()
@@ -184,8 +231,9 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
             all_rewards_raw.append(rew)
 
             if should_log and wandb.run is not None:
-                wandb.log({f"reward/{model_name}": rew_mean_for_model},
-                          step=wandb.run.step)
+                wandb.log(
+                    {f"reward/{model_name}": rew_mean_for_model}, step=wandb.run.step
+                )
 
         # --- Step 3: Process and aggregate rewards ---
         processed_rewards = []
@@ -199,25 +247,44 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
 
         rewards_tensor = torch.stack(processed_rewards, dim=1)
 
-        if script_args.rm_switch_strategy == 'sequential' or len(script_args.reward_model_paths) == 1:
+        if (
+            script_args.rm_switch_strategy == "sequential"
+            or len(script_args.reward_model_paths) == 1
+        ):
             reward = rewards_tensor.squeeze(1)
         elif script_args.adv_rm_lambda != 0:
-            assert rewards_tensor.shape[1] == 2, "Adv-RM requires exactly 2 reward models"
-            assert reference_rewards is not None, "Reference rewards must be provided for Adv-RM"
-            rewards_above_ref = rewards_tensor[:, 0] - script_args.adv_rm_lambda * rewards_tensor[:, 1]
+            assert (
+                rewards_tensor.shape[1] == 2
+            ), "Adv-RM requires exactly 2 reward models"
+            assert (
+                reference_rewards is not None
+            ), "Reference rewards must be provided for Adv-RM"
+            rewards_above_ref = (
+                rewards_tensor[:, 0] - script_args.adv_rm_lambda * rewards_tensor[:, 1]
+            )
             rewards_below_ref = rewards_tensor[:, 0] - 25
-            reward = torch.where(rewards_tensor[:, 0] > reference_rewards, rewards_above_ref, rewards_below_ref)
-        elif script_args.ensemble_aggregation == 'mean':
+            reward = torch.where(
+                rewards_tensor[:, 0] > reference_rewards,
+                rewards_above_ref,
+                rewards_below_ref,
+            )
+        elif script_args.ensemble_aggregation == "mean":
             reward = rewards_tensor.mean(dim=1)
-        elif script_args.ensemble_aggregation == 'min':
+        elif script_args.ensemble_aggregation == "min":
             reward = rewards_tensor.min(dim=1).values
         else:
-            raise ValueError(f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}")
+            raise ValueError(
+                f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"
+            )
 
         if script_args.penalize_no_eos:
-            assert policy_tokenizer is not None, "policy_tokenizer must be provided if penalize_no_eos is True"
-            completion_ids = kwargs.get('completion_ids', None)
-            assert completion_ids is not None, "completion_ids must be provided if penalize_no_eos is True"
+            assert (
+                policy_tokenizer is not None
+            ), "policy_tokenizer must be provided if penalize_no_eos is True"
+            completion_ids = kwargs.get("completion_ids", None)
+            assert (
+                completion_ids is not None
+            ), "completion_ids must be provided if penalize_no_eos is True"
 
             has_eos_list = []
             for c_ids in completion_ids:
@@ -227,26 +294,26 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
                     has_eos_list.append(True)
                 else:
                     has_eos_list.append(False)
-            
+
             has_eos = torch.tensor(has_eos_list, device=reward.device)
-            
+
             # penalize_no_eos logic:
             # We want to penalize sequences that do NOT have EOS (i.e., truncated/unfinished).
             # We use the sequences that DO have EOS (finished) as the baseline.
-            
+
             finished_indices = torch.nonzero(has_eos).squeeze(1)
             unfinished_indices = torch.nonzero(~has_eos).squeeze(1)
-            
+
             if len(finished_indices) > 0 and len(unfinished_indices) > 0:
-                 min_finished_reward = reward[finished_indices].min()
-                 # Penalize unfinished to be lower than min_finished_reward
-                 margin = 1.0
-                 target_reward = min_finished_reward - margin
-                 
-                 # Only lower them if they are higher
-                 current_unfinished_rewards = reward[unfinished_indices]
-                 new_rewards = torch.min(current_unfinished_rewards, target_reward)
-                 reward[unfinished_indices] = new_rewards
+                min_finished_reward = reward[finished_indices].min()
+                # Penalize unfinished to be lower than min_finished_reward
+                margin = 1.0
+                target_reward = min_finished_reward - margin
+
+                # Only lower them if they are higher
+                current_unfinished_rewards = reward[unfinished_indices]
+                new_rewards = torch.min(current_unfinished_rewards, target_reward)
+                reward[unfinished_indices] = new_rewards
 
         if controller.k_top_responses > 0:
             # Group rewards by prompt, since prompts are repeated for each completion in a group.
@@ -262,33 +329,50 @@ def build_reward_function(reward_models, reward_tokenizers, script_args, control
 
                 for k_idx in top_k_indices_in_group:
                     original_idx = indices[k_idx]
-                    ref_rew = reference_rewards[original_idx].item() if reference_rewards is not None else None
+                    ref_rew = (
+                        reference_rewards[original_idx].item()
+                        if reference_rewards is not None
+                        else None
+                    )
                     controller.adversarial_responses_buffer.append(
-                        (prompts[original_idx], completions[original_idx], reward[original_idx].item(), ref_rew)
+                        (
+                            prompts[original_idx],
+                            completions[original_idx],
+                            reward[original_idx].item(),
+                            ref_rew,
+                        )
                     )
 
         if controller.save_path is not None and should_log:
             new_data = {
-                'prompt': prompts,
-                'completion': completions,
-                'reward': reward.tolist()
+                "prompt": prompts,
+                "completion": completions,
+                "reward": reward.tolist(),
             }
             for k, v in kwargs.items():
-                if k == 'completion_ids':
+                if k == "completion_ids":
                     continue
                 if isinstance(v, list):
-                    new_data[k] = [it.cpu().numpy() if isinstance(it, torch.Tensor) else it for it in v]
+                    new_data[k] = [
+                        it.cpu().numpy() if isinstance(it, torch.Tensor) else it
+                        for it in v
+                    ]
                 elif isinstance(v, torch.Tensor):
                     new_data[k] = v.tolist()
                 else:
                     new_data[k] = [v] * len(prompts)
 
             for reward_model in reward_models:
-                if reward_model is not None and reward_model.config._name_or_path in rewards_dict:
-                    new_data[f'reward_{reward_model.config._name_or_path}'] = rewards_dict[
-                        reward_model.config._name_or_path].tolist()
-            controller.generations_df = pd.concat([controller.generations_df, pd.DataFrame(new_data)],
-                                                  ignore_index=True)
+                if (
+                    reward_model is not None
+                    and reward_model.config._name_or_path in rewards_dict
+                ):
+                    new_data[f"reward_{reward_model.config._name_or_path}"] = (
+                        rewards_dict[reward_model.config._name_or_path].tolist()
+                    )
+            controller.generations_df = pd.concat(
+                [controller.generations_df, pd.DataFrame(new_data)], ignore_index=True
+            )
             controller.generations_df.to_csv(controller.save_path, index=False)
 
         if should_log:
