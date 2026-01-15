@@ -100,9 +100,9 @@ np.random.seed(script_args.seed)
 model_name_split = script_args.base_model.split("/")[-1]
 dataset_name = script_args.dataset[0]
 if script_args.use_lora:
-    output_name = f"{script_args.log_dir}/{model_name_split}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 else:
-    output_name = f"{script_args.log_dir}/{model_name_split}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 
 device = Accelerator().local_process_index
 
