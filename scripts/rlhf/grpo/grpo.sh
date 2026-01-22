@@ -144,37 +144,37 @@ reward_model_paths=(
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/107_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/108_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/109_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/110_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/111_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/112_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/113_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/114_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/115_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/116_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/117_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/118_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/119_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/120_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/121_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/122_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/123_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/124_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/125_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/126_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/127_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/128_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/129_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/130_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/131_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/132_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/133_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/134_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/135_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/136_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/137_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/138_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/139_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/140_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/110_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/111_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/112_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/113_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/114_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/115_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/116_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/117_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/118_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/119_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/120_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/121_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/122_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/123_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/124_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/125_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/126_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/127_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/128_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/129_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/130_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/131_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/132_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/133_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/134_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/135_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/136_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/137_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/138_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/139_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/140_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/141_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/142_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/143_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-218"
@@ -251,7 +251,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0.01 \
+    --beta 0 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \
@@ -295,7 +295,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --rm_switches_multiplier 3 \
-    --rm_switch_strategy 'sequential' \
+    --rm_switch_strategy 'ensemble' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --vllm_max_model_length 2048 \
