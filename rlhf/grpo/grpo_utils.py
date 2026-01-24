@@ -19,6 +19,7 @@ tqdm.pandas()
 import matplotlib.pyplot as plt
 from reward_utils import get_reward
 from rlhf.prompt_utils import build_prompt_from_chosen
+import math
 
 
 @dataclass
@@ -120,6 +121,50 @@ rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
 
 
+def get_active_indices(current_step, total_steps, num_rms, args):
+    if args.rm_switch_strategy == "ensemble":
+        return list(range(num_rms))
+
+    if args.rm_switch_strategy == "sequential":
+        # Calculate active index based on steps and multiplier
+        if total_steps == 0:
+            return [0]
+        # We assume total_steps is at least 1 or handle start 0
+        rm_index = (
+            (current_step * num_rms * args.rm_switches_multiplier) // total_steps
+        ) % num_rms
+        return [rm_index]
+
+    if args.rm_switch_strategy == "mix":
+        ensemble_size = args.mix_ensemble_size
+        if ensemble_size >= num_rms:
+            return list(range(num_rms))
+
+        if args.mix_strategy == "disjoint":
+            num_chunks = math.ceil(num_rms / ensemble_size)
+            chunk_idx = (
+                (current_step * num_chunks * args.rm_switches_multiplier) // total_steps
+            ) % num_chunks
+
+            start_idx = chunk_idx * ensemble_size
+            end_idx = min(start_idx + ensemble_size, num_rms)
+            return list(range(start_idx, end_idx))
+
+        elif args.mix_strategy == "sliding":
+            # Sliding window start index shifts
+            # Number of positions to slide through is num_rms
+            start_idx = (
+                (current_step * num_rms * args.rm_switches_multiplier) // total_steps
+            ) % num_rms
+
+            indices = []
+            for i in range(ensemble_size):
+                indices.append((start_idx + i) % num_rms)
+            return indices
+
+    return list(range(num_rms))  # Default fallback
+
+
 def build_reward_function(
     reward_models,
     reward_tokenizers,
@@ -146,66 +191,55 @@ def build_reward_function(
 
         texts = [p + c for p, c in zip(prompts, completions)]
 
-        if (
-            script_args.rm_switch_strategy == "sequential"
-            and len(script_args.reward_model_paths) > 1
-        ):
-            if script_args.adv_rm_lambda != 0:
-                raise ValueError(
-                    "adv_rm_lambda cannot be used with rm_switch_strategy='sequential'"
-                )
+        num_rms = len(script_args.reward_model_paths)
 
-            num_rms = len(script_args.reward_model_paths)
-            current_step = controller.trainer.state.global_step
-            total_steps = controller.trainer.state.max_steps
-            # Determine which RM to load based on the current training step.
-            # We train with each rm rm_switches_multiplier times and for an equal portion of the total steps
-            rm_index = (
-                (current_step * num_rms * script_args.rm_switches_multiplier)
-                // total_steps
-            ) % num_rms
-            # On-demand loading logic
-            loaded_idx = -1
-            for i, m in enumerate(reward_models):
-                if m is not None:
-                    loaded_idx = i
-                    break
+        current_step = controller.trainer.state.global_step
+        total_steps = controller.trainer.state.max_steps
+        if total_steps is None or total_steps == 0:
+            total_steps = 1
 
-            if loaded_idx != rm_index:
-                if loaded_idx != -1:
-                    print(f"Unloading RM {loaded_idx}")
-                    controller.trainer.accelerator.free_memory(
-                        reward_models[loaded_idx]
+        active_indices = get_active_indices(
+            current_step, total_steps, num_rms, script_args
+        )
+
+        # Unified Loading/Unloading Logic
+        for i in range(num_rms):
+            if i in active_indices:
+                # Ensure Loaded
+                if reward_models[i] is None:
+                    print(f"Loading RM {i} on demand.")
+                    reward_model_path = script_args.reward_model_paths[i]
+                    reward_tokenizer = reward_tokenizers[i]
+                    reward_model = _load_reward_model(
+                        reward_model_path, reward_tokenizer, trust_remote_code=True
                     )
-                    reward_models[loaded_idx] = None
+
+                    if controller.trainer.is_deepspeed_enabled:
+                        raise ValueError(
+                            "DeepSpeed dynamic loading of reward models is not supported."
+                        )  # Warning: DeepSpeed dynamic loading might be unstable.
+
+                    reward_models[i] = controller.trainer.accelerator.prepare_model(
+                        reward_model, evaluation_mode=True
+                    )
+            else:
+                # Ensure Unloaded
+                if reward_models[i] is not None:
+                    print(f"Unloading RM {i}")
+                    controller.trainer.accelerator.free_memory(reward_models[i])
+                    reward_models[i] = None
                     gc.collect()
                     torch.cuda.empty_cache()
 
-                print(f"Loading RM {rm_index} on demand.")
-                reward_model_path = script_args.reward_model_paths[rm_index]
-                reward_tokenizer = reward_tokenizers[rm_index]
-                reward_model = _load_reward_model(
-                    reward_model_path, reward_tokenizer, trust_remote_code=True
-                )
+        if should_log and wandb.run is not None:
+            wandb.log(
+                {"reward/active_rm_indices": active_indices},
+                step=controller.trainer.state.global_step,
+            )
 
-                if controller.trainer.is_deepspeed_enabled:
-                    raise NotImplementedError(
-                        "On-demand RM loading is not compatible with DeepSpeed."
-                    )
-
-                reward_models[rm_index] = controller.trainer.accelerator.prepare_model(
-                    reward_model, evaluation_mode=True
-                )
-
-            if should_log and wandb.run is not None:
-                wandb.log(
-                    {"reward/active_rm_index": rm_index},
-                    step=controller.trainer.state.global_step,
-                )
-
-            models_to_process = [(reward_models[rm_index], reward_tokenizers[rm_index])]
-        else:
-            models_to_process = zip(reward_models, reward_tokenizers)
+        models_to_process = []
+        for i in active_indices:
+            models_to_process.append((reward_models[i], reward_tokenizers[i]))
 
         # --- Step 2: Calculate raw rewards and log ---
         all_rewards_raw = []
@@ -247,10 +281,7 @@ def build_reward_function(
 
         rewards_tensor = torch.stack(processed_rewards, dim=1)
 
-        if (
-            script_args.rm_switch_strategy == "sequential"
-            or len(script_args.reward_model_paths) == 1
-        ):
+        if len(active_indices) == 1:
             reward = rewards_tensor.squeeze(1)
         elif script_args.adv_rm_lambda != 0:
             assert (

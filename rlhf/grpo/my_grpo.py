@@ -9,22 +9,37 @@ import numpy as np
 import pandas as pd
 import shutil
 
-from transformers.tokenization_utils_base import TextInput, PreTokenizedInput, EncodedInput, TruncationStrategy
+from transformers.tokenization_utils_base import (
+    TextInput,
+    PreTokenizedInput,
+    EncodedInput,
+    TruncationStrategy,
+)
 from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
 
 tqdm.pandas()
-from grpo_utils import (build_train_eval_datasets, build_reward_function, RewardController, _load_reward_model)
+from grpo_utils import (
+    build_train_eval_datasets,
+    build_reward_function,
+    RewardController,
+    _load_reward_model,
+)
 from online_pet import OnlinePETConfig, OnlinePETCallback
 
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
     AutoTokenizer,
-    HfArgumentParser, PreTrainedTokenizerBase, TensorType, BatchEncoding,
-    TrainerCallback, TrainerState, TrainerControl,
+    HfArgumentParser,
+    PreTrainedTokenizerBase,
+    TensorType,
+    BatchEncoding,
+    TrainerCallback,
+    TrainerState,
+    TrainerControl,
 )
 
 from trl import (
@@ -42,36 +57,81 @@ from peft import get_peft_model
 @dataclass
 class ScriptArguments:
     max_length: Optional[int] = field(default=1024)
-    dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
+    dataset_path: Optional[str] = field(
+        default="", metadata={"help": "training dataset path"}
+    )
     dbg: Optional[bool] = field(default=False)
-    reward_model_paths: list[str] = field(default='google/gemma-2b-it', metadata={'help': 'path to the reward model'})
-    rm_switch_strategy: Optional[str] = field(default='ensemble',
-                                              metadata={'help': 'Strategy for using multiple reward models. '
-                                                                'Options: ensemble, sequential'})
-    rm_switches_multiplier: Optional[int] = field(default=1,
-                                                 metadata={'help': 'Number of times we will use each reward model'})
-    sigmoid_rewards: Optional[bool] = field(default=False,
-                                            metadata={'help': 'if True, use sigmoid to normalize rewards'})
-    reference_rewards: Optional[bool] = field(default=False, metadata={
-        'help': 'if True, subtract reference policy rewards during training. sigmoid_rewards + reference_rewards = PAR'})
-    ensemble_aggregation: Optional[str] = field(default='min',
-                                                metadata={
-                                                    'help': 'how to aggregate rewards from multiple reward models. Options: mean, min'}
-                                                )
-    save_generations_path: Optional[str] = field(default=None, metadata={'help': 'path to save generations and rewards'})
-    adv_rm_lambda: Optional[float] = field(default=0.0,
-                                           metadata={'help': 'lambda from Adv-RM paper, 0.0 means no Adv-RM loss. '
-                                                             'The loss is r1 - lambda * r2 s.t. r1 > base reward.'})
-    rm_subtract_mean_reward_per_model: Optional[bool] = field(default=False, metadata={'help': 'whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts'})
-    penalize_no_eos: Optional[bool] = field(default=False, metadata={'help': 'if True, penalize completions that do not contain an EOS token'})
+    reward_model_paths: list[str] = field(
+        default="google/gemma-2b-it", metadata={"help": "path to the reward model"}
+    )
+    rm_switch_strategy: Optional[str] = field(
+        default="ensemble",
+        metadata={
+            "help": "Strategy for using multiple reward models. "
+            "Options: ensemble, sequential, mix"
+        },
+    )
+    mix_ensemble_size: Optional[int] = field(
+        default=2, metadata={"help": "Size of the active ensemble in mix strategy"}
+    )
+    mix_strategy: Optional[str] = field(
+        default="disjoint",
+        metadata={"help": "Strategy for mix ensemble. Options: disjoint, sliding"},
+    )
+    rm_switches_multiplier: Optional[int] = field(
+        default=1, metadata={"help": "Number of times we will use each reward model"}
+    )
+    sigmoid_rewards: Optional[bool] = field(
+        default=False, metadata={"help": "if True, use sigmoid to normalize rewards"}
+    )
+    reference_rewards: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "if True, subtract reference policy rewards during training. sigmoid_rewards + reference_rewards = PAR"
+        },
+    )
+    ensemble_aggregation: Optional[str] = field(
+        default="min",
+        metadata={
+            "help": "how to aggregate rewards from multiple reward models. Options: mean, min"
+        },
+    )
+    save_generations_path: Optional[str] = field(
+        default=None, metadata={"help": "path to save generations and rewards"}
+    )
+    adv_rm_lambda: Optional[float] = field(
+        default=0.0,
+        metadata={
+            "help": "lambda from Adv-RM paper, 0.0 means no Adv-RM loss. "
+            "The loss is r1 - lambda * r2 s.t. r1 > base reward."
+        },
+    )
+    rm_subtract_mean_reward_per_model: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts"
+        },
+    )
+    penalize_no_eos: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "if True, penalize completions that do not contain an EOS token"
+        },
+    )
 
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((ScriptArguments, GRPOConfig, ModelConfig, OnlinePETConfig))
-    script_args, training_args, model_args, pet_config = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser(
+        (ScriptArguments, GRPOConfig, ModelConfig, OnlinePETConfig)
+    )
+    script_args, training_args, model_args, pet_config = (
+        parser.parse_args_into_dataclasses()
+    )
 
     if pet_config.online_pet_enabled:
-        assert len(script_args.reward_model_paths) == 1, "Online PET is currently only supported for a single reward model."
+        assert (
+            len(script_args.reward_model_paths) == 1
+        ), "Online PET is currently only supported for a single reward model."
 
     ################
     # Model & Tokenizer
@@ -92,32 +152,23 @@ if __name__ == "__main__":
             tokenizer.pad_token = tokenizer.eos_token
         tokenizer.max_length = script_args.max_length
 
-        if 'QRM' in reward_model_path:
-            print('wrapping QRM tokenizer')
+        if "QRM" in reward_model_path:
+            print("wrapping QRM tokenizer")
             tokenizer = TokenizerWrapper(tokenizer, reward_model_path)
 
         reward_tokenizers.append(tokenizer)
 
-    # Handle reward model loading based on the strategy
-    if script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1:
-        print("Sequential RM strategy: RMs will be loaded on demand.")
-        reward_models = [None] * len(script_args.reward_model_paths)
-    else:
-        print("Ensemble RM strategy: Loading all RMs into memory.")
-        for i, reward_model_path in enumerate(script_args.reward_model_paths):
-            reward_model = _load_reward_model(
-                reward_model_path,
-                reward_tokenizers[i],
-                trust_remote_code=model_args.trust_remote_code
-            )
-            reward_models.append(reward_model)
+    # We always initialize with None to allow on-demand loading in build_reward_function
+    reward_models = [None] * len(script_args.reward_model_paths)
 
     policy = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
     )
 
     policy_tokenizer = AutoTokenizer.from_pretrained(
-        model_args.model_name_or_path, padding_side="left", trust_remote_code=model_args.trust_remote_code
+        model_args.model_name_or_path,
+        padding_side="left",
+        trust_remote_code=model_args.trust_remote_code,
     )
 
     ################
@@ -125,25 +176,40 @@ if __name__ == "__main__":
     ################
 
     train_dataset, eval_dataset = build_train_eval_datasets(
-        script_args.dataset_path, policy_tokenizer, eval_proportion=0.1, size=100 if script_args.dbg else None,
+        script_args.dataset_path,
+        policy_tokenizer,
+        eval_proportion=0.1,
+        size=100 if script_args.dbg else None,
         max_length=training_args.max_prompt_length,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
-    for prompt in train_dataset['prompt'][:5]:
+    for prompt in train_dataset["prompt"][:5]:
         print(f"Sample prompt: \n{prompt}")
 
-    avg_len = np.mean([len(policy_tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
-    max_len = max([len(policy_tokenizer.encode(prompt)) for prompt in train_dataset['prompt']])
+    avg_len = np.mean(
+        [len(policy_tokenizer.encode(prompt)) for prompt in train_dataset["prompt"]]
+    )
+    max_len = max(
+        [len(policy_tokenizer.encode(prompt)) for prompt in train_dataset["prompt"]]
+    )
     print(f"Average length of prompts: {avg_len}, Max length of prompts: {max_len}")
 
     trainer = None
 
     reward_controller = RewardController(
         save_path=script_args.save_generations_path,
-        k_top_responses=pet_config.k_top_responses if pet_config.online_pet_enabled else 0
+        k_top_responses=(
+            pet_config.k_top_responses if pet_config.online_pet_enabled else 0
+        ),
     )
-    reward_fn = build_reward_function(reward_models, reward_tokenizers, script_args, reward_controller, policy_tokenizer)
+    reward_fn = build_reward_function(
+        reward_models,
+        reward_tokenizers,
+        script_args,
+        reward_controller,
+        policy_tokenizer,
+    )
 
     pet_callback = OnlinePETCallback(
         pet_config=pet_config,
@@ -152,7 +218,7 @@ if __name__ == "__main__":
         reward_tokenizers=reward_tokenizers,
         reward_controller=reward_controller,
         policy_tokenizer=policy_tokenizer,
-        model_name=model_args.model_name_or_path
+        model_name=model_args.model_name_or_path,
     )
 
     callbacks = []
@@ -169,7 +235,7 @@ if __name__ == "__main__":
         eval_dataset=eval_dataset,
         peft_config=peft_config,
         reward_funcs=reward_fn,
-        callbacks=callbacks
+        callbacks=callbacks,
     )
     pet_callback.accelerator = trainer.accelerator
     reward_controller.trainer = trainer
@@ -178,20 +244,9 @@ if __name__ == "__main__":
     print("Logging steps:", logging_steps)
     reward_controller.logging_steps = logging_steps
 
-    if not (script_args.rm_switch_strategy == 'sequential' and len(script_args.reward_model_paths) > 1):
-        if trainer.is_deepspeed_enabled:
-            for reward_model in reward_models:
-                prepare_deepspeed(reward_model, trainer.accelerator)
-        else:
-            for reward_model in reward_models:
-                trainer.accelerator.prepare_model(
-                    reward_model, evaluation_mode=True, device_placement=True
-                )
-
     trainer.train()
 
     # Save and push to hub
     trainer.save_model(training_args.output_dir)
     if training_args.push_to_hub:
         trainer.push_to_hub(dataset_name=script_args.dataset_name)
-
