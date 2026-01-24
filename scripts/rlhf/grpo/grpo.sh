@@ -296,7 +296,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --rm_switches_multiplier 3 \
-    --rm_switch_strategy 'sequential' \
+    --rm_switch_strategy 'ensemble' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --vllm_max_model_length 2048 \
