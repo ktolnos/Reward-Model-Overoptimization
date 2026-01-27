@@ -30,7 +30,7 @@ class ScriptArguments:
     gradient_accumulation_steps: Optional[int] = field(default=16)
     learning_rate: Optional[float] = field(default=1e-5)
     num_train_epochs: Optional[int] = field(
-        default=2,
+        default=5,
         metadata={"help": "The number of training epochs for the reward model."},
     )
     optim: Optional[str] = field(

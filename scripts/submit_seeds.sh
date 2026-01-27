@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Default values
-START_SEED=${1:-100}
-END_SEED=${2:-200}
+START_SEED=${1:-300}
+END_SEED=${2:-309}
 SAVE_LAST_ONLY=${3:-True}
 SKIP_OPTIMIZER=${4:-True}
 
