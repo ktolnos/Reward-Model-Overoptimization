@@ -307,7 +307,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --rm_switches_multiplier 3 \
-    --rm_switch_strategy 'sequential' \
+    --rm_switch_strategy 'ensemble' \
     --mix_ensemble_size 10 \
     --mix_strategy 'sliding' \
     --penalize_no_eos True \
