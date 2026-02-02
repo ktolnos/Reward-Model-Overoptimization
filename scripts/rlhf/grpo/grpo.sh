@@ -353,7 +353,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0 \
+    --beta 0.005 \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \
@@ -398,7 +398,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --preference_batch_size 2 \
     --rm_switches_multiplier 1 \
     --rm_switch_strategy 'mix' \
-    --mix_ensemble_size 5 \
+    --mix_ensemble_size 2 \
     --mix_strategy 'disjoint' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
