@@ -196,10 +196,12 @@ def get_log_probs_from_ids(
         batch_size: Batch size for processing.
 
     Returns:
-        Tuple of (sum_log_probs, mean_log_probs) arrays over response tokens only.
+        Tuple of (sum_log_probs, mean_log_probs, token_log_probs).
+        token_log_probs is a list of lists (one per sequence), containing log probs for response tokens.
     """
     all_sum_log_probs = []
     all_mean_log_probs = []
+    all_token_log_probs = []  # List of lists (one per sample)
 
     for i in range(0, len(full_ids_list), batch_size):
         batch_full_ids = full_ids_list[i : i + batch_size]
@@ -254,6 +256,7 @@ def get_log_probs_from_ids(
                 # Edge case: empty response
                 all_sum_log_probs.append(0.0)
                 all_mean_log_probs.append(0.0)
+                all_token_log_probs.append([])
                 continue
 
             response_log_probs = token_log_probs[j, response_start_idx:response_end_idx]
@@ -263,8 +266,9 @@ def get_log_probs_from_ids(
 
             all_sum_log_probs.append(sum_lp)
             all_mean_log_probs.append(mean_lp)
+            all_token_log_probs.append(response_log_probs.cpu().tolist())
 
-    return np.array(all_sum_log_probs), np.array(all_mean_log_probs)
+    return all_sum_log_probs, all_mean_log_probs, all_token_log_probs
 
 
 def collate_batch(input_ids_list, attention_mask_list, tokenizer):
@@ -306,7 +310,9 @@ def generate_responses_vllm(
     all_responses = []
     all_full_ids = []
     all_prompt_lens = []
+    all_prompt_lens = []
     all_policy_mean_logprobs = []
+    all_policy_token_logprobs = []
 
     for output in outputs:
         # vLLM returns 'n' outputs per prompt
@@ -343,12 +349,15 @@ def generate_responses_vllm(
                 else:
                     mean_lp = 0.0
                 all_policy_mean_logprobs.append(mean_lp)
+                all_policy_token_logprobs.append(token_logprobs if seq_logprobs else [])
 
     return (
         all_responses,
         all_full_ids,
         all_prompt_lens,
+        all_prompt_lens,
         np.array(all_policy_mean_logprobs),
+        all_policy_token_logprobs,
     )
 
 
@@ -687,7 +696,7 @@ def main():
             )
             print("Generating baseline responses...")
             # Note: baseline generation usually just needs 1 response per prompt
-            baseline_responses, _, _, _ = generate_responses_vllm(
+            baseline_responses, _, _, _, _ = generate_responses_vllm(
                 baseline_llm,
                 original_prompts,
                 tokenizer,
@@ -736,7 +745,7 @@ def main():
                     update_vllm_weights(llm, checkpoint_path)
 
                 try:
-                    policy_responses, _, _, _ = generate_responses_vllm(
+                    policy_responses, _, _, _, _ = generate_responses_vllm(
                         llm,
                         original_prompts,
                         tokenizer,
@@ -874,14 +883,18 @@ def main():
 
                     # Generate responses
                     # We always get full_ids and prompt_lens if kl_base_model_path is set, because generate_responses_vllm handles it
-                    responses, full_ids_list, prompt_lens_list, policy_mean_logprobs = (
-                        generate_responses_vllm(
-                            llm,
-                            prompts_list,
-                            tokenizer,
-                            args,
-                            collect_logprobs=base_policy_model is not None,
-                        )
+                    (
+                        responses,
+                        full_ids_list,
+                        prompt_lens_list,
+                        policy_mean_logprobs,
+                        policy_token_logprobs,
+                    ) = generate_responses_vllm(
+                        llm,
+                        prompts_list,
+                        tokenizer,
+                        args,
+                        collect_logprobs=base_policy_model is not None,
                     )
 
                     reward_texts = build_reward_texts(prompts_list, responses)
@@ -933,7 +946,11 @@ def main():
                         policy_mean_lp = policy_mean_logprobs
 
                         # Get log probs from base model (HF model)
-                        base_sum_lp, base_mean_lp = get_log_probs_from_ids(
+                        (
+                            base_sum_lp,
+                            base_mean_lp,
+                            base_token_lp_list,
+                        ) = get_log_probs_from_ids(
                             base_policy_model,
                             full_ids_list,
                             prompt_lens_list,
@@ -942,18 +959,42 @@ def main():
                         )
 
                         # KL(policy || base) = E_policy[log(policy) - log(base)]
-                        kl_per_sample = policy_mean_lp - base_mean_lp
+                        # Standard KL (can be negative)
+                        kl_per_sample = policy_mean_lp - np.array(base_mean_lp)
                         kl_mean = float(np.mean(kl_per_sample))
                         kl_std = float(np.std(kl_per_sample))
 
                         checkpoint_results["kl/mean"] = kl_mean
                         checkpoint_results["kl/std"] = kl_std
 
+                        # GRPO KL (non-negative)
+                        # kl = exp(log_ref - log_policy) - (log_ref - log_policy) - 1
+                        kl_grpo_per_sample = []
+                        for pol_lp, ref_lp in zip(
+                            policy_token_logprobs, base_token_lp_list
+                        ):
+                            # Ensure same length (should be gauranteed by logic)
+                            min_len = min(len(pol_lp), len(ref_lp))
+                            pol_lp = np.array(pol_lp[:min_len])
+                            ref_lp = np.array(ref_lp[:min_len])
+
+                            # per token KL
+                            # diff = log_ref - log_policy
+                            diff = ref_lp - pol_lp
+                            per_token_kl = np.exp(diff) - diff - 1
+                            kl_grpo_per_sample.append(np.mean(per_token_kl))
+
+                        kl_grpo_mean = float(np.mean(kl_grpo_per_sample))
+                        kl_grpo_std = float(np.std(kl_grpo_per_sample))
+
+                        checkpoint_results["kl_grpo/mean"] = kl_grpo_mean
+                        checkpoint_results["kl_grpo/std"] = kl_grpo_std
+
                         # Accumulate data for the final aggregate plot
                         kl_reward_data.append(
                             {
                                 "checkpoint": checkpoint_num,
-                                "kl": kl_mean,
+                                "kl_grpo": kl_grpo_mean,
                                 "gold_reward": float(np.mean(gold_rm_scores)),
                             }
                         )
@@ -987,18 +1028,19 @@ def main():
         # After all checkpoints, create a single aggregate plot of Gold Reward vs KL
         if kl_reward_data and not args.disable_wandb:
             kl_reward_table = wandb.Table(
-                columns=["checkpoint", "kl", "gold_reward"],
+                columns=["checkpoint", "kl_grpo", "gold_reward"],
                 data=[
-                    [d["checkpoint"], d["kl"], d["gold_reward"]] for d in kl_reward_data
+                    [d["checkpoint"], d["kl_grpo"], d["gold_reward"]]
+                    for d in kl_reward_data
                 ],
             )
             wandb.log(
                 {
                     "gold_reward_vs_kl": wandb.plot.scatter(
                         kl_reward_table,
-                        "kl",
+                        "kl_grpo",
                         "gold_reward",
-                        title="Gold Reward vs KL (across checkpoints)",
+                        title="Gold Reward vs KL (GRPO) (across checkpoints)",
                     )
                 }
             )
