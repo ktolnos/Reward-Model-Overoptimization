@@ -400,7 +400,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --rm_switches_multiplier 1 \
+    --rm_switches_multiplier 3 \
     --rm_switch_strategy 'sequential' \
     --mix_ensemble_size 10 \
     --mix_strategy 'sliding' \
