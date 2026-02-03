@@ -986,8 +986,8 @@ def main():
                         kl_grpo_mean = float(np.mean(kl_grpo_per_sample))
                         kl_grpo_std = float(np.std(kl_grpo_per_sample))
 
-                        checkpoint_results["kl_grpo/mean"] = kl_grpo_mean
-                        checkpoint_results["kl_grpo/std"] = kl_grpo_std
+                        checkpoint_results["kl/grpo_mean"] = kl_grpo_mean
+                        checkpoint_results["kl/grpo_std"] = kl_grpo_std
 
                         # Accumulate data for the final aggregate plot
                         kl_reward_data.append(

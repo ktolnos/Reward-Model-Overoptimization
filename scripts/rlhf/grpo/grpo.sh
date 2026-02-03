@@ -48,8 +48,12 @@ gpu=0 #,1,2,3
 learning_rate="1e-6"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
-# shellcheck disable=SC2004
-COMMIT_MSG=$(git log -1 --pretty=%s)
+if [ -n "$LAST_COMMIT_MESSAGE" ]; then
+    COMMIT_MSG="$LAST_COMMIT_MESSAGE"
+else
+    # shellcheck disable=SC2004
+    COMMIT_MSG=$(git log -1 --pretty=%s)
+fi
 DEFAULT_WANDB_NAME="${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
 wandb_name="$DEFAULT_WANDB_NAME"
 
@@ -398,7 +402,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --preference_batch_size 2 \
     --rm_switches_multiplier 1 \
     --rm_switch_strategy 'mix' \
-    --mix_ensemble_size 2 \
+    --mix_ensemble_size 10 \
     --mix_strategy 'disjoint' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
