@@ -403,7 +403,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_switches_multiplier 1 \
     --rm_switch_strategy 'mix' \
     --mix_ensemble_size 10 \
-    --mix_strategy 'disjoint' \
+    --mix_strategy 'sliding' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --vllm_max_model_length 2048 \
