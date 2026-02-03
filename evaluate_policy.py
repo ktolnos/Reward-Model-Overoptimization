@@ -355,7 +355,6 @@ def generate_responses_vllm(
         all_responses,
         all_full_ids,
         all_prompt_lens,
-        all_prompt_lens,
         np.array(all_policy_mean_logprobs),
         all_policy_token_logprobs,
     )
