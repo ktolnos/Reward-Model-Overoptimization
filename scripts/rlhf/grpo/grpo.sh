@@ -441,4 +441,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #     --report_to "none" \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=ALL,CHECKPOINTS_DIR_OVERRIDE="${log_dir}" /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}"
+sbatch --export=ALL /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"

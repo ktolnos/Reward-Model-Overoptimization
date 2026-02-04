@@ -16,9 +16,7 @@ source .bashrc
 
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20260202_183444_1035193"
-if [[ -v CHECKPOINTS_DIR_OVERRIDE ]]; then
-  CHECKPOINTS_DIR="${CHECKPOINTS_DIR_OVERRIDE}"
-fi
+
 
 # Path to the training reward model
 TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
@@ -50,6 +48,7 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
         --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
+        --checkpoint) CHECKPOINTS_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
