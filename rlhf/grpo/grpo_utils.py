@@ -18,7 +18,7 @@ import wandb
 import atexit
 
 # Global executor for parallel reward model querying
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)  # 10 workers OOM
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)  # 10 workers OOM
 
 
 def cleanup_executor():
