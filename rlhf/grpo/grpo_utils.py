@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Union, Any, Mapping
 
 import torch
+import concurrent.futures
 from accelerate.test_utils.scripts.test_sync import step_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -14,6 +15,18 @@ import pandas as pd
 from transformers import AutoModelForSequenceClassification, AutoModelForCausalLM
 from trl import GRPOTrainer
 import wandb
+import atexit
+
+# Global executor for parallel reward model querying
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+
+
+def cleanup_executor():
+    _executor.shutdown(wait=True)
+
+
+atexit.register(cleanup_executor)
+
 
 tqdm.pandas()
 import matplotlib.pyplot as plt
@@ -244,16 +257,30 @@ def build_reward_function(
         # --- Step 2: Calculate raw rewards and log ---
         all_rewards_raw = []
         rewards_dict = {}
-        for reward_model, reward_tokenizer in models_to_process:
-            model_name = reward_model.config._name_or_path
-            rew = get_reward(
-                reward_model,
-                reward_tokenizer,
-                prompts,
-                completions,
-                texts,
-                reward_controller=controller,
+
+        def process_model(args):
+            r_model, r_tokenizer = args
+            return (
+                get_reward(
+                    r_model,
+                    r_tokenizer,
+                    prompts,
+                    completions,
+                    texts,
+                    reward_controller=controller,
+                ),
+                r_model.config._name_or_path,
             )
+
+        # Submit all tasks to the global executor
+        futures = [
+            _executor.submit(process_model, (rm, rt)) for rm, rt in models_to_process
+        ]
+
+        # Collect results in order
+        results = [f.result() for f in futures]
+
+        for rew, model_name in results:
             rewards_dict[model_name] = rew.detach()
 
             rew_mean_sum[model_name] += rew.mean().item()
