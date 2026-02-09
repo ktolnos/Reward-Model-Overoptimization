@@ -18,7 +18,7 @@ import wandb
 import atexit
 
 # Global executor for parallel reward model querying
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)  # 10 workers OOM
 
 
 def cleanup_executor():
@@ -260,15 +260,21 @@ def build_reward_function(
 
         def process_model(args):
             r_model, r_tokenizer = args
-            return (
-                get_reward(
+            # Create a dedicate CUDA stream to allow parallel execution on the GPU
+            stream = torch.cuda.Stream()
+            with torch.cuda.stream(stream):
+                result = get_reward(
                     r_model,
                     r_tokenizer,
                     prompts,
                     completions,
                     texts,
                     reward_controller=controller,
-                ),
+                )
+            # Synchronize the stream to ensure the computation is complete
+            stream.synchronize()
+            return (
+                result,
                 r_model.config._name_or_path,
             )
 
