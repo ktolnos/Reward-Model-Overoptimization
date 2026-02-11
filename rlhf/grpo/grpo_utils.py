@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Union, Any, Mapping
 
 import torch
-import concurrent.futures
 from accelerate.test_utils.scripts.test_sync import step_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -15,18 +14,6 @@ import pandas as pd
 from transformers import AutoModelForSequenceClassification, AutoModelForCausalLM
 from trl import GRPOTrainer
 import wandb
-import atexit
-
-# Global executor for parallel reward model querying
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)  # 10 workers OOM
-
-
-def cleanup_executor():
-    _executor.shutdown(wait=True)
-
-
-atexit.register(cleanup_executor)
-
 
 tqdm.pandas()
 import matplotlib.pyplot as plt
@@ -258,33 +245,27 @@ def build_reward_function(
         all_rewards_raw = []
         rewards_dict = {}
 
-        def process_model(args):
-            r_model, r_tokenizer = args
-            # Create a dedicate CUDA stream to allow parallel execution on the GPU
+        # Parallel streams in main thread
+        streams = []
+        pending_results = []
+        for rm, rt in models_to_process:
             stream = torch.cuda.Stream()
             with torch.cuda.stream(stream):
                 result = get_reward(
-                    r_model,
-                    r_tokenizer,
+                    rm,
+                    rt,
                     prompts,
                     completions,
                     texts,
                     reward_controller=controller,
                 )
-            # Synchronize the stream to ensure the computation is complete
+            streams.append(stream)
+            pending_results.append((result, rm.config._name_or_path))
+
+        # Synchronize all streams
+        for stream in streams:
             stream.synchronize()
-            return (
-                result,
-                r_model.config._name_or_path,
-            )
-
-        # Submit all tasks to the global executor
-        futures = [
-            _executor.submit(process_model, (rm, rt)) for rm, rt in models_to_process
-        ]
-
-        # Collect results in order
-        results = [f.result() for f in futures]
+        results = pending_results
 
         for rew, model_name in results:
             rewards_dict[model_name] = rew.detach()
