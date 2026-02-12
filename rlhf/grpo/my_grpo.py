@@ -76,7 +76,7 @@ class ScriptArguments:
     )
     mix_strategy: Optional[str] = field(
         default="disjoint",
-        metadata={"help": "Strategy for mix ensemble. Options: disjoint, sliding"},
+        metadata={"help": "Strategy for mix ensemble. Options: disjoint, sliding, random_disjoint"},
     )
     rm_switches_multiplier: Optional[int] = field(
         default=1, metadata={"help": "Number of times we will use each reward model"}
@@ -93,7 +93,7 @@ class ScriptArguments:
     ensemble_aggregation: Optional[str] = field(
         default="min",
         metadata={
-            "help": "how to aggregate rewards from multiple reward models. Options: mean, min"
+            "help": "how to aggregate rewards from multiple reward models. Options: mean, min, uwo"
         },
     )
     save_generations_path: Optional[str] = field(
@@ -109,13 +109,22 @@ class ScriptArguments:
     rm_subtract_mean_reward_per_model: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "whether to subtract mean reward per model, important for ensemble because BT loss is invariant to constant shifts"
+            "help": "whether to subtract mean reward per model. Only applied with 'min' ensemble_aggregation "
+            "to normalize models to the same scale. Ignored for 'mean'/'uwo' to avoid metric confusion and variance inflation."
         },
     )
     penalize_no_eos: Optional[bool] = field(
         default=False,
         metadata={
             "help": "if True, penalize completions that do not contain an EOS token"
+        },
+    )
+    uwo_lambda: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "lambda parameter for UWO (Uncertainty-Weighted Optimization). "
+            "Controls the penalty for disagreement across reward models. "
+            "reward_uwo = mean_reward - lambda * std_reward"
         },
     )
 

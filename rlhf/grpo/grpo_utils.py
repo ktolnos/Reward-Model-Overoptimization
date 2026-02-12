@@ -162,6 +162,19 @@ def get_active_indices(current_step, total_steps, num_rms, args):
                 indices.append((start_idx + i) % num_rms)
             return indices
 
+        elif args.mix_strategy == "random_disjoint":
+            # Random selection of ensemble_size models
+            # Number of unique random ensembles to cycle through
+            num_chunks = math.ceil(num_rms / ensemble_size)
+            chunk_idx = (
+                (current_step * num_chunks * args.rm_switches_multiplier) // total_steps
+            ) % num_chunks
+
+            # Use chunk_idx as seed for reproducible random selection
+            rng = np.random.RandomState(chunk_idx)
+            indices = rng.choice(num_rms, size=ensemble_size, replace=False).tolist()
+            return sorted(indices)
+
     return list(range(num_rms))  # Default fallback
 
 
@@ -274,7 +287,13 @@ def build_reward_function(
             rew_mean_count[model_name] += 1
             rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
 
-            if script_args.rm_subtract_mean_reward_per_model:
+            # Only subtract mean for "min" aggregation (important for normalizing models to same scale)
+            # For "mean" it just shifts rewards (confusing metrics)
+            # For "uwo" it artificially inflates variance (breaks the method)
+            if (
+                script_args.rm_subtract_mean_reward_per_model
+                and script_args.ensemble_aggregation == "min"
+            ):
                 rew = rew - rew_mean_for_model
             all_rewards_raw.append(rew)
 
@@ -317,6 +336,23 @@ def build_reward_function(
             reward = rewards_tensor.mean(dim=1)
         elif script_args.ensemble_aggregation == "min":
             reward = rewards_tensor.min(dim=1).values
+        elif script_args.ensemble_aggregation == "uwo":
+            # Uncertainty-Weighted Optimization (UWO) from Coste et al. (2310.02743)
+            # r_UWO = mean - lambda * std
+            # Penalizes high disagreement across reward models
+            mean_reward = rewards_tensor.mean(dim=1)
+            std_reward = rewards_tensor.std(dim=1, unbiased=False)
+            reward = mean_reward - script_args.uwo_lambda * std_reward
+
+            if should_log and wandb.run is not None:
+                wandb.log(
+                    {
+                        "reward/uwo_mean": mean_reward.mean().item(),
+                        "reward/uwo_std": std_reward.mean().item(),
+                        "reward/uwo_final": reward.mean().item(),
+                    },
+                    step=controller.trainer.state.global_step,
+                )
         else:
             raise ValueError(
                 f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"
