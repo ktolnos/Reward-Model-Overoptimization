@@ -370,7 +370,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
-    --ensemble_aggregation "mean" \
+    --ensemble_aggregation "uwo" \
     --save_steps 0.05 \
     --run_name ${wandb_name} \
     --logging_steps 0.01 \
@@ -401,16 +401,16 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --rm_switches_multiplier 1 \
+    --rm_switches_multiplier 3 \
     --rm_switch_strategy 'mix' \
-    --mix_ensemble_size 10 \
-    --mix_strategy 'disjoint' \
+    --mix_ensemble_size 3 \
+    --mix_strategy 'random_disjoint' \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --vllm_max_model_length 2048 \
     || exit 1
 
-    # --rm_switch_strategy 'mix' or 'sequential' or 'ensemble'
+    # --rm_switch_strategy 'mix' or 'sequential' or 'ensemble' or 'random_disjoint'
 #     --mix_strategy 'sliding' or 'disjoint'
 #    --relu_chosen_reward_loss 0.1 \
 #    --relu_chosen_use_rejected_baseline True \
