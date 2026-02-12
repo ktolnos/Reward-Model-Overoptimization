@@ -24,6 +24,7 @@ tqdm.pandas()
 from grpo_utils import (
     build_train_eval_datasets,
     build_reward_function,
+    precompute_reward_means,
     RewardController,
     _load_reward_model,
 )
@@ -109,8 +110,7 @@ class ScriptArguments:
     rm_subtract_mean_reward_per_model: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "whether to subtract mean reward per model. Only applied with 'min' ensemble_aggregation "
-            "to normalize models to the same scale. Ignored for 'mean'/'uwo' to avoid metric confusion and variance inflation."
+            "help": "whether to subtract mean reward per model."
         },
     )
     penalize_no_eos: Optional[bool] = field(
@@ -170,14 +170,27 @@ if __name__ == "__main__":
     # We always initialize with None to allow on-demand loading in build_reward_function
     reward_models = [None] * len(script_args.reward_model_paths)
 
-    policy = AutoModelForCausalLM.from_pretrained(
-        model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
-    )
-
     policy_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         padding_side="left",
         trust_remote_code=model_args.trust_remote_code,
+    )
+
+    # Pre-compute per-model mean rewards before loading the policy model (to keep GPU free)
+    precomputed_means = None
+    if (script_args.rm_subtract_mean_reward_per_model):
+        precomputed_means = precompute_reward_means(
+            reward_model_paths=script_args.reward_model_paths,
+            reward_tokenizers=reward_tokenizers,
+            dataset_path=script_args.dataset_path,
+            output_dir=training_args.output_dir,
+            policy_tokenizer=policy_tokenizer,
+            max_length=training_args.max_prompt_length,
+            trust_remote_code=model_args.trust_remote_code,
+        )
+
+    policy = AutoModelForCausalLM.from_pretrained(
+        model_args.model_name_or_path, trust_remote_code=model_args.trust_remote_code
     )
 
     ################
@@ -218,6 +231,7 @@ if __name__ == "__main__":
         script_args,
         reward_controller,
         policy_tokenizer,
+        precomputed_means=precomputed_means,
     )
 
     pet_callback = OnlinePETCallback(

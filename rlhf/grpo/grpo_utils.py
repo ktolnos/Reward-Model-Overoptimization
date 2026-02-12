@@ -17,7 +17,9 @@ import wandb
 
 tqdm.pandas()
 import matplotlib.pyplot as plt
-from reward_utils import get_reward
+import json
+from datetime import datetime
+from reward_utils import get_reward, is_reasoning
 from rlhf.prompt_utils import build_prompt_from_chosen
 import math
 
@@ -116,8 +118,8 @@ def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
     model.config.pad_token_id = tokenizer.pad_token_id
     return model
 
-
-rew_mean_sum = defaultdict(float)
+# Important: use for logging only, the values are reset after logging to represent the current mean accurately. Do not use for calculations.
+rew_mean_sum = defaultdict(float) 
 rew_mean_count = defaultdict(int)
 
 
@@ -178,12 +180,155 @@ def get_active_indices(current_step, total_steps, num_rms, args):
     return list(range(num_rms))  # Default fallback
 
 
+def precompute_reward_means(
+    reward_model_paths,
+    reward_tokenizers,
+    dataset_path,
+    output_dir,
+    policy_tokenizer,
+    max_length=1024,
+    sample_size=1000,
+    batch_size=64,
+    trust_remote_code=True,
+):
+    """Pre-compute per-model mean rewards on a fixed dataset sample.
+
+    Loads the raw dataset (before post-processing removes chosen/rejected),
+    samples items, scores both chosen and rejected completions with each
+    reward model, and returns the per-model mean. Results are cached to disk.
+    """
+    cache_dir = os.path.join(output_dir, "reward_means")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # First pass: check cache for all models, identify which need computation
+    precomputed_means = {}
+    uncached = []  # list of (index, model_path, cache_file)
+
+    for i, model_path in enumerate(reward_model_paths):
+        safe_name = model_path.replace("/", "_").replace("\\", "_").replace(":", "_")
+        if len(safe_name) > 500:
+            safe_name = safe_name[-500:]
+        cache_file = os.path.join(cache_dir, f"{safe_name}.json")
+
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
+                cached = json.load(f)
+            precomputed_means[model_path] = cached["mean_reward"]
+            print(
+                f"[PrecomputeMeans] RM {i} ({model_path}): "
+                f"loaded cached mean={cached['mean_reward']:.4f}"
+            )
+        else:
+            uncached.append((i, model_path, cache_file))
+
+    if not uncached:
+        print(f"[PrecomputeMeans] All {len(reward_model_paths)} models cached, skipping dataset load")
+        return precomputed_means
+
+    # Load raw dataset and build (prompt, completion) pairs only if needed
+    print(f"[PrecomputeMeans] {len(uncached)} models need computation, loading dataset...")
+    raw_ds = datasets.load_dataset(dataset_path, split="train")
+    n = min(sample_size, len(raw_ds))
+    sample = raw_ds.select(range(n))
+
+    all_prompts = []
+    all_completions = []
+    for item in sample:
+        prompt = build_prompt_from_chosen(
+            item["chosen"], policy_tokenizer, max_length=max_length
+        )
+        all_prompts.append(prompt)
+        all_completions.append(item["chosen"][-1]["content"])
+        if "rejected" in item and item["rejected"]:
+            all_prompts.append(prompt)
+            all_completions.append(item["rejected"][-1]["content"])
+
+    all_texts = [p + c for p, c in zip(all_prompts, all_completions)]
+    print(
+        f"[PrecomputeMeans] Built {len(all_texts)} (prompt, completion) pairs "
+        f"from {n} dataset items"
+    )
+
+    # Second pass: compute means for uncached models
+    for i, model_path, cache_file in uncached:
+        print(f"[PrecomputeMeans] RM {i} ({model_path}): computing...")
+        reward_tokenizer = reward_tokenizers[i]
+        reward_model = _load_reward_model(
+            model_path, reward_tokenizer, trust_remote_code
+        )
+        reward_model = reward_model.cuda().eval()
+
+        # Reasoning models produce zero-mean BT scores by construction
+        if is_reasoning(reward_model):
+            precomputed_means[model_path] = 0.0
+            print(
+                f"[PrecomputeMeans] RM {i} is reasoning model; "
+                f"setting mean=0.0 (BT scores are zero-mean)"
+            )
+            del reward_model
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            cache_data = {
+                "model_path": model_path,
+                "mean_reward": 0.0,
+                "num_samples": 0,
+                "dataset_path": dataset_path,
+                "computed_at": datetime.now().isoformat(),
+            }
+            with open(cache_file, "w") as f:
+                json.dump(cache_data, f, indent=2)
+            continue
+
+        # Batched inference
+        all_rewards = []
+        for batch_start in range(0, len(all_texts), batch_size):
+            batch_end = min(batch_start + batch_size, len(all_texts))
+            with torch.inference_mode():
+                rewards = get_reward(
+                    reward_model,
+                    reward_tokenizer,
+                    all_prompts[batch_start:batch_end],
+                    all_completions[batch_start:batch_end],
+                    all_texts[batch_start:batch_end],
+                )
+            all_rewards.append(rewards.cpu())
+
+        all_rewards = torch.cat(all_rewards)
+        mean_reward = all_rewards.mean().item()
+        precomputed_means[model_path] = mean_reward
+
+        print(
+            f"[PrecomputeMeans] RM {i} mean={mean_reward:.4f} "
+            f"(n={len(all_texts)}), cached to {cache_file}"
+        )
+
+        # Save cache
+        cache_data = {
+            "model_path": model_path,
+            "mean_reward": mean_reward,
+            "num_samples": len(all_texts),
+            "dataset_path": dataset_path,
+            "computed_at": datetime.now().isoformat(),
+        }
+        with open(cache_file, "w") as f:
+            json.dump(cache_data, f, indent=2)
+
+        # Unload model
+        del reward_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return precomputed_means
+
+
 def build_reward_function(
     reward_models,
     reward_tokenizers,
     script_args,
     controller: RewardController,
     policy_tokenizer=None,
+    precomputed_means=None,
 ):
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count
@@ -283,21 +428,19 @@ def build_reward_function(
         for rew, model_name in results:
             rewards_dict[model_name] = rew.detach()
 
-            rew_mean_sum[model_name] += rew.mean().item()
-            rew_mean_count[model_name] += 1
-            rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
 
-            # Only subtract mean for "min" aggregation (important for normalizing models to same scale)
-            # For "mean" it just shifts rewards (confusing metrics)
-            # For "uwo" it artificially inflates variance (breaks the method)
-            if (
-                script_args.rm_subtract_mean_reward_per_model
-                and script_args.ensemble_aggregation == "min"
-            ):
-                rew = rew - rew_mean_for_model
+
+            # Subtract pre-computed per-model mean to remove arbitrary constant offsets from BT loss.
+            # Important for "min" (normalizes scales) and "uwo" (offsets would appear as false disagreement).
+            if (precomputed_means is not None):
+                rew = rew - precomputed_means[model_name]
             all_rewards_raw.append(rew)
 
+            rew_mean_sum[model_name] += rew.mean().item()
+            rew_mean_count[model_name] += 1
+
             if should_log and wandb.run is not None:
+                rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
                 wandb.log(
                     {f"reward/{model_name}": rew_mean_for_model}, step=wandb.run.step
                 )
