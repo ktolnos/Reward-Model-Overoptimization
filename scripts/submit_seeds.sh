@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Default values
-START_SEED=${1:-410}
-END_SEED=${2:-499}
-SAVE_LAST_ONLY=${3:-True}
+START_SEED=${1:-500}
+END_SEED=${2:-509}
+SAVE_LAST_ONLY=${3:-False}
 SKIP_OPTIMIZER=${4:-True}
 
 echo "Submitting jobs for seeds $START_SEED to $END_SEED"

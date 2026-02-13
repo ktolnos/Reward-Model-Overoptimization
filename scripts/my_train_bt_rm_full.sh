@@ -29,8 +29,8 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
 dataset_name=(
-   # 'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B'
-  'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k'
+   'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B'
+#   'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k'
 #  'gagan3012/helpsteer2-preference-v2'
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_1"
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
@@ -83,7 +83,7 @@ fi
 
 learning_rate=2e-5
 max_length=2000
-num_train_epochs=5
+num_train_epochs=4
 gradient_accumulation_steps=16
 per_device_train_batch_size=4
 per_device_eval_batch_size=4
