@@ -19,6 +19,7 @@ from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
+from data_utils import setup_tokenizer
 
 tqdm.pandas()
 from grpo_utils import (
@@ -155,10 +156,8 @@ if __name__ == "__main__":
         tokenizer = AutoTokenizer.from_pretrained(
             reward_model_path,
             trust_remote_code=model_args.trust_remote_code,
-            padding_side="left",
         )
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+        setup_tokenizer(tokenizer)
         tokenizer.max_length = script_args.max_length
 
         if "QRM" in reward_model_path:
@@ -172,9 +171,9 @@ if __name__ == "__main__":
 
     policy_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
-        padding_side="left",
         trust_remote_code=model_args.trust_remote_code,
     )
+    setup_tokenizer(policy_tokenizer)
 
     # Pre-compute per-model mean rewards before loading the policy model (to keep GPU free)
     precomputed_means = None
@@ -185,7 +184,6 @@ if __name__ == "__main__":
             dataset_path=script_args.dataset_path,
             output_dir=training_args.output_dir,
             policy_tokenizer=policy_tokenizer,
-            max_length=training_args.max_prompt_length,
             trust_remote_code=model_args.trust_remote_code,
         )
 
@@ -202,7 +200,7 @@ if __name__ == "__main__":
         policy_tokenizer,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
-        max_length=training_args.max_prompt_length,
+        max_prompt_length=training_args.max_prompt_length,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 

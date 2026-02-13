@@ -7,7 +7,8 @@
       "Bash(cd:*)",
       "Bash(find:*)",
       "Bash(glob:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python:*)"
     ]
   },
   "prefersReducedMotion": false

@@ -16,6 +16,7 @@ from transformers import (
 )
 from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset, build_dataset
+from data_utils import setup_tokenizer
 from utils import (
     print_trainable_parameters,
     compute_metrics,
@@ -137,14 +138,9 @@ training_args = TrainingArguments(
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False)
 tokenizer.max_length = script_args.max_length
-if tokenizer.pad_token == None:
-    if "Llama" in script_args.base_model:
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    else:
-        tokenizer.pad_token = tokenizer.eos_token
-if "Qwen" in script_args.base_model:
-    print("Using padding side left for Qwen")
-    tokenizer.padding_side = "left"  # left is not supported in Qwen flash attention
+if "Llama" in script_args.base_model and tokenizer.pad_token is None:
+    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+setup_tokenizer(tokenizer)
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(

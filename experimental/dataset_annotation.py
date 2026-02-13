@@ -15,6 +15,7 @@ from tqdm import tqdm
 import json
 import random
 from reward_utils import Skywork_SYSTEM_PROMPT, Skywork_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
+from data_utils import format_conversation, format_prompt, tokenize_for_rm, setup_tokenizer
 from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
 
@@ -55,9 +56,7 @@ def load_reward_model(model_name, reasoning, device=None):
         "device_map": device
     }
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    setup_tokenizer(tokenizer)
 
     if 'QRM' in model_name:
         kwargs["torch_dtype"] = torch.bfloat16
@@ -107,17 +106,10 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
             all_conversations.append(batch["rejected"][j])
 
         # Apply chat template to format all conversations
-        formatted_texts = [tokenizer.apply_chat_template(conv, tokenize=False) for conv in all_conversations]
+        formatted_texts = [format_conversation(conv, tokenizer) for conv in all_conversations]
 
         # Tokenize all conversations in a single batch
-        inputs = tokenizer(
-            formatted_texts,
-            padding='longest',
-            truncation=False,
-            max_length=max_length,
-            return_tensors="pt",
-            padding_side="left",
-        ).to(device)
+        inputs = tokenize_for_rm(formatted_texts, tokenizer).to(device)
 
         torch.cuda.empty_cache()
         with torch.no_grad():
@@ -174,13 +166,9 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         swaps = []
         for j in range(min(len(dataset) - i, batch_size)):
             sample = dataset[i+j]
-            query = sample["chosen"][:-1]
-            answer1 = sample["chosen"][-1:]
-            answer2 = sample["rejected"][-1:]
-
-            query = tokenizer.apply_chat_template(query, tokenize=False)
-            answer1 = tokenizer.apply_chat_template(answer1, tokenize=False)
-            answer2 = tokenizer.apply_chat_template(answer2, tokenize=False)
+            query = format_prompt(sample["chosen"], tokenizer)
+            answer1 = sample["chosen"][-1]["content"]
+            answer2 = sample["rejected"][-1]["content"]
 
             swap = random.random() > 0.5
             swaps.append(swap)  # Store whether we swapped answers for this sample
@@ -283,18 +271,17 @@ def generate_with_reference_policy(
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     results = []
-    tokenizer.padding_side = "left"
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Generating with reference policy"):
         batch_data = dataset[i:i + batch_size]
         print(batch_size, len(batch_data))
 
         prompts = [
-            tokenizer.apply_chat_template(item['chosen'][:-1], tokenize=False, add_generation_prompt=True, enable_thinking=False)
+            format_prompt(item['chosen'], tokenizer)
             for item in batch_data
         ]
 
-        inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
+        inputs = tokenizer(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
 
         with torch.no_grad():
             outputs = policy_model.generate(
@@ -357,10 +344,8 @@ def evaluate_with_reference_reward_model(
                     full_conv = prompt_conv + [{'role': 'assistant', 'content': response_text}]
                     all_conversations.append(full_conv)
 
-        formatted_texts = [tokenizer.apply_chat_template(conv, tokenize=False) for conv in all_conversations]
-        inputs = tokenizer(
-            formatted_texts, padding='longest', truncation=True, max_length=max_length, return_tensors="pt"
-        ).to(device)
+        formatted_texts = [format_conversation(conv, tokenizer) for conv in all_conversations]
+        inputs = tokenize_for_rm(formatted_texts, tokenizer).to(device)
 
         with torch.no_grad():
             outputs = reward_model(**inputs)

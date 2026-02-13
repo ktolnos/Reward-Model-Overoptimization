@@ -53,33 +53,58 @@ def is_reasoning(reward_model):
         raise ValueError(f"{reward_model} is not a recognized model.")
 
 
-def build_reward_texts(prompts, completions, texts=None):
-    if texts is not None:
-        return texts
+def build_reward_texts(prompts, completions, tokenizer):
+    """Build scored texts from prompts and completions, appending EOT.
+
+    The EOT token is appended so the scored text matches the RM training
+    distribution (format_conversation always includes EOT). The RM
+    classification head is trained to predict at the EOT position.
+    """
     if prompts is None or completions is None:
-        raise ValueError("prompts and completions must be provided when texts is None.")
-    return [p + c for p, c in zip(prompts, completions)]
+        raise ValueError("prompts and completions must be provided.")
+    eos_text = tokenizer.decode([tokenizer.eos_token_id])
+    return [p + c + eos_text for p, c in zip(prompts, completions)]
 
 
-def get_reward(reward_model, reward_tokenizer, prompts, completions, texts, reward_controller=None, require_grad=False):
+def get_reward(reward_model, reward_tokenizer, prompts, completions,
+               reward_controller=None, require_grad=False, batch_size=None):
+    texts = build_reward_texts(prompts, completions, reward_tokenizer)
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
-    else:
-        return get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, require_grad)
+    return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, prompts, completions, texts, require_grad):
-    texts = build_reward_texts(prompts, completions, texts)
-    reward_inputs = reward_tokenizer(
-        text=texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False,
-    )
-    reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
-    if require_grad:
-        reward = reward_model(**reward_inputs).logits[:, 0]
-    else:
+def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None):
+    """Score texts with a reward model.
+
+    Args:
+        texts: Pre-formatted text strings (from format_conversation or prompt+completion).
+        require_grad: If True, keep gradients for the reward computation.
+        batch_size: If set, processes in batches (for large inputs). Returns CPU tensor.
+    """
+    from data_utils import tokenize_for_rm
+
+    if batch_size is None:
+        reward_inputs = tokenize_for_rm(texts, reward_tokenizer)
+        reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
+        if require_grad:
+            return reward_model(**reward_inputs).logits[:, 0]
         with torch.inference_mode():
-            reward = reward_model(**reward_inputs).logits[:, 0]  # Shape (B*G,)
-    return reward
+            return reward_model(**reward_inputs).logits[:, 0]
+    # Batched processing
+    all_rewards = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        reward_inputs = tokenize_for_rm(batch, reward_tokenizer)
+        reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
+        if require_grad:
+            rewards = reward_model(**reward_inputs).logits[:, 0]
+            all_rewards.append(rewards)
+            continue
+        with torch.inference_mode():
+            rewards = reward_model(**reward_inputs).logits[:, 0]
+            all_rewards.append(rewards.cpu())
+    return torch.cat(all_rewards)
 
 
 

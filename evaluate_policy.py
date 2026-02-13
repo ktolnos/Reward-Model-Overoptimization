@@ -1,4 +1,3 @@
-from copy import copy
 import os
 import random
 import requests
@@ -20,16 +19,16 @@ import pandas as pd
 import numpy as np
 import wandb
 
-from rlhf.ppo.ppo_utils import post_process_common_dataset
 from experimental.dataset_annotation import load_reward_model
 from reward_utils import (
     Skywork_PROMPT,
     Skywork_SYSTEM_PROMPT,
     Skywork_ASSISTANT_PROMPT,
     build_reward_texts,
+    get_reward_rm,
     extract_reward_from_response,
 )
-from rlhf.prompt_utils import build_prompt_from_chosen
+from data_utils import format_prompt, setup_tokenizer
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
 import gc
@@ -148,32 +147,6 @@ def load_reward_model_impl(model_path_or_name, device):
     return model, tokenizer
 
 
-def get_reward_score(model, tokenizer, texts, device, batch_size=8):
-    """Get reward scores for a batch of texts."""
-    all_scores = []
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i : i + batch_size]
-        inputs = tokenizer(
-            batch_texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=False,
-            padding_side="left",
-            add_special_tokens=False,
-        )
-
-        with torch.no_grad():
-            outputs = model(
-                input_ids=inputs["input_ids"].to(device),
-                attention_mask=inputs["attention_mask"].to(device),
-                return_dict=True,
-                output_hidden_states=True,
-            )
-            scores = outputs.logits.squeeze(-1)
-            all_scores.extend(scores.cpu().numpy())
-
-    return np.array(all_scores)
-
 
 def coerce_list(values):
     if isinstance(values, list):
@@ -270,23 +243,6 @@ def get_log_probs_from_ids(
 
     return all_sum_log_probs, all_mean_log_probs, all_token_log_probs
 
-
-def collate_batch(input_ids_list, attention_mask_list, tokenizer):
-    """Collate and pad a batch of input sequences to the longest sequence in the batch."""
-    if len(input_ids_list) <= 1:
-        # No padding needed for single item
-        return (torch.tensor(input_ids_list), torch.tensor(attention_mask_list))
-    max_length = max(len(ids) for ids in input_ids_list)
-
-    padded_input_ids = []
-    padded_attention_mask = []
-
-    for input_ids, attention_mask in zip(input_ids_list, attention_mask_list):
-        padding_length = max_length - len(input_ids)
-        padded_input_ids.append([tokenizer.pad_token_id] * padding_length + input_ids)
-        padded_attention_mask.append([0] * padding_length + attention_mask)
-
-    return (torch.tensor(padded_input_ids), torch.tensor(padded_attention_mask))
 
 
 def generate_responses_vllm(
@@ -601,43 +557,31 @@ def main():
 
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        first_checkpoint_path, padding_side="left"
+        first_checkpoint_path, trust_remote_code=True,
     )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
+    setup_tokenizer(tokenizer)
 
     # Prepare dataset based on its structure
-    args_no_max_length = copy(args)
-    args_no_max_length.max_length = 1000_000  # effectively disable truncation
     if "chosen" in dataset.column_names:
         print("Using 'chosen' column for prompts (chosen[:-1]).")
 
-        def extract_prompt_from_chosen(example):
-            # The prompt is the conversation up to the last turn.
-            return {"prompt": build_prompt_from_chosen(example["chosen"], tokenizer)}
+        def extract_prompt(example):
+            return {"prompt": format_prompt(example["chosen"], tokenizer)}
 
-        dataset = dataset.map(extract_prompt_from_chosen, num_proc=1)
-        original_prompts = dataset["prompt"]
-        processed_dataset = post_process_common_dataset(
-            dataset, tokenizer, args_no_max_length
-        )
-    elif "prompt" in dataset.column_names:
-        print("Using 'prompt' column for prompts.")
-        original_prompts = dataset["prompt"]
-        processed_dataset = post_process_common_dataset(
-            dataset, tokenizer, args_no_max_length
-        )
-    else:
+        dataset = dataset.map(extract_prompt, num_proc=1)
+    elif "prompt" not in dataset.column_names:
         raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
 
-    original_prompts = coerce_list(original_prompts)
-    print(f"Using {len(processed_dataset)} processed prompts for evaluation")
+    # Filter prompts that exceed max_length (no room for generation)
+    before = len(dataset)
+    dataset = dataset.filter(
+        lambda x: len(tokenizer.encode(x["prompt"], add_special_tokens=False)) <= args.max_length,
+    )
+    if len(dataset) < before:
+        print(f"Filtered prompts by max_length={args.max_length}: {before} -> {len(dataset)}")
 
-    input_ids_list = [ids.tolist() for ids in processed_dataset["input_ids"]]
-    attention_mask_list = [
-        mask.tolist() for mask in processed_dataset["attention_mask"]
-    ]
+    original_prompts = coerce_list(dataset["prompt"])
+    print(f"Using {len(original_prompts)} prompts for evaluation")
 
     if args.debug:
         print("Debug mode: using only first checkpoint")
@@ -896,25 +840,23 @@ def main():
                         collect_logprobs=base_policy_model is not None,
                     )
 
-                    reward_texts = build_reward_texts(prompts_list, responses)
+                    reward_texts = build_reward_texts(prompts_list, responses, tokenizer)
                     if args.evaluate_with_training_rm:
-                        training_rm_scores = get_reward_score(
+                        training_rm_scores = get_reward_rm(
                             training_rm,
                             training_rm_tokenizer,
                             reward_texts,
-                            args.device,
-                            args.batch_size,
-                        )
+                            batch_size=args.batch_size,
+                        ).numpy()
 
                     print("\n\nreward texts\n\n", "\n;\n".join(reward_texts[:2]))
 
-                    gold_rm_scores = get_reward_score(
+                    gold_rm_scores = get_reward_rm(
                         gold_rm,
                         gold_rm_tokenizer,
                         reward_texts,
-                        args.device,
-                        args.batch_size,
-                    )
+                        batch_size=args.batch_size,
+                    ).numpy()
 
                     checkpoint_num = int(checkpoint.split("-")[1])
                     checkpoint_results = {

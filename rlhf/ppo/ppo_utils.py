@@ -209,16 +209,13 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
     return ds
 
 def post_process_common_dataset(ds, tokenizer, script_args):
+    from data_utils import format_prompt
+
     def formatting_func(example):
-        kwargs = {"return_tensors": "pt"}
-        # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
-        messages = example['chosen'][:-1]
-        prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True,
-                                                             enable_thinking=False)
-        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+        prompt = format_prompt(example["chosen"], tokenizer)
+        tokens = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
 
         return {
-            # 'query': prompt_plus_response,
             "input_ids": tokens["input_ids"][0],
             "attention_mask": tokens["attention_mask"][0],
         }

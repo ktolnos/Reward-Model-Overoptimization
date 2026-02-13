@@ -3,28 +3,27 @@ import os
 import torch
 import torch.nn as nn
 from datasets import load_dataset, concatenate_datasets
+from data_utils import format_conversation, format_prompt
 
 # for vanilla chosen and reject style dataset, such as dendrydong/preference_700K
 def build_dataset(data_path, tokenizer, split='train', size=None, model_name=''):
     ds = load_dataset(data_path, split=split)
-    
+
     if size is not None:
         ds = ds.select(range(0, size))
 
     def formatting_func(example):
-        kwargs = {"padding": True, "truncation": True, "max_length": tokenizer.max_length, "return_tensors": "pt"}
         chosen_messages = example['chosen']
         rejected_messages = example['rejected']
-        prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False, truncation=True, max_length=tokenizer.max_length)
-        prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False, truncation=True, max_length=tokenizer.max_length)
-        tokens_chosen = tokenizer(text=prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer(text=prompt_plus_rejected_response, **kwargs)
+        prompt_plus_chosen_response = format_conversation(chosen_messages, tokenizer)
+        prompt_plus_rejected_response = format_conversation(rejected_messages, tokenizer)
+        tokens_chosen = tokenizer(text=prompt_plus_chosen_response, return_tensors="pt", add_special_tokens=False)
+        tokens_rejected = tokenizer(text=prompt_plus_rejected_response, return_tensors="pt", add_special_tokens=False)
 
         if 'GRM' in model_name:
             # add label mask for sft and dpo training
-            prompt = example['chosen'][:-1]
-            prompt_template = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
-            tokens_prompt = tokenizer.encode_plus(prompt_template, **kwargs)['input_ids'][0]
+            prompt_text = format_prompt(example['chosen'], tokenizer)
+            tokens_prompt = tokenizer(text=prompt_text, return_tensors="pt", add_special_tokens=False)['input_ids'][0]
             label_chosen = tokens_chosen["input_ids"][0].clone()
             label_chosen[:len(tokens_prompt)] = -100
             label_rejected = tokens_rejected["input_ids"][0].clone()
@@ -41,6 +40,10 @@ def build_dataset(data_path, tokenizer, split='train', size=None, model_name='')
             }
 
     ds = ds.map(formatting_func, batched=False, keep_in_memory=True)
+    ds = ds.filter(
+        lambda x: len(x["input_ids_chosen"]) <= tokenizer.max_length
+        and len(x["input_ids_rejected"]) <= tokenizer.max_length
+    )
     remove_columns = []
     for col in ds.column_names:
         if 'input' not in col and 'attention' not in col and 'label' not in col:
@@ -53,6 +56,10 @@ def build_dataset(data_path, tokenizer, split='train', size=None, model_name='')
 
 # for UnifiedFeedback
 def build_dataset_UF(data_path, tokenizer, split='train', size=None, mode='', model_name=''):
+    raise NotImplementedError(
+        "build_dataset_UF has not been updated to use data_utils. "
+        "Use build_dataset for chosen/rejected format datasets."
+    )
     try:
         ds = load_dataset(data_path, 'all', split=split)
     except:
@@ -126,6 +133,10 @@ def build_dataset_UF(data_path, tokenizer, split='train', size=None, mode='', mo
 
 # for Skywork Reward Preference 80K
 def build_dataset_SK(data_path, tokenizer, split='train', size=None, model_name=''):
+    raise NotImplementedError(
+        "build_dataset_SK has not been updated to use data_utils. "
+        "Use build_dataset for chosen/rejected format datasets."
+    )
     ds = load_dataset(data_path, split=split)
 
     if size is not None:

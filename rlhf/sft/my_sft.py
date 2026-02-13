@@ -16,7 +16,7 @@ from transformers import (
     HfArgumentParser,
 )
 
-from rlhf.prompt_utils import build_prompt_plus_response_from_chosen
+from data_utils import format_conversation, tokenize_for_sft, setup_tokenizer
 
 from trl import (
     ModelConfig,
@@ -59,16 +59,10 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
 
 def post_process_common_dataset(ds, tokenizer, script_args):
     def formatting_func(example):
-        kwargs = {"return_tensors": "pt"}
-        # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
-        prompt_plus_response = build_prompt_plus_response_from_chosen(
-            example['chosen'],
-            tokenizer,
-        )
-        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+        text = format_conversation(example['chosen'], tokenizer)
+        tokens = tokenize_for_sft(text, tokenizer)
 
         return {
-            # 'query': prompt_plus_response,
             "input_ids": tokens["input_ids"][0],
             "attention_mask": tokens["attention_mask"][0],
         }
@@ -91,13 +85,10 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
-        padding_side="left",
     )
-    
-    # Ensure pad token exists
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    
+    setup_tokenizer(tokenizer)
+    tokenizer.padding_side = "right"  # SFTTrainer requires right padding to avoid fp16 overflow
+
     # Set chat template if needed
     if tokenizer.chat_template is None:
         tokenizer.chat_template = SIMPLE_CHAT_TEMPLATE

@@ -19,8 +19,8 @@ tqdm.pandas()
 import matplotlib.pyplot as plt
 import json
 from datetime import datetime
-from reward_utils import get_reward, is_reasoning
-from rlhf.prompt_utils import build_prompt_from_chosen
+from reward_utils import get_reward, get_reward_rm, build_reward_texts, is_reasoning
+from data_utils import format_prompt
 import math
 
 
@@ -55,7 +55,7 @@ def build_train_eval_datasets(
     tokenizer,
     eval_proportion,
     size=None,
-    max_length=512,
+    max_prompt_length=None,
 ):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
@@ -63,18 +63,14 @@ def build_train_eval_datasets(
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
     ds_train = ds_dict["train"]
     ds_eval = ds_dict["test"]
-    ds_train = post_process_common_dataset(ds_train, tokenizer, max_length)
-    ds_eval = post_process_common_dataset(ds_eval, tokenizer, max_length)
+    ds_train = post_process_common_dataset(ds_train, tokenizer, max_prompt_length)
+    ds_eval = post_process_common_dataset(ds_eval, tokenizer, max_prompt_length)
     return ds_train, ds_eval
 
 
-def post_process_common_dataset(ds, tokenizer, max_length):
+def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
     def formatting_func(example):
-        prompt = build_prompt_from_chosen(
-            example["chosen"],
-            tokenizer,
-            max_length=max_length,
-        )
+        prompt = format_prompt(example["chosen"], tokenizer)
         return {
             "prompt": prompt,
         }
@@ -94,6 +90,13 @@ def post_process_common_dataset(ds, tokenizer, max_length):
     ds = ds.map(
         formatting_func, remove_columns=columns_to_remove, batched=False, num_proc=30
     )
+    if max_prompt_length is not None:
+        before = len(ds)
+        ds = ds.filter(
+            lambda x: len(tokenizer.encode(x["prompt"], add_special_tokens=False)) <= max_prompt_length,
+            num_proc=10,
+        )
+        print(f"Filtered prompts by max_prompt_length={max_prompt_length}: {before} -> {len(ds)}")
     ds.set_format(type="torch")
     return ds
 
@@ -186,7 +189,6 @@ def precompute_reward_means(
     dataset_path,
     output_dir,
     policy_tokenizer,
-    max_length=1024,
     sample_size=1000,
     batch_size=64,
     trust_remote_code=True,
@@ -196,6 +198,9 @@ def precompute_reward_means(
     Loads the raw dataset (before post-processing removes chosen/rejected),
     samples items, scores both chosen and rejected completions with each
     reward model, and returns the per-model mean. Results are cached to disk.
+
+    Uses policy_tokenizer for prompt formatting (matching runtime GRPO distribution)
+    and RM tokenizer for final tokenization (matching scoring).
     """
     cache_dir = os.path.join(output_dir, "reward_means")
     os.makedirs(cache_dir, exist_ok=True)
@@ -234,16 +239,14 @@ def precompute_reward_means(
     all_prompts = []
     all_completions = []
     for item in sample:
-        prompt = build_prompt_from_chosen(
-            item["chosen"], policy_tokenizer, max_length=max_length
-        )
+        prompt = format_prompt(item["chosen"], policy_tokenizer)
         all_prompts.append(prompt)
         all_completions.append(item["chosen"][-1]["content"])
         if "rejected" in item and item["rejected"]:
             all_prompts.append(prompt)
             all_completions.append(item["rejected"][-1]["content"])
 
-    all_texts = [p + c for p, c in zip(all_prompts, all_completions)]
+    all_texts = build_reward_texts(all_prompts, all_completions, policy_tokenizer)
     print(
         f"[PrecomputeMeans] Built {len(all_texts)} (prompt, completion) pairs "
         f"from {n} dataset items"
@@ -280,21 +283,9 @@ def precompute_reward_means(
                 json.dump(cache_data, f, indent=2)
             continue
 
-        # Batched inference
-        all_rewards = []
-        for batch_start in range(0, len(all_texts), batch_size):
-            batch_end = min(batch_start + batch_size, len(all_texts))
-            with torch.inference_mode():
-                rewards = get_reward(
-                    reward_model,
-                    reward_tokenizer,
-                    all_prompts[batch_start:batch_end],
-                    all_completions[batch_start:batch_end],
-                    all_texts[batch_start:batch_end],
-                )
-            all_rewards.append(rewards.cpu())
-
-        all_rewards = torch.cat(all_rewards)
+        all_rewards = get_reward_rm(
+            reward_model, reward_tokenizer, all_texts, batch_size=batch_size
+        )
         mean_reward = all_rewards.mean().item()
         precomputed_means[model_path] = mean_reward
 
@@ -346,8 +337,6 @@ def build_reward_function(
             ), "Reference rewards must be provided in the dataset if reference_rewards is True"
             if isinstance(reference_rewards, list):
                 reference_rewards = torch.stack(reference_rewards)
-
-        texts = [p + c for p, c in zip(prompts, completions)]
 
         num_rms = len(script_args.reward_model_paths)
 
@@ -414,7 +403,6 @@ def build_reward_function(
                     rt,
                     prompts,
                     completions,
-                    texts,
                     reward_controller=controller,
                 )
             streams.append(stream)
@@ -427,8 +415,6 @@ def build_reward_function(
 
         for rew, model_name in results:
             rewards_dict[model_name] = rew.detach()
-
-
 
             # Subtract pre-computed per-model mean to remove arbitrary constant offsets from BT loss.
             # Important for "min" (normalizes scales) and "uwo" (offsets would appear as false disagreement).
