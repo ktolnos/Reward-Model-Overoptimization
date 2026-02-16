@@ -97,7 +97,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --save_strategy "steps" \
     --save_steps 0.0625 \
     --save_only_model True \
-    --learning_rate 5e-6 \
+    --learning_rate 1e-5 \
     --warmup_ratio 0 \
     --lr_scheduler_type "constant" \
     --logging_steps 20 \
