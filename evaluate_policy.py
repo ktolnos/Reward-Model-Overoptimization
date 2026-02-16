@@ -28,7 +28,12 @@ from reward_utils import (
     get_reward_rm,
     extract_reward_from_response,
 )
-from data_utils import format_prompt, setup_tokenizer
+from data_utils import (
+    format_prompt,
+    setup_tokenizer,
+    format_reward_texts,
+    tokenize_for_rm,
+)
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
 import gc
@@ -156,28 +161,7 @@ def coerce_list(values):
     return list(values)
 
 
-def format_responses_for_rm(prompt_messages_list, responses, rm_tokenizer):
-    """Format generated responses for RM scoring using the RM's own chat template.
 
-    Reconstructs full conversations from structured prompt messages + generated
-    response text, then formats using the RM's tokenizer.  This ensures the
-    scored text matches the RM's training distribution (apply_chat_template
-    output), regardless of which tokenizer was used to generate the response.
-
-    Strips duplicate BOS from the template output following the HF model-card
-    convention.  Callers should tokenize with add_special_tokens=True so the
-    tokenizer re-adds BOS properly.
-    """
-    texts = []
-    for prompt_msgs, response in zip(prompt_messages_list, responses):
-        full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
-        text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
-        # Strip BOS from text; callers use add_special_tokens=True to re-add
-        # it, matching the HF model-card scoring convention.
-        if rm_tokenizer.bos_token is not None and text.startswith(rm_tokenizer.bos_token):
-            text = text[len(rm_tokenizer.bos_token):]
-        texts.append(text)
-    return texts
 
 
 def get_log_probs_from_ids(
@@ -873,10 +857,10 @@ def main():
                     # scored text matches each RM's training distribution.
                     if prompt_messages_list is not None:
                         if args.evaluate_with_training_rm:
-                            training_reward_texts = format_responses_for_rm(
+                            training_reward_texts = format_reward_texts(
                                 prompt_messages_list, responses, training_rm_tokenizer
                             )
-                        gold_reward_texts = format_responses_for_rm(
+                        gold_reward_texts = format_reward_texts(
                             prompt_messages_list, responses, gold_rm_tokenizer
                         )
                     else:
@@ -894,7 +878,7 @@ def main():
                             training_reward_texts,
                             batch_size=args.batch_size,
                             add_special_tokens=True,
-                        ).numpy()
+                        ).cpu().float().numpy()
 
                     print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
 
@@ -904,7 +888,7 @@ def main():
                         gold_reward_texts,
                         batch_size=args.batch_size,
                         add_special_tokens=True,
-                    ).numpy()
+                    ).cpu().float().numpy()
 
                     checkpoint_num = int(checkpoint.split("-")[1])
                     checkpoint_results = {

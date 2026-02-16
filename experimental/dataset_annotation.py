@@ -50,13 +50,12 @@ def load_reward_model(model_name, reasoning, device=None):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     kwargs = {
-        "torch_dtype": torch.float16,
+        "torch_dtype": torch.bfloat16,
         "attn_implementation": "flash_attention_2",
         "trust_remote_code": True,
         "device_map": device
     }
     if 'Skywork-Reward-V2' in model_name:
-        kwargs['torch_dtype'] = torch.bfloat16
         kwargs['num_labels'] = 1
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     setup_tokenizer(tokenizer)
@@ -117,7 +116,7 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model(**inputs)
-            all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
+            all_rewards = outputs.logits.squeeze(-1).cpu().float().numpy()
 
         # Process the results
         for j in range(batch_size_actual):
@@ -352,7 +351,7 @@ def evaluate_with_reference_reward_model(
 
         with torch.no_grad():
             outputs = reward_model(**inputs)
-            all_rewards = outputs.logits.squeeze(-1).cpu().numpy()
+            all_rewards = outputs.logits.squeeze(-1).cpu().float().numpy()
 
         reward_idx = 0
         for item in batch_data:

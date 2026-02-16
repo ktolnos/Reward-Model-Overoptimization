@@ -70,9 +70,16 @@ def build_train_eval_datasets(
 
 def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
     def formatting_func(example):
+        # Keep structured messages for reward model formatting
+        # chosen contains [User, Assistant] (usually). Strip the last message if it's the assistant's.
+        prompt_msgs = example["chosen"]
+        if prompt_msgs and prompt_msgs[-1]["role"] == "assistant":
+            prompt_msgs = prompt_msgs[:-1]
+
         prompt = format_prompt(example["chosen"], tokenizer)
         return {
             "prompt": prompt,
+            "prompt_messages": prompt_msgs,
         }
 
     columns_to_remove = ds.column_names
@@ -282,17 +289,29 @@ def precompute_reward_means(
                 json.dump(cache_data, f, indent=2)
             continue
 
-        # Build reward texts with this RM's tokenizer so the correct EOS is appended
-        all_texts = build_reward_texts(all_prompts, all_completions, reward_tokenizer)
-        all_rewards = get_reward_rm(
-            reward_model, reward_tokenizer, all_texts, batch_size=batch_size
-        )
-        mean_reward = all_rewards.mean().item()
+        all_rewards_for_model = []
+        for j in range(0, len(ds_for_scoring), batch_size):
+            batch = ds_for_scoring.select(range(j, min(j + batch_size, len(ds_for_scoring))))
+            batch_prompt_messages = batch["prompt_messages"]
+            batch_completions = batch["completion"]
+
+            # Reconstruct conversations properly for this RM
+            from data_utils import format_reward_texts # Assuming data_utils is available
+            reward_texts = format_reward_texts(
+                batch_prompt_messages, batch_completions, reward_tokenizer
+            )
+
+            scores = get_reward_rm(
+                reward_model, reward_tokenizer, reward_texts, batch_size=batch_size, add_special_tokens=True
+            ).cpu().float().numpy()
+            all_rewards_for_model.extend(scores)
+
+        mean_reward = np.mean(all_rewards_for_model).item()
         precomputed_means[model_path] = mean_reward
 
         print(
             f"[PrecomputeMeans] RM {i} mean={mean_reward:.4f} "
-            f"(n={len(all_texts)}), cached to {cache_file}"
+            f"(n={len(all_rewards_for_model)}), cached to {cache_file}"
         )
 
         # Save cache
@@ -405,6 +424,8 @@ def build_reward_function(
                     prompts,
                     completions,
                     reward_controller=controller,
+                    prompt_messages=kwargs.get("prompt_messages"),
+                    add_special_tokens=True,
                 )
             streams.append(stream)
             pending_results.append((result, rm.config._name_or_path))

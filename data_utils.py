@@ -4,9 +4,10 @@ Conventions:
 - apply_chat_template handles all special tokens -> always use add_special_tokens=False when tokenizing
 - padding_side="left" everywhere
 - No truncation during tokenization; datasets must be pre-filtered
+- format_reward_texts: for RM scoring (Evaluation, GRPO rewards, Annotation).
+  Matches HF model-card convention (reconstruct -> strip BOS -> tokenize with add_special_tokens=True).
 - format_prompt: for generation inputs (GRPO prompts, eval prompts)
 - format_conversation: for full conversations (RM training, SFT, annotation)
-- EOT is appended when scoring (prompt + completion) via build_reward_texts in reward_utils
 """
 
 
@@ -46,6 +47,30 @@ def format_conversation(conversation, tokenizer):
         tokenize=False,
         enable_thinking=False,
     )
+
+
+def format_reward_texts(prompt_messages_list, responses, rm_tokenizer):
+    """Format generated responses for RM scoring using the RM's own chat template.
+
+    Reconstructs full conversations from structured prompt messages + generated
+    response text, then formats using the RM's tokenizer.  This ensures the
+    scored text matches the RM's training distribution (apply_chat_template
+    output), regardless of which tokenizer was used to generate the response.
+
+    Strips duplicate BOS from the template output following the HF model-card
+    convention.  Callers should tokenize with add_special_tokens=True so the
+    tokenizer re-adds BOS properly.
+    """
+    texts = []
+    for prompt_msgs, response in zip(prompt_messages_list, responses):
+        full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
+        text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
+        # Strip BOS from text; callers use add_special_tokens=True to re-add
+        # it, matching the HF model-card scoring convention.
+        if rm_tokenizer.bos_token is not None and text.startswith(rm_tokenizer.bos_token):
+            text = text[len(rm_tokenizer.bos_token) :]
+        texts.append(text)
+    return texts
 
 
 def tokenize_for_rm(texts, tokenizer, add_special_tokens=False):

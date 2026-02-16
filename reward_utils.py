@@ -67,11 +67,25 @@ def build_reward_texts(prompts, completions, tokenizer):
 
 
 def get_reward(reward_model, reward_tokenizer, prompts, completions,
-               reward_controller=None, require_grad=False, batch_size=None):
-    texts = build_reward_texts(prompts, completions, reward_tokenizer)
+               reward_controller=None, require_grad=False, batch_size=None,
+               prompt_messages=None, add_special_tokens=False):
+    """Score completions with a reward model.
+
+    If prompt_messages (list of message dicts) is provided, uses the RM's own
+    chat template to reconstruct the conversation. This is the preferred way
+    to handle cross-tokenizer scoring (e.g. scoring Qwen outputs with Llama RM).
+    """
+    if prompt_messages is not None:
+        from data_utils import format_reward_texts
+        texts = format_reward_texts(prompt_messages, completions, reward_tokenizer)
+        # Note: format_reward_texts strips BOS, so we MUST re-add it via add_special_tokens=True
+        # if the RM expects it. For consistency with evaluate_policy, we use the provided flag.
+    else:
+        texts = build_reward_texts(prompts, completions, reward_tokenizer)
+
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
-    return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
+    return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size, add_special_tokens=add_special_tokens)
 
 
 def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None, add_special_tokens=False):
@@ -350,7 +364,7 @@ def get_reward_reasoning(
 
     if reward_controller is not None:
         if reward_controller.trainer.state.global_step % reward_controller.logging_steps == 0:
-            winner_id = np.argmax(final_rewards.cpu().numpy()[:max_num_players])
+            winner_id = np.argmax(final_rewards.cpu().float().numpy()[:max_num_players])
             winner_generations = tournaments_data[0]['players_state'][winner_id]['generations']
             winner_completions = tournaments_data[0]['players_state'][winner_id]['prompts']
             df = pd.DataFrame({
