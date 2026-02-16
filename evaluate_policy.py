@@ -156,6 +156,22 @@ def coerce_list(values):
     return list(values)
 
 
+def format_responses_for_rm(prompt_messages_list, responses, rm_tokenizer):
+    """Format generated responses for RM scoring using the RM's own chat template.
+
+    Reconstructs full conversations from structured prompt messages + generated
+    response text, then formats using the RM's tokenizer.  This ensures the
+    scored text matches the RM's training distribution (apply_chat_template
+    output), regardless of which tokenizer was used to generate the response.
+    """
+    texts = []
+    for prompt_msgs, response in zip(prompt_messages_list, responses):
+        full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
+        text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
+        texts.append(text)
+    return texts
+
+
 def get_log_probs_from_ids(
     model, full_ids_list, prompt_lens_list, device, batch_size=4
 ):
@@ -556,31 +572,36 @@ def main():
     first_checkpoint_path = os.path.join(args.checkpoints_dir, checkpoints[0])
 
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(
+    policy_tokenizer = AutoTokenizer.from_pretrained(
         first_checkpoint_path, trust_remote_code=True,
     )
-    setup_tokenizer(tokenizer)
+    setup_tokenizer(policy_tokenizer)
 
     # Prepare dataset based on its structure
+    prompt_messages_list = None  # structured messages for proper RM formatting
     if "chosen" in dataset.column_names:
         print("Using 'chosen' column for prompts (chosen[:-1]).")
 
         def extract_prompt(example):
-            return {"prompt": format_prompt(example["chosen"], tokenizer)}
+            return {
+                "prompt": format_prompt(example["chosen"], policy_tokenizer),
+                "prompt_messages": example["chosen"][:-1],
+            }
 
         dataset = dataset.map(extract_prompt, num_proc=1)
-    elif "prompt" not in dataset.column_names:
-        raise ValueError("Dataset must have a 'prompt' or 'chosen' column.")
+    else:
+        raise ValueError("Dataset must have a 'chosen' column.")
 
     # Filter prompts that exceed max_length (no room for generation)
     before = len(dataset)
     dataset = dataset.filter(
-        lambda x: len(tokenizer.encode(x["prompt"], add_special_tokens=False)) <= args.max_length,
+        lambda x: len(policy_tokenizer.encode(x["prompt"], add_special_tokens=False)) <= args.max_length,
     )
     if len(dataset) < before:
         print(f"Filtered prompts by max_length={args.max_length}: {before} -> {len(dataset)}")
 
     original_prompts = coerce_list(dataset["prompt"])
+    prompt_messages_list = dataset["prompt_messages"]
     print(f"Using {len(original_prompts)} prompts for evaluation")
 
     if args.debug:
@@ -642,7 +663,7 @@ def main():
             baseline_responses, _, _, _, _ = generate_responses_vllm(
                 baseline_llm,
                 original_prompts,
-                tokenizer,
+                policy_tokenizer,
                 args,
                 sampling_params=baseline_sampling_params,
             )
@@ -691,7 +712,7 @@ def main():
                     policy_responses, _, _, _, _ = generate_responses_vllm(
                         llm,
                         original_prompts,
-                        tokenizer,
+                        policy_tokenizer,
                         args,
                         sampling_params=judge_sampling_params,
                     )
@@ -795,7 +816,7 @@ def main():
         if args.kl_base_model_path:
             print(f"Loading base policy for KL from {args.kl_base_model_path}...")
             base_policy_model = load_policy_model(
-                args.kl_base_model_path, tokenizer, args.device
+                args.kl_base_model_path, policy_tokenizer, args.device
             )
 
         # Initialize vLLM with the first checkpoint
@@ -835,13 +856,29 @@ def main():
                     ) = generate_responses_vllm(
                         llm,
                         prompts_list,
-                        tokenizer,
+                        policy_tokenizer,
                         args,
                         collect_logprobs=base_policy_model is not None,
                     )
 
+                    # Format responses using each RM's own chat template so the
+                    # scored text matches each RM's training distribution.
+                    if prompt_messages_list is not None:
+                        if args.evaluate_with_training_rm:
+                            training_reward_texts = format_responses_for_rm(
+                                prompt_messages_list, responses, training_rm_tokenizer
+                            )
+                        gold_reward_texts = format_responses_for_rm(
+                            prompt_messages_list, responses, gold_rm_tokenizer
+                        )
+                    else:
+                        # Fallback: no structured messages, plain concatenation
+                        fallback_texts = [p + c for p, c in zip(prompts_list, responses)]
+                        if args.evaluate_with_training_rm:
+                            training_reward_texts = fallback_texts
+                        gold_reward_texts = fallback_texts
+
                     if args.evaluate_with_training_rm:
-                        training_reward_texts = build_reward_texts(prompts_list, responses, training_rm_tokenizer)
                         training_rm_scores = get_reward_rm(
                             training_rm,
                             training_rm_tokenizer,
@@ -849,7 +886,6 @@ def main():
                             batch_size=args.batch_size,
                         ).numpy()
 
-                    gold_reward_texts = build_reward_texts(prompts_list, responses, gold_rm_tokenizer)
                     print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
 
                     gold_rm_scores = get_reward_rm(
