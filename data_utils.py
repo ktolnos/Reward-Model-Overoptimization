@@ -50,27 +50,37 @@ def format_conversation(conversation, tokenizer):
 
 
 def format_reward_texts(prompt_messages_list, responses, rm_tokenizer):
-    """Format generated responses for RM scoring using the RM's own chat template.
+    """Format conversations for RM scoring using the RM's own chat template.
 
-    Reconstructs full conversations from structured prompt messages + generated
-    response text, then formats using the RM's tokenizer.  This ensures the
-    scored text matches the RM's training distribution (apply_chat_template
-    output), regardless of which tokenizer was used to generate the response.
+    Args:
+        prompt_messages_list: If 'responses' is provided, this is a list of
+            structured prompt message lists. If 'responses' is None, this is
+            a list of full conversation message lists (e.g. from a dataset).
+        responses: Optional list of assistant response strings.
+        rm_tokenizer: Tokenizer for the reward model.
 
-    Strips duplicate BOS from the template output following the HF model-card
-    convention.  Callers should tokenize with add_special_tokens=True so the
-    tokenizer re-adds BOS properly.
+    Returns:
+        List of formatted strings with BOS stripped (caller uses add_special_tokens=True).
     """
     texts = []
-    for prompt_msgs, response in zip(prompt_messages_list, responses):
-        full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
-        text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
-        # Strip BOS from text; callers use add_special_tokens=True to re-add
-        # it, matching the HF model-card scoring convention.
-        if rm_tokenizer.bos_token is not None and text.startswith(rm_tokenizer.bos_token):
-            text = text[len(rm_tokenizer.bos_token) :]
-        texts.append(text)
+    if responses is not None:
+        # Hybrid mode: reconstruct from prompt + response
+        for prompt_msgs, response in zip(prompt_messages_list, responses):
+            full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
+            texts.append(_format_single_conv_for_rm(full_conv, rm_tokenizer))
+    else:
+        # Direct mode: use full conversations (e.g. ground truth from dataset)
+        for conv in prompt_messages_list:
+            texts.append(_format_single_conv_for_rm(conv, rm_tokenizer))
     return texts
+
+
+def _format_single_conv_for_rm(conversation, tokenizer):
+    """Helper to apply chat template and strip BOS."""
+    text = tokenizer.apply_chat_template(conversation, tokenize=False)
+    if tokenizer.bos_token is not None and text.startswith(tokenizer.bos_token):
+        text = text[len(tokenizer.bos_token) :]
+    return text
 
 
 def tokenize_for_rm(texts, tokenizer, add_special_tokens=False):

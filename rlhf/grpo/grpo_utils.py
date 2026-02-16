@@ -243,18 +243,15 @@ def precompute_reward_means(
     n = min(sample_size, len(raw_ds))
     sample = raw_ds.select(range(n))
 
-    all_prompts = []
-    all_completions = []
+    all_conversations = []
     for item in sample:
-        prompt = format_prompt(item["chosen"], policy_tokenizer)
-        all_prompts.append(prompt)
-        all_completions.append(item["chosen"][-1]["content"])
+        # Add ground truth 'chosen' and 'rejected' (if it exists)
+        all_conversations.append(item["chosen"])
         if "rejected" in item and item["rejected"]:
-            all_prompts.append(prompt)
-            all_completions.append(item["rejected"][-1]["content"])
+            all_conversations.append(item["rejected"])
 
     print(
-        f"[PrecomputeMeans] Built {len(all_prompts)} (prompt, completion) pairs "
+        f"[PrecomputeMeans] Collected {len(all_conversations)} full conversations "
         f"from {n} dataset items"
     )
 
@@ -290,16 +287,12 @@ def precompute_reward_means(
             continue
 
         all_rewards_for_model = []
-        for j in range(0, len(ds_for_scoring), batch_size):
-            batch = ds_for_scoring.select(range(j, min(j + batch_size, len(ds_for_scoring))))
-            batch_prompt_messages = batch["prompt_messages"]
-            batch_completions = batch["completion"]
+        for j in range(0, len(all_conversations), batch_size):
+            batch = all_conversations[j : j + batch_size]
 
             # Reconstruct conversations properly for this RM
-            from data_utils import format_reward_texts # Assuming data_utils is available
-            reward_texts = format_reward_texts(
-                batch_prompt_messages, batch_completions, reward_tokenizer
-            )
+            from data_utils import format_reward_texts
+            reward_texts = format_reward_texts(batch, responses=None, rm_tokenizer=reward_tokenizer)
 
             scores = get_reward_rm(
                 reward_model, reward_tokenizer, reward_texts, batch_size=batch_size, add_special_tokens=True
