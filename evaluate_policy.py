@@ -168,6 +168,8 @@ def format_responses_for_rm(prompt_messages_list, responses, rm_tokenizer):
     for prompt_msgs, response in zip(prompt_messages_list, responses):
         full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
         text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
+        if rm_tokenizer.bos_token is not None and text.startswith(rm_tokenizer.bos_token):
+            text = text[len(rm_tokenizer.bos_token) :]
         texts.append(text)
     return texts
 
