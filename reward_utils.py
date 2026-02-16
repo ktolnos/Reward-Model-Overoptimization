@@ -74,18 +74,20 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions,
     return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None):
+def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None, add_special_tokens=False):
     """Score texts with a reward model.
 
     Args:
         texts: Pre-formatted text strings (from format_conversation or prompt+completion).
         require_grad: If True, keep gradients for the reward computation.
         batch_size: If set, processes in batches (for large inputs). Returns CPU tensor.
+        add_special_tokens: If True, let the tokenizer add BOS/EOS (use when
+            BOS has been stripped from the text, matching HF model-card convention).
     """
     from data_utils import tokenize_for_rm
 
     if batch_size is None:
-        reward_inputs = tokenize_for_rm(texts, reward_tokenizer)
+        reward_inputs = tokenize_for_rm(texts, reward_tokenizer, add_special_tokens=add_special_tokens)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
             return reward_model(**reward_inputs).logits[:, 0]
@@ -95,7 +97,7 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
     all_rewards = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        reward_inputs = tokenize_for_rm(batch, reward_tokenizer)
+        reward_inputs = tokenize_for_rm(batch, reward_tokenizer, add_special_tokens=add_special_tokens)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
             rewards = reward_model(**reward_inputs).logits[:, 0]

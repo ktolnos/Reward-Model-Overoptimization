@@ -48,11 +48,14 @@ def format_conversation(conversation, tokenizer):
     )
 
 
-def tokenize_for_rm(texts, tokenizer):
+def tokenize_for_rm(texts, tokenizer, add_special_tokens=False):
     """Tokenize pre-formatted texts for reward model (training or inference).
 
-    Uses add_special_tokens=False because texts from format_conversation/format_prompt
-    already include all special tokens from apply_chat_template.
+    Uses add_special_tokens=False by default because texts from
+    format_conversation/format_prompt already include all special tokens
+    from apply_chat_template.  Pass add_special_tokens=True when the BOS
+    has been stripped from the text (e.g. following the HF model-card
+    convention of strip-BOS + re-add via tokenizer).
     Left-pads for batch processing.
 
     Used by: RM training (load_datasets.py), RM scoring (reward_utils.py),
@@ -63,7 +66,7 @@ def tokenize_for_rm(texts, tokenizer):
         return_tensors="pt",
         padding=True,
         padding_side="left",
-        add_special_tokens=False,
+        add_special_tokens=add_special_tokens,
     )
 
 

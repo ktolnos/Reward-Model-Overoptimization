@@ -163,13 +163,19 @@ def format_responses_for_rm(prompt_messages_list, responses, rm_tokenizer):
     response text, then formats using the RM's tokenizer.  This ensures the
     scored text matches the RM's training distribution (apply_chat_template
     output), regardless of which tokenizer was used to generate the response.
+
+    Strips duplicate BOS from the template output following the HF model-card
+    convention.  Callers should tokenize with add_special_tokens=True so the
+    tokenizer re-adds BOS properly.
     """
     texts = []
     for prompt_msgs, response in zip(prompt_messages_list, responses):
         full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
         text = rm_tokenizer.apply_chat_template(full_conv, tokenize=False)
+        # Strip BOS from text; callers use add_special_tokens=True to re-add
+        # it, matching the HF model-card scoring convention.
         if rm_tokenizer.bos_token is not None and text.startswith(rm_tokenizer.bos_token):
-            text = text[len(rm_tokenizer.bos_token) :]
+            text = text[len(rm_tokenizer.bos_token):]
         texts.append(text)
     return texts
 
@@ -874,11 +880,12 @@ def main():
                             prompt_messages_list, responses, gold_rm_tokenizer
                         )
                     else:
+                        raise ValueError("No structured messages provided")
                         # Fallback: no structured messages, plain concatenation
-                        fallback_texts = [p + c for p, c in zip(prompts_list, responses)]
-                        if args.evaluate_with_training_rm:
-                            training_reward_texts = fallback_texts
-                        gold_reward_texts = fallback_texts
+                        # fallback_texts = [p + c for p, c in zip(prompts_list, responses)]
+                        # if args.evaluate_with_training_rm:
+                        #     training_reward_texts = fallback_texts
+                        # gold_reward_texts = fallback_texts
 
                     if args.evaluate_with_training_rm:
                         training_rm_scores = get_reward_rm(
@@ -886,6 +893,7 @@ def main():
                             training_rm_tokenizer,
                             training_reward_texts,
                             batch_size=args.batch_size,
+                            add_special_tokens=True,
                         ).numpy()
 
                     print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
@@ -895,6 +903,7 @@ def main():
                         gold_rm_tokenizer,
                         gold_reward_texts,
                         batch_size=args.batch_size,
+                        add_special_tokens=True,
                     ).numpy()
 
                     checkpoint_num = int(checkpoint.split("-")[1])
