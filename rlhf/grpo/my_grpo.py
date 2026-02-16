@@ -54,6 +54,7 @@ from trl import (
     get_peft_config,
 )
 from peft import get_peft_model
+from pathlib import Path
 
 
 @dataclass
@@ -182,7 +183,7 @@ if __name__ == "__main__":
             reward_model_paths=script_args.reward_model_paths,
             reward_tokenizers=reward_tokenizers,
             dataset_path=script_args.dataset_path,
-            output_dir=training_args.output_dir,
+            output_dir=str(Path(training_args.output_dir).parent),
             policy_tokenizer=policy_tokenizer,
             trust_remote_code=model_args.trust_remote_code,
         )
