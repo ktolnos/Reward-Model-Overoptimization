@@ -840,21 +840,22 @@ def main():
                         collect_logprobs=base_policy_model is not None,
                     )
 
-                    reward_texts = build_reward_texts(prompts_list, responses, tokenizer)
                     if args.evaluate_with_training_rm:
+                        training_reward_texts = build_reward_texts(prompts_list, responses, training_rm_tokenizer)
                         training_rm_scores = get_reward_rm(
                             training_rm,
                             training_rm_tokenizer,
-                            reward_texts,
+                            training_reward_texts,
                             batch_size=args.batch_size,
                         ).numpy()
 
-                    print("\n\nreward texts\n\n", "\n;\n".join(reward_texts[:2]))
+                    gold_reward_texts = build_reward_texts(prompts_list, responses, gold_rm_tokenizer)
+                    print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
 
                     gold_rm_scores = get_reward_rm(
                         gold_rm,
                         gold_rm_tokenizer,
-                        reward_texts,
+                        gold_reward_texts,
                         batch_size=args.batch_size,
                     ).numpy()
 

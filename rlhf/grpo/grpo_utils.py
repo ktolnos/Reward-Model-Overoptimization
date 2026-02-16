@@ -246,9 +246,8 @@ def precompute_reward_means(
             all_prompts.append(prompt)
             all_completions.append(item["rejected"][-1]["content"])
 
-    all_texts = build_reward_texts(all_prompts, all_completions, policy_tokenizer)
     print(
-        f"[PrecomputeMeans] Built {len(all_texts)} (prompt, completion) pairs "
+        f"[PrecomputeMeans] Built {len(all_prompts)} (prompt, completion) pairs "
         f"from {n} dataset items"
     )
 
@@ -283,6 +282,8 @@ def precompute_reward_means(
                 json.dump(cache_data, f, indent=2)
             continue
 
+        # Build reward texts with this RM's tokenizer so the correct EOS is appended
+        all_texts = build_reward_texts(all_prompts, all_completions, reward_tokenizer)
         all_rewards = get_reward_rm(
             reward_model, reward_tokenizer, all_texts, batch_size=batch_size
         )

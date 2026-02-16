@@ -116,7 +116,14 @@ This uses `dataset_annotation.py` to annotate datasets with reward model scores.
 - **Reasoning Reward Models**: Use LLM-as-judge approach (e.g., Skywork)
   - Identified by `hasattr(model, 'lm_head')` in `reward_utils.py`
   - Use special prompts (see `Skywork_SYSTEM_PROMPT` in `reward_utils.py`)
+  
+# Current experiments
 
 Current experiments focus on BT reward models.
 
 The main pipeline for current experiments involves trainig multiple BT reward models, training SFT policy model, then experimenting with training the policy with GRPO starting from SFT checkpoing. Each GRPO run is automatically evaluated using evaluate_policy.sh.  
+
+# Results
+
+Using sequential switching of reward models allows to train Qwen3-0.6B on 10k datapoints from Helpsteer 3 dataset at very low KL penalty. Lower KL penalty allows to achive much higher gold reward than standard training. We have also successfully finetuned a base model using only RL to a decent gold reward. Out of all our experiments, big ensembles seem to be the best way to prevent reward hacking, with mixed strategy of sequentually switching the mean ensemble of 10 reward models being the best so far (uwo is still churning).
+
