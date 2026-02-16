@@ -55,6 +55,9 @@ def load_reward_model(model_name, reasoning, device=None):
         "trust_remote_code": True,
         "device_map": device
     }
+    if 'Skywork-Reward-V2' in model_name:
+        kwargs['torch_dtype'] = torch.bfloat16
+        kwargs['num_labels'] = 1
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     setup_tokenizer(tokenizer)
 
