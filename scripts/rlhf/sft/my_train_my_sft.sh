@@ -28,7 +28,7 @@ export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 base_model_name="Qwen/Qwen3-0.6B-Base"
-dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10K"
+dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
 
@@ -88,7 +88,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --model_name_or_path ${base_model_name} \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir} \
-    --num_train_epochs 4 \
+    --num_train_epochs 2 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
     --gradient_accumulation_steps 4 \

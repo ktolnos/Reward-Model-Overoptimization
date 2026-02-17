@@ -16,14 +16,12 @@ from transformers import (
     HfArgumentParser,
 )
 
-from data_utils import format_conversation, tokenize_for_sft, setup_tokenizer
+from data_utils import format_prompt, tokenize_for_sft, setup_tokenizer
 
 from trl import (
     ModelConfig,
     SFTConfig,
     SFTTrainer,
-    ScriptArguments,
-    get_peft_config,
 )
 
 # Define a simple chat template if needed
@@ -59,7 +57,18 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
 
 def post_process_common_dataset(ds, tokenizer, script_args):
     def formatting_func(example):
-        text = format_conversation(example['chosen'], tokenizer)
+        chosen_messages = example["chosen"]
+        prompt = format_prompt(chosen_messages, tokenizer)
+
+        last_message = chosen_messages[-1] if chosen_messages else {}
+        if isinstance(last_message, dict):
+            response = last_message.get("content", "")
+        else:
+            response = str(last_message)
+
+        # Match legacy SFT target construction used by prior checkpoints:
+        # prompt template (with generation header) + raw assistant response text.
+        text = prompt + response
         tokens = tokenize_for_sft(text, tokenizer)
 
         return {
@@ -70,7 +79,12 @@ def post_process_common_dataset(ds, tokenizer, script_args):
     ds = ds.map(formatting_func,
                 remove_columns=ds.column_names,
                 batched=False, num_proc=10)
+    before = len(ds)
     ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=10)
+    after = len(ds)
+    print(
+        f"[SFT] Filtered by max_length_filter={script_args.max_length_filter}: {before} -> {after}"
+    )
     ds.set_format(type="torch")
     return ds
 
@@ -98,7 +112,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
-        torch_dtype=torch.bfloat16,
+        # torch_dtype=torch.bfloat16,
     )
     
     # Resize token embeddings if needed
