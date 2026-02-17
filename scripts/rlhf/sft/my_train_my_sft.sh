@@ -9,7 +9,7 @@
 
 # Go to the root of the repo
 cd /nas/ucb/eop/Reward-Model-Overoptimization/ || exit
-
+f
 export HF_HOME="/nas/ucb/eop/cache"
 export TMPDIR="/nas/ucb/eop/temp"
 export TEMP="/nas/ucb/eop/temp"
@@ -28,7 +28,7 @@ export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 base_model_name="Qwen/Qwen3-0.6B-Base"
-dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B"
+dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10K"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
 
