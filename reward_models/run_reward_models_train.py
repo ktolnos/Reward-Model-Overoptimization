@@ -46,7 +46,9 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[List[str]] = field(default="llm-blender/Unified-Feedback")
+    dataset: Optional[List[str]] = field(
+        default_factory=lambda: ["llm-blender/Unified-Feedback"]
+    )
     dataset_mode: Optional[str] = field(
         default="",
         metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},
@@ -98,8 +100,14 @@ script_args = parser.parse_args_into_dataclasses()[0]
 torch.manual_seed(script_args.seed)
 np.random.seed(script_args.seed)
 
+dataset_list = script_args.dataset
+if isinstance(dataset_list, str):
+    dataset_list = [dataset_list]
+if not dataset_list:
+    raise ValueError("--dataset must contain at least one dataset path/name.")
+
 model_name_split = script_args.base_model.split("/")[-1]
-dataset_name = script_args.dataset[0]
+dataset_name = dataset_list[0]
 if script_args.use_lora:
     output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 else:
@@ -144,15 +152,15 @@ setup_tokenizer(tokenizer)
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(
-    script_args.dataset[0],
+    dataset_list[0],
     tokenizer,
     mode=script_args.dataset_mode,
     size=100 if script_args.debug else None,
     seed=script_args.seed,
 )
-for i in range(1, len(script_args.dataset)):
+for i in range(1, len(dataset_list)):
     new_train_dataset = build_dataset(
-        script_args.dataset[i],
+        dataset_list[i],
         tokenizer,
         split="train",
         size=100 if script_args.debug else None,

@@ -311,7 +311,7 @@ def precompute_reward_means(
         cache_data = {
             "model_path": model_path,
             "mean_reward": mean_reward,
-            "num_samples": len(all_texts),
+            "num_samples": len(all_rewards_for_model),
             "dataset_path": dataset_path,
             "computed_at": datetime.now().isoformat(),
         }

@@ -489,9 +489,16 @@ def annotate_dataset(model_name,
         str: Path to the saved dataset
     """
     model, tokenizer = load_reward_model(model_name, reasoning, device="cuda" if torch.cuda.is_available() else "cpu")
-
     if reasoning:
-        results = evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size, max_length)
+        raise NotImplementedError(
+            "Reasoning reward-model annotation is disabled for this pipeline. "
+            "The reasoning path uses generation-based judging prompts and a "
+            "different objective than sequence-classification reward scoring, "
+            "so results are not directly comparable to the non-reasoning gold "
+            "annotation pipeline. Use --reasoning False."
+        )
+        # TODO: Re-enable once reasoning-mode annotation is redesigned.
+        # results = evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size, max_length)
     else:
         results = evaluate_with_reward_model(dataset, model, tokenizer, batch_size, max_length)
 
