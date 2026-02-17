@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 from datasets import load_dataset, concatenate_datasets
-from data_utils import format_conversation, format_prompt
+from data_utils import format_conversation, format_prompt, tokenize_text_with_special_tokens
 
 
 # for vanilla chosen and reject style dataset, such as dendrydong/preference_700K
@@ -20,22 +20,22 @@ def build_dataset(data_path, tokenizer, split="train", size=None, model_name="")
         prompt_plus_rejected_response = format_conversation(
             rejected_messages, tokenizer
         )
-        tokens_chosen = tokenizer(
-            text=prompt_plus_chosen_response,
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response,
+            tokenizer,
             return_tensors="pt",
-            add_special_tokens=False,
         )
-        tokens_rejected = tokenizer(
-            text=prompt_plus_rejected_response,
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response,
+            tokenizer,
             return_tensors="pt",
-            add_special_tokens=False,
         )
 
         if "GRM" in model_name:
             # add label mask for sft and dpo training
             prompt_text = format_prompt(example["chosen"], tokenizer)
-            tokens_prompt = tokenizer(
-                text=prompt_text, return_tensors="pt", add_special_tokens=False
+            tokens_prompt = tokenize_text_with_special_tokens(
+                prompt_text, tokenizer, return_tensors="pt"
             )["input_ids"][0]
             label_chosen = tokens_chosen["input_ids"][0].clone()
             label_chosen[: len(tokens_prompt)] = -100
@@ -132,15 +132,19 @@ def build_dataset_UF(
         prompt_plus_rejected_response = tokenizer.apply_chat_template(
             rejected_messages, tokenize=False
         )
-        tokens_chosen = tokenizer(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )
         if "GRM" in model_name:
             # add label mask for sft and dpo training
             prompt = [example["conv_A"][0]]
             prompt_template = tokenizer.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
-            tokens_prompt = tokenizer.encode_plus(prompt_template, **kwargs)[
+            tokens_prompt = tokenize_text_with_special_tokens(prompt_template, tokenizer, **kwargs)[
                 "input_ids"
             ][0]
             label_chosen = tokens_chosen["input_ids"][0].clone()

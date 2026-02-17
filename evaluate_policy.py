@@ -32,7 +32,7 @@ from data_utils import (
     format_prompt,
     setup_tokenizer,
     format_reward_texts,
-    tokenize_for_rm,
+    count_tokens_with_special_tokens,
 )
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
@@ -587,7 +587,7 @@ def main():
     # Filter prompts that exceed max_length (no room for generation)
     before = len(dataset)
     dataset = dataset.filter(
-        lambda x: len(policy_tokenizer.encode(x["prompt"], add_special_tokens=False)) <= args.max_length,
+        lambda x: count_tokens_with_special_tokens(x["prompt"], policy_tokenizer) <= args.max_length,
     )
     if len(dataset) < before:
         print(f"Filtered prompts by max_length={args.max_length}: {before} -> {len(dataset)}")
@@ -877,7 +877,6 @@ def main():
                             training_rm_tokenizer,
                             training_reward_texts,
                             batch_size=args.batch_size,
-                            add_special_tokens=True,
                         ).cpu().float().numpy()
 
                     print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
@@ -887,7 +886,6 @@ def main():
                         gold_rm_tokenizer,
                         gold_reward_texts,
                         batch_size=args.batch_size,
-                        add_special_tokens=True,
                     ).cpu().float().numpy()
 
                     checkpoint_num = int(checkpoint.split("-")[1])

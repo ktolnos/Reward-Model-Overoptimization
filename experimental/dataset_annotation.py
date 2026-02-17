@@ -15,7 +15,14 @@ from tqdm import tqdm
 import json
 import random
 from reward_utils import Skywork_SYSTEM_PROMPT, Skywork_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
-from data_utils import format_conversation, format_prompt, tokenize_for_rm, setup_tokenizer
+from data_utils import (
+    format_conversation,
+    format_prompt,
+    tokenize_for_rm,
+    setup_tokenizer,
+    strip_bos_if_present_batch,
+    tokenize_texts_with_special_tokens,
+)
 from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
 
@@ -195,12 +202,14 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
             prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             prompts.append(prompt)
 
+        prompts = strip_bos_if_present_batch(prompts, tokenizer)
         inputs = tokenizer(prompts,
                            padding='longest',
                            truncation=True,
                            max_length=max_length,
                            return_tensors="pt",
                            padding_side="left",
+                           add_special_tokens=True,
        ).to(model.device)
 
         generation_args = {
@@ -283,7 +292,12 @@ def generate_with_reference_policy(
             for item in batch_data
         ]
 
-        inputs = tokenizer(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
+        inputs = tokenize_texts_with_special_tokens(
+            prompts,
+            tokenizer,
+            return_tensors="pt",
+            padding=True,
+        ).to(device)
 
         with torch.no_grad():
             outputs = policy_model.generate(

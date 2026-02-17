@@ -6,6 +6,7 @@ from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
 )
+from data_utils import tokenize_text_with_special_tokens
 
 
 from datasets import load_dataset, Dataset, concatenate_datasets
@@ -54,8 +55,12 @@ def build_dataset_UF4gold_score(data_path, tokenizer, split='', size=None, max_l
         
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )
         return {
             "input_ids": tokens_chosen["input_ids"][0], "attention_mask_chosen": tokens_chosen["attention_mask"][0],
             "input_ids_rejected": tokens_rejected["input_ids"][0], "attention_mask_rejected": tokens_rejected["attention_mask"][0]
@@ -90,8 +95,12 @@ def load_dataset_within_maxlength(data_path, tokenizer, split='', size=None, max
         rejected_messages = example['conv_B']
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)["input_ids"]
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)["input_ids"]
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )["input_ids"]
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )["input_ids"]
         return {
             "len_chosen": len(tokens_chosen),
             "len_rejected": len(tokens_rejected),

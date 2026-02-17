@@ -147,6 +147,8 @@ def transfer_template_rm(prompt, response, tokenizer, rm_tokenizer):
 
 
 def build_dataset_unified(data_path, tokenizer, script_args, split='', size=None):
+    from data_utils import tokenize_text_with_special_tokens
+
     ds = datasets.load_dataset(data_path, split=split)
 
     if size is not None:
@@ -170,11 +172,13 @@ def build_dataset_unified(data_path, tokenizer, script_args, split='', size=None
                     'openai/webgpt_comparisons': 15}
 
     def formatting_func(example):
-        kwargs = {"return_tensors": "pt"}
-        # kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
         messages = example['conv_A'][:-1]
         prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+        tokens = tokenize_text_with_special_tokens(
+            prompt_plus_response,
+            tokenizer,
+            return_tensors="pt",
+        )
 
         return {
             'query': prompt_plus_response,
@@ -209,11 +213,15 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
     return ds
 
 def post_process_common_dataset(ds, tokenizer, script_args):
-    from data_utils import format_prompt
+    from data_utils import format_prompt, tokenize_text_with_special_tokens
 
     def formatting_func(example):
         prompt = format_prompt(example["chosen"], tokenizer)
-        tokens = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+        tokens = tokenize_text_with_special_tokens(
+            prompt,
+            tokenizer,
+            return_tensors="pt",
+        )
 
         return {
             "input_ids": tokens["input_ids"][0],

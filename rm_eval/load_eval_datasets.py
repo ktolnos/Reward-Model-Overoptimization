@@ -2,6 +2,7 @@ from scipy.io.arff.tests.test_arffread import data_path
 from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset, concatenate_datasets
+from data_utils import tokenize_text_with_special_tokens
 
 
 
@@ -47,8 +48,12 @@ def build_unified_eval_dataset(data_path, tokenizer, split='val', size=None):
         
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )
         return {
             "input_ids": tokens_chosen["input_ids"][0], "attention_mask_chosen": tokens_chosen["attention_mask"][0],
             "input_ids_rejected": tokens_rejected["input_ids"][0], "attention_mask_rejected": tokens_rejected["attention_mask"][0]
@@ -151,8 +156,12 @@ def build_ood_eval_dataset(data_path, tokenizer, split='test', size=None):
 
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )
         return {
             "input_ids": tokens_chosen["input_ids"][0], "attention_mask_chosen": tokens_chosen["attention_mask"][0],
             "input_ids_rejected": tokens_rejected["input_ids"][0], "attention_mask_rejected": tokens_rejected["attention_mask"][0]

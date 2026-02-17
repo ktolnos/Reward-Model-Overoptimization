@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import json
 from datetime import datetime
 from reward_utils import get_reward, get_reward_rm, build_reward_texts, is_reasoning
-from data_utils import format_prompt
+from data_utils import format_prompt, count_tokens_with_special_tokens
 import math
 
 
@@ -100,7 +100,7 @@ def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
     if max_prompt_length is not None:
         before = len(ds)
         ds = ds.filter(
-            lambda x: len(tokenizer.encode(x["prompt"], add_special_tokens=False)) <= max_prompt_length,
+            lambda x: count_tokens_with_special_tokens(x["prompt"], tokenizer) <= max_prompt_length,
             num_proc=10,
         )
         print(f"Filtered prompts by max_prompt_length={max_prompt_length}: {before} -> {len(ds)}")
@@ -295,7 +295,7 @@ def precompute_reward_means(
             reward_texts = format_reward_texts(batch, responses=None, rm_tokenizer=reward_tokenizer)
 
             scores = get_reward_rm(
-                reward_model, reward_tokenizer, reward_texts, batch_size=batch_size, add_special_tokens=True
+                reward_model, reward_tokenizer, reward_texts, batch_size=batch_size
             ).cpu().float().numpy()
             all_rewards_for_model.extend(scores)
 
@@ -418,7 +418,6 @@ def build_reward_function(
                     completions,
                     reward_controller=controller,
                     prompt_messages=kwargs.get("prompt_messages"),
-                    add_special_tokens=True,
                 )
             streams.append(stream)
             pending_results.append((result, rm.config._name_or_path))

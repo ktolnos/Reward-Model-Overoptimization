@@ -13,6 +13,7 @@ tqdm.pandas()
 from ppo_utils import print_trainable_parameters, collator, eval_model, build_dataset_unified, transfer_template_rm, plot_curve
 from rm_utils import load_reward_model, RMEnsemble
 from config import get_config
+from data_utils import tokenize_text_with_special_tokens
 
 
 @dataclass
@@ -145,11 +146,11 @@ for epoch in range(epochs):
         # Compute score
         kwargs = {"padding": 'max_length', "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
         if tokenizer.chat_template == reward_models.rm_tokenizers[0].chat_template:
-            encoded_prompt_response = [reward_models.rm_tokenizers[0].encode_plus(query + response, **kwargs) for query, response in zip(batch['query'], batch['response'])]
+            encoded_prompt_response = [tokenize_text_with_special_tokens(query + response, reward_models.rm_tokenizers[0], **kwargs) for query, response in zip(batch['query'], batch['response'])]
         else:
             # changing template for different reward model and base model
             temp_lis = [(transfer_template_rm(query, response, tokenizer, reward_models.rm_tokenizers[0])) for query, response in zip(batch['query'], batch['response'])]
-            encoded_prompt_response = [reward_models.rm_tokenizers[0].encode_plus(query + response, **kwargs) for query, response in temp_lis]
+            encoded_prompt_response = [tokenize_text_with_special_tokens(query + response, reward_models.rm_tokenizers[0], **kwargs) for query, response in temp_lis]
         
         with torch.no_grad():
             reward_tensors = reward_models.forward(encoded_prompt_response)

@@ -6,6 +6,7 @@ from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
 )
+from data_utils import tokenize_text_with_special_tokens, tokenize_texts_with_special_tokens
 
 
 def load_train_eval_dataset(data_path, tokenizer, size=None, model_name=''):
@@ -42,13 +43,19 @@ def build_dataset_UF(data_path, tokenizer, split='train', size=None, model_name=
         
         prompt_plus_chosen_response = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
         prompt_plus_rejected_response = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
-        tokens_chosen = tokenizer.encode_plus(prompt_plus_chosen_response, **kwargs)
-        tokens_rejected = tokenizer.encode_plus(prompt_plus_rejected_response, **kwargs)
+        tokens_chosen = tokenize_text_with_special_tokens(
+            prompt_plus_chosen_response, tokenizer, **kwargs
+        )
+        tokens_rejected = tokenize_text_with_special_tokens(
+            prompt_plus_rejected_response, tokenizer, **kwargs
+        )
         if 'grm' in model_name:
             # add label mask for sft and dpo training
             prompt = [example['conv_A'][0]]
             prompt_template = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
-            tokens_prompt = tokenizer.encode_plus(prompt_template, **kwargs)['input_ids'][0]
+            tokens_prompt = tokenize_text_with_special_tokens(
+                prompt_template, tokenizer, **kwargs
+            )['input_ids'][0]
             label_chosen = tokens_chosen["input_ids"][0].clone()
             label_chosen[:len(tokens_prompt)] = -100
             label_rejected = tokens_rejected["input_ids"][0].clone()
@@ -97,7 +104,9 @@ def build_datasets_inference(data_path, tokenizer, split='', size=None, max_leng
                 {"role": "assistant", "content": answer}]
       
         prompt_plus_response = tokenizer.apply_chat_template(messages, tokenize=False)
-        tokens = tokenizer.encode_plus(prompt_plus_response, **kwargs)
+        tokens = tokenize_text_with_special_tokens(
+            prompt_plus_response, tokenizer, **kwargs
+        )
 
         if w_order:
             return {
@@ -144,7 +153,14 @@ def load_data2generate(data_path, tokenizer, N, debug=False):
 
     def tokenize_function(examples):
         inputs_ = tokenizer.apply_chat_template(examples["prompt"], tokenize=False, add_generation_prompt=True)
-        tokenized_inputs = tokenizer(inputs_, truncation=True, padding="max_length", max_length=1024, return_tensors="pt")
+        tokenized_inputs = tokenize_texts_with_special_tokens(
+            inputs_,
+            tokenizer,
+            truncation=True,
+            padding="max_length",
+            max_length=1024,
+            return_tensors="pt",
+        )
         return {
             'input_ids': tokenized_inputs['input_ids'],
             'attention_mask': tokenized_inputs['attention_mask'],

@@ -1,7 +1,7 @@
 """Unified data formatting and tokenization for the full pipeline.
 
 Conventions:
-- apply_chat_template handles all special tokens -> always use add_special_tokens=False when tokenizing
+- apply_chat_template may include BOS; strip BOS before tokenization, then always use add_special_tokens=True
 - padding_side="left" everywhere
 - No truncation during tokenization; datasets must be pre-filtered
 - format_reward_texts: for RM scoring (Evaluation, GRPO rewards, Annotation).
@@ -17,6 +17,42 @@ def setup_tokenizer(tokenizer):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
+
+
+def strip_bos_if_present(text, tokenizer):
+    """Strip a leading BOS token from text, if present."""
+    if tokenizer.bos_token is None:
+        return text
+    if isinstance(text, str) and text.startswith(tokenizer.bos_token):
+        return text[len(tokenizer.bos_token) :]
+    return text
+
+
+def strip_bos_if_present_batch(texts, tokenizer):
+    """Strip a leading BOS token from each text in a list."""
+    return [strip_bos_if_present(text, tokenizer) for text in texts]
+
+
+def tokenize_text_with_special_tokens(text, tokenizer, **kwargs):
+    """Tokenize one text after stripping BOS and forcing special-token addition."""
+    text = strip_bos_if_present(text, tokenizer)
+    kwargs = dict(kwargs)
+    kwargs["add_special_tokens"] = True
+    return tokenizer(text=text, **kwargs)
+
+
+def tokenize_texts_with_special_tokens(texts, tokenizer, **kwargs):
+    """Tokenize a batch of texts after stripping BOS and forcing special-token addition."""
+    texts = strip_bos_if_present_batch(texts, tokenizer)
+    kwargs = dict(kwargs)
+    kwargs["add_special_tokens"] = True
+    return tokenizer(text=texts, **kwargs)
+
+
+def count_tokens_with_special_tokens(text, tokenizer):
+    """Token count after BOS stripping and tokenizer-added special tokens."""
+    text = strip_bos_if_present(text, tokenizer)
+    return len(tokenizer.encode(text, add_special_tokens=True))
 
 
 def format_prompt(conversation, tokenizer):
@@ -78,30 +114,25 @@ def format_reward_texts(prompt_messages_list, responses, rm_tokenizer):
 def _format_single_conv_for_rm(conversation, tokenizer):
     """Helper to apply chat template and strip BOS."""
     text = tokenizer.apply_chat_template(conversation, tokenize=False)
-    if tokenizer.bos_token is not None and text.startswith(tokenizer.bos_token):
-        text = text[len(tokenizer.bos_token) :]
-    return text
+    return strip_bos_if_present(text, tokenizer)
 
 
-def tokenize_for_rm(texts, tokenizer, add_special_tokens=False):
+def tokenize_for_rm(texts, tokenizer):
     """Tokenize pre-formatted texts for reward model (training or inference).
 
-    Uses add_special_tokens=False by default because texts from
-    format_conversation/format_prompt already include all special tokens
-    from apply_chat_template.  Pass add_special_tokens=True when the BOS
-    has been stripped from the text (e.g. following the HF model-card
-    convention of strip-BOS + re-add via tokenizer).
+    Strips leading BOS from each text, then tokenizes with
+    add_special_tokens=True.
     Left-pads for batch processing.
 
     Used by: RM training (load_datasets.py), RM scoring (reward_utils.py),
     evaluation (evaluate_policy.py), annotation (dataset_annotation.py).
     """
-    return tokenizer(
-        text=texts,
+    return tokenize_texts_with_special_tokens(
+        texts,
+        tokenizer,
         return_tensors="pt",
         padding=True,
         padding_side="left",
-        add_special_tokens=add_special_tokens,
     )
 
 
@@ -109,7 +140,6 @@ def tokenize_for_sft(text, tokenizer):
     """Tokenize a single pre-formatted text for SFT training.
 
     No padding (handled by SFTTrainer/collator).
-    Uses add_special_tokens=False because text from format_conversation
-    already includes all special tokens.
+    Strips leading BOS, then tokenizes with add_special_tokens=True.
     """
-    return tokenizer(text, return_tensors="pt", add_special_tokens=False)
+    return tokenize_text_with_special_tokens(text, tokenizer, return_tensors="pt")

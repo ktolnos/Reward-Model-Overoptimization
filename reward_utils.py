@@ -60,15 +60,18 @@ def build_reward_texts(prompts, completions, tokenizer):
     distribution (format_conversation always includes EOT). The RM
     classification head is trained to predict at the EOT position.
     """
+    raise ValueError("Current experiments expect to use apply_chat_template. This error is to avoid accidentally using incorrect formatting")
     if prompts is None or completions is None:
         raise ValueError("prompts and completions must be provided.")
+    from data_utils import strip_bos_if_present
+
     eos_text = tokenizer.decode([tokenizer.eos_token_id])
-    return [p + c + eos_text for p, c in zip(prompts, completions)]
+    return [strip_bos_if_present(p + c + eos_text, tokenizer) for p, c in zip(prompts, completions)]
 
 
 def get_reward(reward_model, reward_tokenizer, prompts, completions,
                reward_controller=None, require_grad=False, batch_size=None,
-               prompt_messages=None, add_special_tokens=False):
+               prompt_messages=None):
     """Score completions with a reward model.
 
     If prompt_messages (list of message dicts) is provided, uses the RM's own
@@ -78,30 +81,26 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions,
     if prompt_messages is not None:
         from data_utils import format_reward_texts
         texts = format_reward_texts(prompt_messages, completions, reward_tokenizer)
-        # Note: format_reward_texts strips BOS, so we MUST re-add it via add_special_tokens=True
-        # if the RM expects it. For consistency with evaluate_policy, we use the provided flag.
     else:
         texts = build_reward_texts(prompts, completions, reward_tokenizer)
 
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
-    return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size, add_special_tokens=add_special_tokens)
+    return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None, add_special_tokens=False):
+def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None):
     """Score texts with a reward model.
 
     Args:
         texts: Pre-formatted text strings (from format_conversation or prompt+completion).
         require_grad: If True, keep gradients for the reward computation.
         batch_size: If set, processes in batches (for large inputs). Returns CPU tensor.
-        add_special_tokens: If True, let the tokenizer add BOS/EOS (use when
-            BOS has been stripped from the text, matching HF model-card convention).
     """
     from data_utils import tokenize_for_rm
 
     if batch_size is None:
-        reward_inputs = tokenize_for_rm(texts, reward_tokenizer, add_special_tokens=add_special_tokens)
+        reward_inputs = tokenize_for_rm(texts, reward_tokenizer)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
             return reward_model(**reward_inputs).logits[:, 0]
@@ -111,7 +110,7 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
     all_rewards = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        reward_inputs = tokenize_for_rm(batch, reward_tokenizer, add_special_tokens=add_special_tokens)
+        reward_inputs = tokenize_for_rm(batch, reward_tokenizer)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
             rewards = reward_model(**reward_inputs).logits[:, 0]
@@ -188,6 +187,8 @@ def _run_batched_pairwise_comparisons(
     if not comparison_requests:
         return [], [], []
 
+    from data_utils import strip_bos_if_present_batch
+
     all_preferences = []
 
     for i in range(0, len(comparison_requests), generation_batch_size):
@@ -213,6 +214,8 @@ def _run_batched_pairwise_comparisons(
             )
             prompts_for_model.append(input_text)
 
+        prompts_for_model = strip_bos_if_present_batch(prompts_for_model, reward_tokenizer)
+
         inputs = reward_tokenizer(
             prompts_for_model,
             return_tensors="pt",
@@ -220,6 +223,7 @@ def _run_batched_pairwise_comparisons(
             truncation=True,
             max_length=max_length,
             padding_side="left",
+            add_special_tokens=True,
         ).to(reward_model.device)
 
         generation_args = {
