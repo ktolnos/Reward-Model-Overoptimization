@@ -87,9 +87,8 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --logging_steps 20 \
     --report_to "wandb" \
     --run_name ${wandb_name} \
-    --max_prompt_length 4096 \
-    --max_length_filter 4096 \
-    --max_length 4096 \
+    --max_prompt_length 2024 \
+    --max_conversation_len 4048 \
     --trust_remote_code True || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"

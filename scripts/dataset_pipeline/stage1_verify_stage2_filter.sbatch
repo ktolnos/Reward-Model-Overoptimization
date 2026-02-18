@@ -19,12 +19,6 @@ if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
   exit 1
 fi
 cd "${REPO_ROOT}"
-
-export HF_HOME="/nas/ucb/eop/cache"
-export TMPDIR="/nas/ucb/eop/temp"
-export TEMP="/nas/ucb/eop/temp"
-export TMP="/nas/ucb/eop/temp"
-export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
 export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
 SOURCE_DATASET=""

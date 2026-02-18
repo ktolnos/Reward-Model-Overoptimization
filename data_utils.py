@@ -169,6 +169,46 @@ def validate_length_or_fail(
     return token_length
 
 
+def validate_conversation_messages_or_fail(
+    messages,
+    *,
+    field_name="conversation",
+    sample_id=None,
+    context="sample",
+    require_last_assistant=True,
+):
+    """Validate that messages are a non-empty list of {role, content} dicts."""
+    sample_suffix = f" (sample_id={sample_id})" if sample_id is not None else ""
+
+    if not isinstance(messages, list) or len(messages) == 0:
+        raise ValueError(
+            f"{context} {field_name} must be a non-empty list of messages{sample_suffix}."
+        )
+
+    for idx, message in enumerate(messages):
+        if not isinstance(message, dict):
+            raise ValueError(
+                f"{context} {field_name}[{idx}] must be a dict{sample_suffix}."
+            )
+        if "role" not in message or "content" not in message:
+            raise ValueError(
+                f"{context} {field_name}[{idx}] must contain role/content keys{sample_suffix}."
+            )
+        if not isinstance(message["role"], str):
+            raise ValueError(
+                f"{context} {field_name}[{idx}].role must be a string{sample_suffix}."
+            )
+        if not isinstance(message["content"], str):
+            raise ValueError(
+                f"{context} {field_name}[{idx}].content must be a string{sample_suffix}."
+            )
+
+    if require_last_assistant and messages[-1]["role"] != "assistant":
+        raise ValueError(
+            f"{context} {field_name} last message must have role='assistant'{sample_suffix}."
+        )
+
+
 def format_prompt(conversation, tokenizer):
     """Format the prompt portion of a conversation (all messages except the last).
     Returns a string ending with the generation prompt marker.
@@ -214,6 +254,27 @@ def format_and_validate_preference_sample(
     Returns:
         Tuple of (prompt_text, chosen_text, rejected_text_or_None).
     """
+    validate_conversation_messages_or_fail(
+        chosen_messages,
+        field_name="chosen",
+        sample_id=sample_id,
+        context=context,
+        require_last_assistant=True,
+    )
+    if rejected_messages is not None:
+        validate_conversation_messages_or_fail(
+            rejected_messages,
+            field_name="rejected",
+            sample_id=sample_id,
+            context=context,
+            require_last_assistant=True,
+        )
+        if chosen_messages[:-1] != rejected_messages[:-1]:
+            sample_suffix = f" (sample_id={sample_id})" if sample_id is not None else ""
+            raise ValueError(
+                f"{context} chosen/rejected must share identical prompt messages{sample_suffix}."
+            )
+
     prompt_text = format_prompt(chosen_messages, tokenizer)
     chosen_text = format_conversation(chosen_messages, tokenizer)
     if not chosen_text.startswith(prompt_text):
