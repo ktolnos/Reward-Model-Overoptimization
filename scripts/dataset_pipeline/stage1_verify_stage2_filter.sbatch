@@ -86,9 +86,9 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
 fi
 
 echo "Running Stage 1 verification for ${SOURCE_DATASET}"
-python scripts/dataset_pipeline/stage1_verify_dataset.py "${VERIFY_ARGS[@]}"
+python3 scripts/dataset_pipeline/stage1_verify_dataset.py "${VERIFY_ARGS[@]}"
 
 echo "Running Stage 2 filtering/splitting/upload to ${OUTPUT_DATASET}"
-python scripts/dataset_pipeline/stage2_filter_split_upload.py "${FILTER_ARGS[@]}"
+python3 scripts/dataset_pipeline/stage2_filter_split_upload.py "${FILTER_ARGS[@]}"
 
 echo "Stage 1+2 completed successfully."

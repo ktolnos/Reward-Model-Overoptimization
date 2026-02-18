@@ -53,6 +53,6 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
 fi
 
 echo "Running Stage 4 subsampling ${SOURCE_DATASET} -> ${OUTPUT_DATASET}"
-python scripts/dataset_pipeline/stage4_subsample_upload.py "${ARGS[@]}"
+python3 scripts/dataset_pipeline/stage4_subsample_upload.py "${ARGS[@]}"
 
 echo "Stage 4 completed successfully."

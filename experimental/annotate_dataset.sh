@@ -27,4 +27,4 @@ export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
-python scripts/dataset_pipeline/stage3_annotate_and_upload.py "$@"
+python3 scripts/dataset_pipeline/stage3_annotate_and_upload.py "$@"
