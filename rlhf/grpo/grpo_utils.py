@@ -11,7 +11,6 @@ from tqdm import tqdm
 import datasets
 import numpy as np
 import pandas as pd
-from transformers import AutoModelForSequenceClassification, AutoModelForCausalLM
 from trl import GRPOTrainer
 import wandb
 
@@ -19,7 +18,13 @@ tqdm.pandas()
 import matplotlib.pyplot as plt
 import json
 from datetime import datetime
-from reward_utils import get_reward, get_reward_rm, build_reward_texts, is_reasoning
+from reward_utils import (
+    get_reward,
+    get_reward_rm,
+    build_reward_texts,
+    is_reasoning,
+    load_reward_model,
+)
 from data_utils import (
     format_and_validate_preference_sample,
     completion_has_stop_token,
@@ -119,23 +124,16 @@ def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
 
 
 def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
-    """Loads a reward model from the given path."""
-    # print(f"Loading reward model from {model_path}")
-    if "RRM" in model_path:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            trust_remote_code=trust_remote_code,
-            torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
-        )
-    else:
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_path,
-            trust_remote_code=trust_remote_code,
-            torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
-        )
-    model.config.pad_token_id = tokenizer.pad_token_id
+    """Load reward/reasoning model via the shared reward_utils loader."""
+    reasoning = "RRM" in model_path
+    model, _ = load_reward_model(
+        model_path,
+        reasoning=reasoning,
+        tokenizer=tokenizer,
+        trust_remote_code=trust_remote_code,
+        device=None,
+        use_device_map=False,
+    )
     return model
 
 # Important: use for logging only, the values are reset after logging to represent the current mean accurately. Do not use for calculations.

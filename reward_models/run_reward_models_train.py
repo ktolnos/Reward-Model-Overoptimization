@@ -46,9 +46,7 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[List[str]] = field(
-        default_factory=lambda: ["llm-blender/Unified-Feedback"]
-    )
+    dataset: List[str]
     dataset_mode: Optional[str] = field(
         default="",
         metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},
@@ -146,9 +144,7 @@ training_args = TrainingArguments(
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False)
 tokenizer.max_length = script_args.max_length
-if "Llama" in script_args.base_model and tokenizer.pad_token is None:
-    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-setup_tokenizer(tokenizer)
+setup_tokenizer(tokenizer, model_name=script_args.base_model)
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(

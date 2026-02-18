@@ -16,11 +16,32 @@ DEFAULT_MAX_RESPONSE_TOKENS = 1024
 DEFAULT_MAX_CONVERSATION_TOKENS = DEFAULT_MAX_PROMPT_TOKENS + DEFAULT_MAX_RESPONSE_TOKENS
 
 
-def setup_tokenizer(tokenizer):
+def _looks_like_llama_model(tokenizer, model_name=None):
+    """Best-effort detection for Llama-family tokenizers/models."""
+    candidates = [
+        model_name,
+        getattr(tokenizer, "name_or_path", None),
+        getattr(getattr(tokenizer, "tokenizer", None), "name_or_path", None),
+        tokenizer.__class__.__name__,
+    ]
+    for candidate in candidates:
+        if candidate and "llama" in str(candidate).lower():
+            print("Detected Llama model.")
+            return True
+    return False
+
+
+def setup_tokenizer(tokenizer, model_name=None):
     """Ensure consistent tokenizer configuration across all stages."""
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+        # Keep legacy Llama behavior: use [PAD] if the tokenizer has no pad token.
+        if _looks_like_llama_model(tokenizer, model_name=model_name):
+            if hasattr(tokenizer, "add_special_tokens"):
+                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+            tokenizer.pad_token = "[PAD]"
+        elif tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
 
 

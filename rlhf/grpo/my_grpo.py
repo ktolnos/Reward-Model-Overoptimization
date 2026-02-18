@@ -27,7 +27,6 @@ from grpo_utils import (
     build_reward_function,
     precompute_reward_means,
     RewardController,
-    _load_reward_model,
 )
 from online_pet import OnlinePETConfig, OnlinePETCallback
 

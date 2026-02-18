@@ -44,7 +44,15 @@ Skywork_ASSISTANT_PROMPT = """## Analysis
 Let's analyze this step by step and decide which assistant is better, and then answer \\boxed{Assistant 1} or \\boxed{Assistant 2}."""
 
 
-def load_reward_model(model_name, reasoning, device=None):
+def load_reward_model(
+    model_name,
+    reasoning,
+    device=None,
+    *,
+    tokenizer=None,
+    trust_remote_code=True,
+    use_device_map=True,
+):
     """Load a reward model and its tokenizer for either RM or reasoning mode."""
     from transformers import (
         AutoModelForCausalLM,
@@ -60,15 +68,20 @@ def load_reward_model(model_name, reasoning, device=None):
     kwargs = {
         "torch_dtype": torch.bfloat16,
         "attn_implementation": "flash_attention_2",
-        "trust_remote_code": True,
-        "device_map": device,
+        "trust_remote_code": trust_remote_code,
     }
-    if "Skywork-Reward-V2" in model_name:
+    if use_device_map:
+        kwargs["device_map"] = device
+    if "Skywork-Reward-V2" in model_name and not reasoning:
         kwargs["num_labels"] = 1
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    setup_tokenizer(tokenizer)
+    if tokenizer is None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            trust_remote_code=trust_remote_code,
+        )
+    setup_tokenizer(tokenizer, model_name=model_name)
 
-    if "QRM" in model_name:
+    if "QRM" in model_name and not isinstance(tokenizer, TokenizerWrapper):
         kwargs["torch_dtype"] = torch.bfloat16
         tokenizer = TokenizerWrapper(tokenizer, model_name)
 
@@ -77,6 +90,8 @@ def load_reward_model(model_name, reasoning, device=None):
         model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
     else:
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
+    if getattr(tokenizer, "pad_token_id", None) is not None:
+        model.config.pad_token_id = tokenizer.pad_token_id
     model.eval()
     return model, tokenizer
 

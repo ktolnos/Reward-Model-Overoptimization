@@ -7,9 +7,13 @@
 #SBATCH --time=12:00:00
 #SBATCH --qos=high
 
-cd /nas/ucb/eop/Reward-Model-Overoptimization/experimental/
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+
 export HF_HOME="/nas/ucb/eop/cache"
-export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
+export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 export TMPDIR="/nas/ucb/eop/temp"
 export TEMP="/nas/ucb/eop/temp"
 export TMP="/nas/ucb/eop/temp"
@@ -23,4 +27,4 @@ export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
-python dataset_annotation.py
+python scripts/dataset_pipeline/stage3_annotate_and_upload.py "$@"

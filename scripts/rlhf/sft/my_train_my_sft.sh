@@ -9,7 +9,7 @@
 
 # Go to the root of the repo
 cd /nas/ucb/eop/Reward-Model-Overoptimization/ || exit
-f
+
 export HF_HOME="/nas/ucb/eop/cache"
 export TMPDIR="/nas/ucb/eop/temp"
 export TEMP="/nas/ucb/eop/temp"

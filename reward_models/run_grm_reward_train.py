@@ -35,7 +35,7 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: Optional[str] = field(default='llm-blender/Unified-Feedback')
+    dataset: List[str]
     dataset_mode: Optional[str] = field(default='', metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},)
     # lora
     use_lora: Optional[bool] = field(default=True)
@@ -108,7 +108,7 @@ training_args = TrainingArguments(
 
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast = False)
-setup_tokenizer(tokenizer)
+setup_tokenizer(tokenizer, model_name=script_args.base_model)
 tokenizer.max_length = script_args.max_length
 
 # Load datasets

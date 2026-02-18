@@ -1,0 +1,140 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${REPO_ROOT}"
+
+SOURCE_DATASET=""
+REWARD_MODEL=""
+PREFIX=""
+NAMESPACE=""
+TOKENIZER_NAME="Qwen/Qwen3-0.6B"
+SEED=42
+TRAIN_RATIO=0.9
+TEST_RATIO=0.05
+HELDOUT_RATIO=0.05
+SUBSAMPLE_FRACTION=0.25
+MAX_PROMPT_TOKENS=1000
+MAX_RESPONSE_TOKENS=1000
+MAX_CONVERSATION_TOKENS=2000
+MAX_ERRORS=20
+PRIVATE=0
+TRUST_REMOTE_CODE=0
+
+usage() {
+  cat <<EOF
+Usage: $0 \
+  --source-dataset <hf_repo> \
+  --reward-model <hf_or_local_model> \
+  --prefix <name_prefix> \
+  --namespace <hf_user_or_org> \
+  [--tokenizer-name <hf_tokenizer>] \
+  [--seed <int>] \
+  [--train-ratio <float>] [--test-ratio <float>] [--heldout-ratio <float>] \
+  [--subsample-fraction <float>] \
+  [--max-prompt-tokens <int>] [--max-response-tokens <int>] [--max-conversation-tokens <int>] \
+  [--max-errors <int>] [--private] [--trust-remote-code]
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source-dataset) SOURCE_DATASET="$2"; shift 2 ;;
+    --reward-model) REWARD_MODEL="$2"; shift 2 ;;
+    --prefix) PREFIX="$2"; shift 2 ;;
+    --namespace) NAMESPACE="$2"; shift 2 ;;
+    --tokenizer-name) TOKENIZER_NAME="$2"; shift 2 ;;
+    --seed) SEED="$2"; shift 2 ;;
+    --train-ratio) TRAIN_RATIO="$2"; shift 2 ;;
+    --test-ratio) TEST_RATIO="$2"; shift 2 ;;
+    --heldout-ratio) HELDOUT_RATIO="$2"; shift 2 ;;
+    --subsample-fraction) SUBSAMPLE_FRACTION="$2"; shift 2 ;;
+    --max-prompt-tokens) MAX_PROMPT_TOKENS="$2"; shift 2 ;;
+    --max-response-tokens) MAX_RESPONSE_TOKENS="$2"; shift 2 ;;
+    --max-conversation-tokens) MAX_CONVERSATION_TOKENS="$2"; shift 2 ;;
+    --max-errors) MAX_ERRORS="$2"; shift 2 ;;
+    --private) PRIVATE=1; shift ;;
+    --trust-remote-code) TRUST_REMOTE_CODE=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${SOURCE_DATASET}" || -z "${REWARD_MODEL}" || -z "${PREFIX}" || -z "${NAMESPACE}" ]]; then
+  usage
+  exit 2
+fi
+
+sanitize() {
+  echo "$1" | sed -e 's#[/:]#-#g' -e 's#[^a-zA-Z0-9_-]#-#g' -e 's#--*#-#g' -e 's#^-##' -e 's#-$##'
+}
+
+REWARD_SUFFIX="$(sanitize "${REWARD_MODEL}")"
+
+FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
+ANNOTATED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_${REWARD_SUFFIX}"
+SUBSAMPLED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_25pct"
+
+echo "Source dataset:     ${SOURCE_DATASET}"
+echo "Filtered dataset:   ${FILTERED_DATASET}"
+echo "Annotated dataset:  ${ANNOTATED_DATASET}"
+echo "Subsampled dataset: ${SUBSAMPLED_DATASET}"
+
+COMMON_STAGE12_ARGS=(
+  --source-dataset "${SOURCE_DATASET}"
+  --output-dataset "${FILTERED_DATASET}"
+  --tokenizer-name "${TOKENIZER_NAME}"
+  --seed "${SEED}"
+  --train-ratio "${TRAIN_RATIO}"
+  --test-ratio "${TEST_RATIO}"
+  --heldout-ratio "${HELDOUT_RATIO}"
+  --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
+  --max-response-tokens "${MAX_RESPONSE_TOKENS}"
+  --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
+  --max-errors "${MAX_ERRORS}"
+)
+if [[ "${PRIVATE}" -eq 1 ]]; then
+  COMMON_STAGE12_ARGS+=(--private)
+fi
+if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
+  COMMON_STAGE12_ARGS+=(--trust-remote-code)
+fi
+
+JOB1="$(sbatch --parsable scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
+echo "Submitted Stage 1+2 job: ${JOB1}"
+
+STAGE3_ARGS=(
+  --source-dataset "${FILTERED_DATASET}"
+  --output-dataset "${ANNOTATED_DATASET}"
+  --reward-model "${REWARD_MODEL}"
+)
+if [[ "${PRIVATE}" -eq 1 ]]; then
+  STAGE3_ARGS+=(--private)
+fi
+
+JOB2="$(sbatch --parsable --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
+echo "Submitted Stage 3 job: ${JOB2} (depends on ${JOB1})"
+
+STAGE4_ARGS=(
+  --source-dataset "${ANNOTATED_DATASET}"
+  --output-dataset "${SUBSAMPLED_DATASET}"
+  --fraction "${SUBSAMPLE_FRACTION}"
+  --seed "${SEED}"
+)
+if [[ "${PRIVATE}" -eq 1 ]]; then
+  STAGE4_ARGS+=(--private)
+fi
+
+JOB3="$(sbatch --parsable --dependency="afterok:${JOB2}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
+echo "Submitted Stage 4 job: ${JOB3} (depends on ${JOB2})"
+
+echo ""
+echo "Pipeline submitted successfully."
+echo "Filtered dataset repo:   ${FILTERED_DATASET}"
+echo "Annotated dataset repo:  ${ANNOTATED_DATASET}"
+echo "Subsampled dataset repo: ${SUBSAMPLED_DATASET}"
+echo "Track jobs: squeue -j ${JOB1},${JOB2},${JOB3}"
