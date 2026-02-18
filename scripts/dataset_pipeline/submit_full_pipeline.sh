@@ -128,7 +128,7 @@ if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
   COMMON_STAGE12_ARGS+=(--trust-remote-code)
 fi
 
-JOB1="$(sbatch --parsable scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
+JOB1="$(sbatch --parsable --chdir "${REPO_ROOT}" scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
 echo "Submitted Stage 1+2 job: ${JOB1}"
 
 STAGE3_ARGS=(
@@ -140,7 +140,7 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE3_ARGS+=(--private)
 fi
 
-JOB2="$(sbatch --parsable --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
+JOB2="$(sbatch --parsable --chdir "${REPO_ROOT}" --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
 echo "Submitted Stage 3 job: ${JOB2} (depends on ${JOB1})"
 
 STAGE4_ARGS=(
@@ -153,7 +153,7 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE4_ARGS+=(--private)
 fi
 
-JOB3="$(sbatch --parsable --dependency="afterok:${JOB2}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
+JOB3="$(sbatch --parsable --chdir "${REPO_ROOT}" --dependency="afterok:${JOB2}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
 echo "Submitted Stage 4 job: ${JOB3} (depends on ${JOB2})"
 
 echo ""

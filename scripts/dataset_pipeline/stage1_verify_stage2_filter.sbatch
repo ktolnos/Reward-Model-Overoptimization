@@ -9,7 +9,15 @@ source ~/.bashrc
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+  REPO_ROOT="${SLURM_SUBMIT_DIR}"
+else
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
+if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
+  echo "ERROR: Could not resolve repo root (got '${REPO_ROOT}')." >&2
+  exit 1
+fi
 cd "${REPO_ROOT}"
 
 export HF_HOME="/nas/ucb/eop/cache"
