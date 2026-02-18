@@ -7,6 +7,8 @@
 #SBATCH --time=12:00:00
 #SBATCH --qos=high
 
+source ~/.bashrc
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -5,6 +5,8 @@
 #SBATCH --time=02:00:00
 #SBATCH --qos=default
 
+source ~/.bashrc
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

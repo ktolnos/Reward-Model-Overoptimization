@@ -8,7 +8,7 @@
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
-source .bashrc
+source ~/.bashrc
 
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20260202_183444_1035193"
