@@ -9,7 +9,25 @@
 
 #SELECTGPU A100-SXM4-80GB, A100-PCI-80GB
 
-cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
+REPO_ROOT=""
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
+    REPO_ROOT="${SLURM_SUBMIT_DIR}"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    REPO_ROOT="$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+if [[ -z "${REPO_ROOT}" ]]; then
+    if [[ -f "/nas/ucb/eop/Reward-Model-Overoptimization/AGENTS.md" ]]; then
+        REPO_ROOT="/nas/ucb/eop/Reward-Model-Overoptimization"
+    else
+        REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+    fi
+fi
+if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
+    echo "ERROR: Could not resolve repo root (got '${REPO_ROOT}')." >&2
+    exit 1
+fi
+
+cd "${REPO_ROOT}/scripts/rlhf/grpo"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 # base_model_name="Qwen/Qwen3-0.6B"
@@ -22,9 +40,9 @@ dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/annotated_helpsteer2_Qwen06B-Base_policy_Qwen3-0.6B_42_BT_RM_Qwen3-0.6B_912840_len3000_fulltrain_4e-05_datahelpsteer2-preference-v2_reference"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3_06B_reward_Gemma2_2B_ray_gold_URM_LLama8B/"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_QRM_Gemma2_27B_0_7748"
-export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
+export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:$PYTHONPATH"
 
-cd ../../../
+cd "${REPO_ROOT}"
 gpu=0 #,1,2,3
 #reward_base_model="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
@@ -53,8 +71,7 @@ done
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT_SELECTOR_SCRIPT="${SCRIPT_DIR}/../../common/select_master_port.sh"
+PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
 
 if ! MASTER_PORT="$(bash "${PORT_SELECTOR_SCRIPT}" 9900 9999)"; then
     exit 1
@@ -410,4 +427,4 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 #     --report_to "none" \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=ALL /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"
+sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"

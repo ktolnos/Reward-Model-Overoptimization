@@ -7,10 +7,28 @@
 #SBATCH --time=8:00:00
 #SBATCH --qos=high
 
-# Go to the root of the repo
-cd /nas/ucb/eop/Reward-Model-Overoptimization/ || exit
+REPO_ROOT=""
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
+    REPO_ROOT="${SLURM_SUBMIT_DIR}"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    REPO_ROOT="$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+if [[ -z "${REPO_ROOT}" ]]; then
+    if [[ -f "/nas/ucb/eop/Reward-Model-Overoptimization/AGENTS.md" ]]; then
+        REPO_ROOT="/nas/ucb/eop/Reward-Model-Overoptimization"
+    else
+        REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+    fi
+fi
+if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
+    echo "ERROR: Could not resolve repo root (got '${REPO_ROOT}')." >&2
+    exit 1
+fi
 
-log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
+# Go to the root of the repo
+cd "${REPO_ROOT}" || exit
+
+log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 base_model_name="Qwen/Qwen3-0.6B-Base"
 dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
 
@@ -32,8 +50,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Port selection
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT_SELECTOR_SCRIPT="${SCRIPT_DIR}/../../common/select_master_port.sh"
+PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
 
 if ! MASTER_PORT="$(bash "${PORT_SELECTOR_SCRIPT}" 9900 9999)"; then
     exit 1
@@ -76,4 +93,4 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --trust_remote_code True || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=ALL /nas/ucb/eop/Reward-Model-Overoptimization/evaluate_policy.sh --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"
+sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"

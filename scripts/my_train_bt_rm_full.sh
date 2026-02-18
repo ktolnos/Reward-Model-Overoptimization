@@ -7,6 +7,25 @@
 #SBATCH --time=8:00:00
 #SBATCH --qos=default
 
+REPO_ROOT=""
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
+    REPO_ROOT="${SLURM_SUBMIT_DIR}"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    REPO_ROOT="$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+if [[ -z "${REPO_ROOT}" ]]; then
+    if [[ -f "/nas/ucb/eop/Reward-Model-Overoptimization/AGENTS.md" ]]; then
+        REPO_ROOT="/nas/ucb/eop/Reward-Model-Overoptimization"
+    else
+        REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    fi
+fi
+if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
+    echo "ERROR: Could not resolve repo root (got '${REPO_ROOT}')." >&2
+    exit 1
+fi
+cd "${REPO_ROOT}"
+
 devices=0
 n_gpu=1
 # export NCCL_P2P_DISABLE=1
@@ -38,10 +57,9 @@ fi
 echo "Running with seed: $seed, save_last_only: $save_last_only, skip_optimizer: $skip_optimizer"
 
 wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3_gold_10k"
-log_dir='../save_reward_models'
+log_dir="${REPO_ROOT}/save_reward_models"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT_SELECTOR_SCRIPT="${SCRIPT_DIR}/common/select_master_port.sh"
+PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
 
 if ! MASTER_PORT="$(bash "${PORT_SELECTOR_SCRIPT}" 9900 9999)"; then
     exit 1
@@ -56,7 +74,7 @@ gradient_accumulation_steps=16
 per_device_train_batch_size=4
 per_device_eval_batch_size=4
 
-cd ../reward_models
+cd "${REPO_ROOT}/reward_models"
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${MASTER_PORT} run_reward_models_train.py \
     --base_model ${base_model}  --wandb_name ${wandb_name}   --log_dir ${log_dir} \
     --num_train_epochs ${num_train_epochs} \
