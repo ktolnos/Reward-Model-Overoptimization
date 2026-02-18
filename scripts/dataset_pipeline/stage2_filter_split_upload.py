@@ -110,7 +110,17 @@ def _filter_split(
     )
     for idx, sample in iterator:
         try:
-            validate_preference_example_structure(sample, split_name=split_name, idx=idx)
+            validate_preference_example_structure(
+                sample,
+                split_name=split_name,
+                idx=idx,
+                require_different_last_assistant=False,
+            )
+
+            # Filter out preference pairs where the final assistant responses are identical.
+            if sample["chosen"][-1]["content"] == sample["rejected"][-1]["content"]:
+                drop_reasons["same_last_assistant"] += 1
+                continue
 
             prompt_text, chosen_text, rejected_text = format_and_validate_preference_sample(
                 sample["chosen"],
@@ -282,8 +292,7 @@ def main() -> None:
         return
 
     print(f"Uploading filtered dataset to {args.output_dataset}")
-    if args.private:
-        push_kwargs["private"] = True
+    push_kwargs = {"private": args.private}
     split_dict.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
 

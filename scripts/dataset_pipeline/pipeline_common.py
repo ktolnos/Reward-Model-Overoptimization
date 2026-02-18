@@ -27,7 +27,13 @@ def ensure_dataset_dict(dataset_obj: Dataset | DatasetDict) -> DatasetDict:
 
 
 
-def validate_preference_example_structure(example: dict[str, Any], *, split_name: str, idx: int) -> None:
+def validate_preference_example_structure(
+    example: dict[str, Any],
+    *,
+    split_name: str,
+    idx: int,
+    require_different_last_assistant: bool = True,
+) -> None:
     if "chosen" not in example or "rejected" not in example:
         raise ValueError(
             f"Sample {split_name}[{idx}] must contain 'chosen' and 'rejected' columns."
@@ -76,7 +82,7 @@ def validate_preference_example_structure(example: dict[str, Any], *, split_name
         raise ValueError(
             f"Sample {split_name}[{idx}] last chosen/rejected messages must both have role='assistant'."
         )
-    if chosen_last.get("content") == rejected_last.get("content"):
+    if require_different_last_assistant and chosen_last.get("content") == rejected_last.get("content"):
         raise ValueError(
             f"Sample {split_name}[{idx}] chosen/rejected last assistant messages must differ."
         )

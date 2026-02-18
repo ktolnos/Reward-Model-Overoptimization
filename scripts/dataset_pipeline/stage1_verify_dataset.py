@@ -88,6 +88,7 @@ def main() -> None:
                     example,
                     split_name=split_name,
                     idx=idx,
+                    require_different_last_assistant=False,
                 )
                 validate_apply_chat_template_compatibility(
                     example,
