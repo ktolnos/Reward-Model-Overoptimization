@@ -29,8 +29,6 @@ SIMPLE_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 
 
 @dataclass
 class ScriptArguments:
-    max_prompt_length: Optional[int] = field(default=DEFAULT_MAX_PROMPT_TOKENS)
-    max_length_filter: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
 
@@ -75,8 +73,6 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         prompt_text, full_text, _ = format_and_validate_preference_sample(
             chosen_messages,
             tokenizer,
-            max_prompt_length=script_args.max_prompt_length,
-            max_conversation_length=script_args.max_length_filter,
             context="SFT",
         )
 
