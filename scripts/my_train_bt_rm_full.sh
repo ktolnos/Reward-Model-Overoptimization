@@ -7,22 +7,6 @@
 #SBATCH --time=8:00:00
 #SBATCH --qos=default
 
-
-export HF_HOME="/nas/ucb/eop/cache"
-export PYTHONPATH="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/grpo/:/nas/ucb/eop/Reward-Model-Overoptimization/:$PYTHONPATH"
-export TMPDIR="/nas/ucb/eop/temp"
-export TEMP="/nas/ucb/eop/temp"
-export TMP="/nas/ucb/eop/temp"
-export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
-export TORCHINDUCTOR_CACHE_DIR="/nas/ucb/eop/temp/torchinductor_cache"
-export TORCHINDUCTOR_FX_GRAPH_CACHE="/nas/ucb/eop/temp/fx_graph_cache"
-export VLLM_CONFIG_ROOT="/nas/ucb/eop/cache/vllm_config"
-export VLLM_DISABLE_COMPILE_CACHE=1
-export WANDB_DIR="/nas/ucb/eop/wandb"
-export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
-export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
-export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
-
 devices=0
 n_gpu=1
 # export NCCL_P2P_DISABLE=1
@@ -56,34 +40,18 @@ echo "Running with seed: $seed, save_last_only: $save_last_only, skip_optimizer:
 wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3_gold_10k"
 log_dir='../save_reward_models'
 
-MIN_PORT=9900
-MAX_PORT=9999
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT_SELECTOR_SCRIPT="${SCRIPT_DIR}/common/select_master_port.sh"
 
-is_port_in_use() {
-    ss -lntu | grep -q ":$1 "
-}
-
-IDEAL_PORT=$((MIN_PORT + (SLURM_JOB_ID % (MAX_PORT - MIN_PORT + 1))))
-
-if ! is_port_in_use "${IDEAL_PORT}"; then
-    export MASTER_PORT=${IDEAL_PORT}
-else
-    for port in $(seq ${MIN_PORT} ${MAX_PORT}); do
-        if ! is_port_in_use "${port}"; then
-            export MASTER_PORT=${port}
-            break
-        fi
-    done
-fi
-
-if [[ -z "${MASTER_PORT}" ]]; then
-    echo "ERROR: Could not find any free port in the range ${MIN_PORT}-${MAX_PORT}." >&2
+if ! MASTER_PORT="$(bash "${PORT_SELECTOR_SCRIPT}" 9900 9999)"; then
     exit 1
 fi
+export MASTER_PORT
 
 learning_rate=2e-5
 max_length=2000
 num_train_epochs=4
+
 gradient_accumulation_steps=16
 per_device_train_batch_size=4
 per_device_eval_batch_size=4

@@ -79,6 +79,30 @@ FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
 ANNOTATED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_${REWARD_SUFFIX}"
 SUBSAMPLED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_25pct"
 
+# Hugging Face SQL (run on the ANNOTATED_DATASET viewer) to check RM agreement accuracy:
+# Overall accuracy across splits:
+# SELECT AVG(CASE WHEN does_gold_agree_with_original THEN 1.0 ELSE 0.0 END) AS rm_accuracy
+# FROM (
+#   SELECT does_gold_agree_with_original FROM train
+#   UNION ALL
+#   SELECT does_gold_agree_with_original FROM test
+#   UNION ALL
+#   SELECT does_gold_agree_with_original FROM heldout
+# );
+#
+# Per-split accuracy:
+# SELECT split, COUNT(*) AS n_examples,
+#        AVG(CASE WHEN does_gold_agree_with_original THEN 1.0 ELSE 0.0 END) AS rm_accuracy
+# FROM (
+#   SELECT 'train' AS split, does_gold_agree_with_original FROM train
+#   UNION ALL
+#   SELECT 'test' AS split, does_gold_agree_with_original FROM test
+#   UNION ALL
+#   SELECT 'heldout' AS split, does_gold_agree_with_original FROM heldout
+# )
+# GROUP BY split
+# ORDER BY split;
+
 echo "Source dataset:     ${SOURCE_DATASET}"
 echo "Filtered dataset:   ${FILTERED_DATASET}"
 echo "Annotated dataset:  ${ANNOTATED_DATASET}"

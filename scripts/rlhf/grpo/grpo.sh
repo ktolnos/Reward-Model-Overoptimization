@@ -10,21 +10,6 @@
 #SELECTGPU A100-SXM4-80GB, A100-PCI-80GB
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo
-export HF_HOME="/nas/ucb/eop/cache"
-export TMPDIR="/nas/ucb/eop/temp"
-export TEMP="/nas/ucb/eop/temp"
-export TMP="/nas/ucb/eop/temp"
-export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
-export TORCHINDUCTOR_CACHE_DIR="/nas/ucb/eop/temp/torchinductor_cache"
-export TORCHINDUCTOR_FX_GRAPH_CACHE="/nas/ucb/eop/temp/fx_graph_cache"
-export VLLM_CONFIG_ROOT="/nas/ucb/eop/cache/vllm_config"
-export VLLM_DISABLE_COMPILE_CACHE="1"
-export VLLM_CACHE_ROOT="/nas/ucb/eop/cache/"
-
-export WANDB_DIR="/nas/ucb/eop/wandb"
-export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
-export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
-export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 # base_model_name="Qwen/Qwen3-0.6B"
@@ -68,30 +53,13 @@ done
 #checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
 echo $SLURM_JOB_ID
 
-MIN_PORT=9900
-MAX_PORT=9999
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT_SELECTOR_SCRIPT="${SCRIPT_DIR}/../../common/select_master_port.sh"
 
-is_port_in_use() {
-    ss -lntu | grep -q ":$1 "
-}
-
-IDEAL_PORT=$((MIN_PORT + (SLURM_JOB_ID % (MAX_PORT - MIN_PORT + 1))))
-
-if ! is_port_in_use "${IDEAL_PORT}"; then
-    export MASTER_PORT=${IDEAL_PORT}
-else
-    for port in $(seq ${MIN_PORT} ${MAX_PORT}); do
-        if ! is_port_in_use "${port}"; then
-            export MASTER_PORT=${port}
-            break
-        fi
-    done
-fi
-
-if [[ -z "${MASTER_PORT}" ]]; then
-    echo "ERROR: Could not find any free port in the range ${MIN_PORT}-${MAX_PORT}." >&2
+if ! MASTER_PORT="$(bash "${PORT_SELECTOR_SCRIPT}" 9900 9999)"; then
     exit 1
 fi
+export MASTER_PORT
 
 
 export RANK=0
