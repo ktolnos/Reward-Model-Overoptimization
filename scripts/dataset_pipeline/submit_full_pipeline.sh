@@ -69,6 +69,20 @@ if [[ -z "${SOURCE_DATASET}" || -z "${REWARD_MODEL}" || -z "${PREFIX}" || -z "${
   exit 2
 fi
 
+if [[ -z "${HF_TOKEN:-}" && -z "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  echo "ERROR: HF token is missing in the current shell." >&2
+  echo "Set HF_TOKEN or HUGGINGFACE_HUB_TOKEN before submitting the pipeline." >&2
+  exit 2
+fi
+
+SBATCH_EXPORT="ALL"
+if [[ -n "${HF_TOKEN:-}" ]]; then
+  SBATCH_EXPORT+=",HF_TOKEN"
+fi
+if [[ -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  SBATCH_EXPORT+=",HUGGINGFACE_HUB_TOKEN"
+fi
+
 sanitize() {
   echo "$1" | sed -e 's#[/:]#-#g' -e 's#[^a-zA-Z0-9_-]#-#g' -e 's#--*#-#g' -e 's#^-##' -e 's#-$##'
 }
@@ -128,7 +142,7 @@ if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
   COMMON_STAGE12_ARGS+=(--trust-remote-code)
 fi
 
-JOB1="$(sbatch --parsable --chdir "${REPO_ROOT}" scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
+JOB1="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
 echo "Submitted Stage 1+2 job: ${JOB1}"
 
 STAGE3_ARGS=(
@@ -140,7 +154,7 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE3_ARGS+=(--private)
 fi
 
-JOB2="$(sbatch --parsable --chdir "${REPO_ROOT}" --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
+JOB2="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
 echo "Submitted Stage 3 job: ${JOB2} (depends on ${JOB1})"
 
 STAGE4_ARGS=(
@@ -153,7 +167,7 @@ if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE4_ARGS+=(--private)
 fi
 
-JOB3="$(sbatch --parsable --chdir "${REPO_ROOT}" --dependency="afterok:${JOB2}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
+JOB3="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" --dependency="afterok:${JOB2}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
 echo "Submitted Stage 4 job: ${JOB3} (depends on ${JOB2})"
 
 echo ""

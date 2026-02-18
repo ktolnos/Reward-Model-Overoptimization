@@ -120,6 +120,5 @@ Using sequential switching of reward models allows to train Qwen3-0.6B on 10k da
 # Evaluation
 
 We currently use Skywork/Skywork-Reward-V2-Llama-3.1-8B as the gold reward model for evaluation. 
-Here is the official evaluation script: 
-`rlhf/skywork_reward_official_eval.py`
+Here is the official evaluation script: `rlhf/skywork_reward_official_eval.py`. We aim to use the same tokenization and prompt formatting as in the official script for evaluation.
 
