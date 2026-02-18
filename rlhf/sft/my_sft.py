@@ -29,6 +29,8 @@ SIMPLE_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 
 
 @dataclass
 class ScriptArguments:
+    max_prompt_length: Optional[int] = field(default=DEFAULT_MAX_PROMPT_TOKENS)
+    max_length_filter: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
 
@@ -70,17 +72,17 @@ def post_process_common_dataset(ds, tokenizer, script_args):
                 "Invalid sample: last `chosen` message must have role='assistant'."
             )
 
-        prompt_text, full_text, _ = format_and_validate_preference_sample(
-            chosen_messages,
-            tokenizer,
-            context="SFT",
-        )
+        prompt_text = format_prompt(chosen_messages, tokenizer)
+        full_text = format_conversation(chosen_messages, tokenizer)
+        if not full_text.startswith(prompt_text):
+            raise ValueError(
+                "Invalid sample: formatted prompt is not a prefix of formatted conversation."
+            )
 
         tokens_full = tokenize_for_sft(full_text, tokenizer)
         input_ids = tokens_full["input_ids"][0]
         prompt_ids = tokenize_for_sft(prompt_text, tokenizer)["input_ids"][0]
-        prompt_len = validate_length_or_fail(prompt_ids, script_args.max_prompt_length, name="SFT prompt")
-        validate_length_or_fail(input_ids, script_args.max_length_filter, name="SFT full conversation")
+        prompt_len = len(prompt_ids)
         if prompt_len >= len(input_ids):
             raise ValueError(
                 f"Invalid sample: prompt_len ({prompt_len}) must be smaller than full sequence length ({len(input_ids)})."
@@ -95,11 +97,30 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         return {
             "input_ids": input_ids.tolist(),
             "completion_mask": completion_mask.tolist(),
+            "prompt_len": prompt_len,
         }
 
     ds = ds.map(formatting_func,
                 remove_columns=ds.column_names,
                 batched=False, num_proc=10)
+    if script_args.max_prompt_length is not None:
+        before = len(ds)
+        ds = ds.filter(
+            lambda x: x["prompt_len"] <= script_args.max_prompt_length,
+            num_proc=10,
+        )
+        after = len(ds)
+        print(
+            f"[SFT] Filtered by max_prompt_length={script_args.max_prompt_length}: {before} -> {after}"
+        )
+
+    before = len(ds)
+    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=10)
+    after = len(ds)
+    print(
+        f"[SFT] Filtered by max_length_filter={script_args.max_length_filter}: {before} -> {after}"
+    )
+    ds = ds.remove_columns(["prompt_len"])
     return ds
 
 if __name__ == "__main__":
