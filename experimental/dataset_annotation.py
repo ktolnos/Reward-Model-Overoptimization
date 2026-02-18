@@ -10,20 +10,28 @@ from typing import List, Dict, Any
 import torch
 import pandas as pd
 from datasets import load_dataset, Dataset
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, HfArgumentParser, AutoModelForCausalLM
+from transformers import HfArgumentParser
 from tqdm import tqdm
 import json
 import random
-from reward_utils import Skywork_SYSTEM_PROMPT, Skywork_PROMPT, Skywork_ASSISTANT_PROMPT, extract_reward_from_response
+from reward_utils import (
+    Skywork_SYSTEM_PROMPT,
+    Skywork_PROMPT,
+    Skywork_ASSISTANT_PROMPT,
+    extract_reward_from_response,
+    load_reward_model,
+)
 from data_utils import (
     format_conversation,
     format_prompt,
     tokenize_for_rm,
-    setup_tokenizer,
     strip_bos_if_present_batch,
     tokenize_texts_with_special_tokens,
+    get_generation_stop_token_ids,
+    format_and_validate_preference_sample,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_CONVERSATION_TOKENS,
 )
-from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
 
 def load_helpsteer2_dataset(split="train"):
@@ -39,47 +47,6 @@ def load_helpsteer2_dataset(split="train"):
     dataset = load_dataset("gagan3012/helpsteer2-preference-v2", split=split)
     print(f"Loaded {len(dataset)} examples from {split} split")
     return dataset
-
-
-def load_reward_model(model_name, reasoning, device=None):
-    """
-    Load the reward model from Hugging Face.
-    
-    Args:
-        model_name (str): Name of the reward model on Hugging Face
-        reasoning (bool): If True, loads AutoModelForCausalLM, else AutoModelForSequenceClassification.
-        device (str): Device to load the model on ('cuda', 'cpu', or None for auto-detection)
-        
-    Returns:
-        tuple: (model, tokenizer)
-    """
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    kwargs = {
-        "torch_dtype": torch.bfloat16,
-        "attn_implementation": "flash_attention_2",
-        "trust_remote_code": True,
-        "device_map": device
-    }
-    if 'Skywork-Reward-V2' in model_name:
-        kwargs['num_labels'] = 1
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    setup_tokenizer(tokenizer)
-
-    if 'QRM' in model_name:
-        kwargs["torch_dtype"] = torch.bfloat16
-        tokenizer = TokenizerWrapper(tokenizer)
-
-    print(f"Loading model {model_name} on {device}, reasoning={reasoning}")
-    if reasoning:
-        model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
-    else:
-        model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
-    print(model)
-
-    model.eval()
-    return model, tokenizer
 
 
 def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_length=1024, device=None):
@@ -169,6 +136,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         list: List of dictionaries with chosen and rejected rewards
     """
     results = []
+    stop_token_ids = get_generation_stop_token_ids(tokenizer)
+    eos_for_generation = stop_token_ids
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reward model"):
         prompts = []
@@ -217,21 +186,21 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
             "temperature": 0.6,
             "do_sample": True,
             "top_p": 1.0,
-            "eos_token_id": tokenizer.eos_token_id,
+            "eos_token_id": eos_for_generation,
             "pad_token_id": tokenizer.pad_token_id,
         }
         torch.cuda.empty_cache()
         with torch.no_grad():
             outputs = model.generate(**inputs, **generation_args)
 
-        print("outputs\n\n", outputs)
+        prompt_token_count = inputs["input_ids"].shape[1]
+        generated_tokens = outputs[:, prompt_token_count:]
 
         for j, swap in zip(range(len(swaps)), swaps):
             sample = dataset[i + j]
-            generated_text = tokenizer.decode(outputs[j], skip_special_tokens=True)
+            generated_text = tokenizer.decode(generated_tokens[j], skip_special_tokens=True)
 
             reward = extract_reward_from_response(generated_text)
-            print(reward)
             if swap:
                 reward = -reward
 
@@ -282,6 +251,8 @@ def generate_with_reference_policy(
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     results = []
+    stop_token_ids = get_generation_stop_token_ids(tokenizer)
+    eos_for_generation = stop_token_ids
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Generating with reference policy"):
         batch_data = dataset[i:i + batch_size]
@@ -302,12 +273,12 @@ def generate_with_reference_policy(
         with torch.no_grad():
             outputs = policy_model.generate(
                 **inputs,
-                max_new_tokens=1024,
+                max_new_tokens=max_length,
                 num_return_sequences=num_responses,
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.9,
-                eos_token_id=tokenizer.eos_token_id,
+                eos_token_id=eos_for_generation,
                 pad_token_id=tokenizer.pad_token_id,
             )
 
@@ -466,6 +437,25 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="
         raise ValueError(f"Unsupported input path format: {input_path}. Expected a JSON file or 'helpsteer2'.")
 
 
+def validate_dataset_length_or_fail(
+    dataset,
+    tokenizer,
+    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
+    max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+):
+    """Validate prompt and conversation token constraints and fail fast."""
+    for idx, sample in enumerate(dataset):
+        format_and_validate_preference_sample(
+            sample["chosen"],
+            tokenizer,
+            rejected_messages=sample.get("rejected"),
+            max_prompt_length=max_prompt_length,
+            max_conversation_length=max_conversation_length,
+            sample_id=idx,
+            context="Annotation",
+        )
+
+
 
 
 def annotate_dataset(model_name,
@@ -489,6 +479,7 @@ def annotate_dataset(model_name,
         str: Path to the saved dataset
     """
     model, tokenizer = load_reward_model(model_name, reasoning, device="cuda" if torch.cuda.is_available() else "cpu")
+    validate_dataset_length_or_fail(dataset, tokenizer)
     if reasoning:
         raise NotImplementedError(
             "Reasoning reward-model annotation is disabled for this pipeline. "
@@ -586,6 +577,7 @@ if __name__ == "__main__":
         policy_model, policy_tokenizer = load_reward_model(
             script_args.reference_policy_name, reasoning=True, device=device
         )
+        validate_dataset_length_or_fail(dataset, policy_tokenizer)
 
         results = generate_with_reference_policy(
             dataset, policy_model, policy_tokenizer, script_args.batch_size,
@@ -607,6 +599,7 @@ if __name__ == "__main__":
         reward_model, reward_tokenizer = load_reward_model(
             script_args.reference_reward_model_name, reasoning=False, device=device
         )
+        validate_dataset_length_or_fail(dataset, reward_tokenizer)
 
         results = evaluate_with_reference_reward_model(
             dataset, reward_model, reward_tokenizer, script_args.batch_size,

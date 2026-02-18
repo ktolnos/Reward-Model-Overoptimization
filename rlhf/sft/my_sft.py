@@ -1,14 +1,6 @@
-import os
 from dataclasses import dataclass, field
 from typing import Optional
-from accelerate import Accelerator
 import torch
-from tqdm import tqdm
-from accelerate.utils import set_seed
-import numpy as np
-import pandas as pd
-import shutil
-tqdm.pandas()
 import datasets
 from transformers import (
     AutoModelForCausalLM,
@@ -16,7 +8,14 @@ from transformers import (
     HfArgumentParser,
 )
 
-from data_utils import format_prompt, tokenize_for_sft, setup_tokenizer
+from data_utils import (
+    format_and_validate_preference_sample,
+    tokenize_for_sft,
+    setup_tokenizer,
+    validate_length_or_fail,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_CONVERSATION_TOKENS,
+)
 
 from trl import (
     ModelConfig,
@@ -30,7 +29,8 @@ SIMPLE_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 
 
 @dataclass
 class ScriptArguments:
-    max_length_filter: Optional[int] = field(default=1024)
+    max_prompt_length: Optional[int] = field(default=DEFAULT_MAX_PROMPT_TOKENS)
+    max_length_filter: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
 
@@ -58,34 +58,52 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
 def post_process_common_dataset(ds, tokenizer, script_args):
     def formatting_func(example):
         chosen_messages = example["chosen"]
-        prompt = format_prompt(chosen_messages, tokenizer)
+        if not chosen_messages:
+            raise ValueError("Invalid sample: `chosen` is empty.")
 
-        last_message = chosen_messages[-1] if chosen_messages else {}
-        if isinstance(last_message, dict):
-            response = last_message.get("content", "")
-        else:
-            response = str(last_message)
+        # Train only on the final chosen assistant response.
+        last_message = chosen_messages[-1] if chosen_messages else None
+        if not isinstance(last_message, dict):
+            raise ValueError(
+                "Invalid sample: last `chosen` item is not a message dict."
+            )
+        if last_message.get("role") != "assistant":
+            raise ValueError(
+                "Invalid sample: last `chosen` message must have role='assistant'."
+            )
 
-        # Match legacy SFT target construction used by prior checkpoints:
-        # prompt template (with generation header) + raw assistant response text.
-        text = prompt + response
-        tokens = tokenize_for_sft(text, tokenizer)
+        prompt_text, full_text, _ = format_and_validate_preference_sample(
+            chosen_messages,
+            tokenizer,
+            max_prompt_length=script_args.max_prompt_length,
+            max_conversation_length=script_args.max_length_filter,
+            context="SFT",
+        )
+
+        tokens_full = tokenize_for_sft(full_text, tokenizer)
+        input_ids = tokens_full["input_ids"][0]
+        prompt_ids = tokenize_for_sft(prompt_text, tokenizer)["input_ids"][0]
+        prompt_len = validate_length_or_fail(prompt_ids, script_args.max_prompt_length, name="SFT prompt")
+        validate_length_or_fail(input_ids, script_args.max_length_filter, name="SFT full conversation")
+        if prompt_len >= len(input_ids):
+            raise ValueError(
+                f"Invalid sample: prompt_len ({prompt_len}) must be smaller than full sequence length ({len(input_ids)})."
+            )
+        if not torch.equal(input_ids[:prompt_len], prompt_ids):
+            raise ValueError(
+                "Invalid sample: tokenized prompt is not a prefix of tokenized full conversation."
+            )
+        completion_mask = torch.zeros_like(input_ids)
+        completion_mask[prompt_len:] = 1
 
         return {
-            "input_ids": tokens["input_ids"][0],
-            "attention_mask": tokens["attention_mask"][0],
+            "input_ids": input_ids.tolist(),
+            "completion_mask": completion_mask.tolist(),
         }
 
     ds = ds.map(formatting_func,
                 remove_columns=ds.column_names,
                 batched=False, num_proc=10)
-    before = len(ds)
-    ds = ds.filter(lambda x: len(x["input_ids"]) <= script_args.max_length_filter, num_proc=10)
-    after = len(ds)
-    print(
-        f"[SFT] Filtered by max_length_filter={script_args.max_length_filter}: {before} -> {after}"
-    )
-    ds.set_format(type="torch")
     return ds
 
 if __name__ == "__main__":
@@ -132,6 +150,9 @@ if __name__ == "__main__":
     ################
     # Training
     ################
+    if training_args.completion_only_loss is False:
+        raise ValueError("SFT requires completion_only_loss=True to train only on the last chosen response.")
+    training_args.completion_only_loss = True
     trainer = SFTTrainer(
         model=model,
         args=training_args,

@@ -18,6 +18,7 @@ from grm_reward_trainer import GRMDataCollatorWithPadding, GRMRewardTrainer
 from load_datasets import load_train_eval_dataset
 from utils import print_trainable_parameters, grm_compute_metrics
 from grm_utils import AutoModelForCausalLMWithValueHead
+from data_utils import setup_tokenizer
 
 
 @dataclass
@@ -107,12 +108,8 @@ training_args = TrainingArguments(
 
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast = False)
+setup_tokenizer(tokenizer)
 tokenizer.max_length = script_args.max_length
-if tokenizer.pad_token == None:
-    if 'Llama' in script_args.base_model:
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    else:
-        tokenizer.pad_token = tokenizer.eos_token
 
 # Load datasets
 train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, model_name='GRM', size=100 if script_args.debug else None)

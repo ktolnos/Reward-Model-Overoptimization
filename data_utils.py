@@ -8,7 +8,12 @@ Conventions:
   Matches HF model-card convention (reconstruct -> strip BOS -> tokenize with add_special_tokens=True).
 - format_prompt: for generation inputs (GRPO prompts, eval prompts)
 - format_conversation: for full conversations (RM training, SFT, annotation)
+- get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
+
+DEFAULT_MAX_PROMPT_TOKENS = 1024
+DEFAULT_MAX_RESPONSE_TOKENS = 1024
+DEFAULT_MAX_CONVERSATION_TOKENS = DEFAULT_MAX_PROMPT_TOKENS + DEFAULT_MAX_RESPONSE_TOKENS
 
 
 def setup_tokenizer(tokenizer):
@@ -33,6 +38,62 @@ def strip_bos_if_present_batch(texts, tokenizer):
     return [strip_bos_if_present(text, tokenizer) for text in texts]
 
 
+def _add_token_id(stop_ids, token_id):
+    """Insert token IDs into a set, accepting ints or iterables."""
+    if isinstance(token_id, (list, tuple, set)):
+        for tid in token_id:
+            _add_token_id(stop_ids, tid)
+        return
+    if token_id is None:
+        return
+    try:
+        tid = int(token_id)
+    except (TypeError, ValueError):
+        return
+    if tid >= 0:
+        stop_ids.add(tid)
+
+
+def get_generation_stop_token_ids(tokenizer):
+    """Return tokenizer-specific generation stop IDs.
+
+    Includes eos_token_id and common chat turn-end tokens used by modern
+    chat templates (for example Qwen's <|im_end|>).
+    """
+    stop_ids = set()
+    _add_token_id(stop_ids, tokenizer.eos_token_id)
+
+    # Some wrappers keep the underlying tokenizer on `.tokenizer`.
+    raw_tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
+    convert = getattr(raw_tokenizer, "convert_tokens_to_ids", None)
+    unk_token_id = getattr(raw_tokenizer, "unk_token_id", None)
+    if convert is not None:
+        for token in ("<|im_end|>", "<|eot_id|>", "<end_of_turn>"):
+            token_id = convert(token)
+            if token_id is None or token_id == unk_token_id:
+                continue
+            _add_token_id(stop_ids, token_id)
+
+    return sorted(stop_ids)
+
+
+def completion_has_stop_token(completion_ids, tokenizer=None, stop_token_ids=None):
+    """Check whether a generated completion contains any stop token."""
+    if hasattr(completion_ids, "tolist"):
+        completion_ids = completion_ids.tolist()
+    if stop_token_ids is None:
+        if tokenizer is None:
+            raise ValueError("tokenizer must be provided when stop_token_ids is None")
+        stop_token_ids = get_generation_stop_token_ids(tokenizer)
+    stop_ids = set(stop_token_ids)
+    if not stop_ids:
+        return False
+    for token_id in completion_ids:
+        if int(token_id) in stop_ids:
+            return True
+    return False
+
+
 def tokenize_text_with_special_tokens(text, tokenizer, **kwargs):
     """Tokenize one text after stripping BOS and forcing special-token addition."""
     text = strip_bos_if_present(text, tokenizer)
@@ -53,6 +114,38 @@ def count_tokens_with_special_tokens(text, tokenizer):
     """Token count after BOS stripping and tokenizer-added special tokens."""
     text = strip_bos_if_present(text, tokenizer)
     return len(tokenizer.encode(text, add_special_tokens=True))
+
+
+def validate_length_or_fail(
+    value,
+    max_length,
+    *,
+    name="sequence",
+    tokenizer=None,
+    sample_id=None,
+):
+    """Validate token length for a token-ID sequence or text and fail fast."""
+    if isinstance(value, str):
+        if tokenizer is None:
+            raise ValueError("tokenizer must be provided when validating text length")
+        token_length = count_tokens_with_special_tokens(value, tokenizer)
+    else:
+        if hasattr(value, "tolist"):
+            value = value.tolist()
+        try:
+            token_length = len(value)
+        except TypeError as exc:
+            raise TypeError(
+                f"Unsupported value type for {name}: {type(value)!r}. "
+                "Expected text or token-id sequence."
+            ) from exc
+
+    if token_length > max_length:
+        sample_suffix = f" (sample_id={sample_id})" if sample_id is not None else ""
+        raise ValueError(
+            f"{name} length {token_length} exceeds max_length={max_length}{sample_suffix}."
+        )
+    return token_length
 
 
 def format_prompt(conversation, tokenizer):
@@ -83,6 +176,58 @@ def format_conversation(conversation, tokenizer):
         tokenize=False,
         enable_thinking=False,
     )
+
+
+def format_and_validate_preference_sample(
+    chosen_messages,
+    tokenizer,
+    *,
+    rejected_messages=None,
+    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
+    max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+    sample_id=None,
+    context="sample",
+):
+    """Format prompt/conversation texts and validate prompt/full-length constraints.
+
+    Returns:
+        Tuple of (prompt_text, chosen_text, rejected_text_or_None).
+    """
+    prompt_text = format_prompt(chosen_messages, tokenizer)
+    chosen_text = format_conversation(chosen_messages, tokenizer)
+    if not chosen_text.startswith(prompt_text):
+        sample_suffix = f" (sample_id={sample_id})" if sample_id is not None else ""
+        raise ValueError(
+            f"{context} formatting mismatch: prompt is not a prefix of chosen conversation{sample_suffix}."
+        )
+
+    validate_length_or_fail(
+        prompt_text,
+        max_prompt_length,
+        name=f"{context} prompt",
+        tokenizer=tokenizer,
+        sample_id=sample_id,
+    )
+    validate_length_or_fail(
+        chosen_text,
+        max_conversation_length,
+        name=f"{context} chosen conversation",
+        tokenizer=tokenizer,
+        sample_id=sample_id,
+    )
+
+    rejected_text = None
+    if rejected_messages is not None:
+        rejected_text = format_conversation(rejected_messages, tokenizer)
+        validate_length_or_fail(
+            rejected_text,
+            max_conversation_length,
+            name=f"{context} rejected conversation",
+            tokenizer=tokenizer,
+            sample_id=sample_id,
+        )
+
+    return prompt_text, chosen_text, rejected_text
 
 
 def format_reward_texts(prompt_messages_list, responses, rm_tokenizer):

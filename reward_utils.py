@@ -44,6 +44,43 @@ Skywork_ASSISTANT_PROMPT = """## Analysis
 Let's analyze this step by step and decide which assistant is better, and then answer \\boxed{Assistant 1} or \\boxed{Assistant 2}."""
 
 
+def load_reward_model(model_name, reasoning, device=None):
+    """Load a reward model and its tokenizer for either RM or reasoning mode."""
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoModelForSequenceClassification,
+        AutoTokenizer,
+    )
+    from data_utils import setup_tokenizer
+    from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    kwargs = {
+        "torch_dtype": torch.bfloat16,
+        "attn_implementation": "flash_attention_2",
+        "trust_remote_code": True,
+        "device_map": device,
+    }
+    if "Skywork-Reward-V2" in model_name:
+        kwargs["num_labels"] = 1
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    setup_tokenizer(tokenizer)
+
+    if "QRM" in model_name:
+        kwargs["torch_dtype"] = torch.bfloat16
+        tokenizer = TokenizerWrapper(tokenizer, model_name)
+
+    print(f"Loading model {model_name} on {device}, reasoning={reasoning}")
+    if reasoning:
+        model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
+    model.eval()
+    return model, tokenizer
+
+
 def is_reasoning(reward_model):
     if hasattr(reward_model, 'classifier') or hasattr(reward_model, 'gating') or 'ForSequenceClassification' in str(type(reward_model)):
         return False

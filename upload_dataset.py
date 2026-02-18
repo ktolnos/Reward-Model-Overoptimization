@@ -21,7 +21,7 @@ ds = ds.filter(
             x["chosen"][:-1], tokenize=True, add_generation_prompt=True
         )
     )
-    < 1024
+    < 1000
 )
 
 ds.push_to_hub("ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B")

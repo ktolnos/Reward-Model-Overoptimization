@@ -19,7 +19,7 @@ from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
-from data_utils import setup_tokenizer
+from data_utils import setup_tokenizer, get_generation_stop_token_ids
 
 tqdm.pandas()
 from grpo_utils import (
@@ -65,7 +65,8 @@ class ScriptArguments:
     )
     dbg: Optional[bool] = field(default=False)
     reward_model_paths: list[str] = field(
-        default="google/gemma-2b-it", metadata={"help": "path to the reward model"}
+        default_factory=lambda: ["google/gemma-2b-it"],
+        metadata={"help": "path to the reward model"},
     )
     rm_switch_strategy: Optional[str] = field(
         default="ensemble",
@@ -175,6 +176,7 @@ if __name__ == "__main__":
         trust_remote_code=model_args.trust_remote_code,
     )
     setup_tokenizer(policy_tokenizer)
+    policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
     # Pre-compute per-model mean rewards before loading the policy model (to keep GPU free)
     precomputed_means = None
@@ -193,6 +195,10 @@ if __name__ == "__main__":
         trust_remote_code=model_args.trust_remote_code,
         torch_dtype=torch.bfloat16,
     )
+    policy.config.pad_token_id = policy_tokenizer.pad_token_id
+    if hasattr(policy, "generation_config"):
+        policy.generation_config.pad_token_id = policy_tokenizer.pad_token_id
+        policy.generation_config.eos_token_id = policy_stop_token_ids
 
     ################
     # Dataset
@@ -203,7 +209,7 @@ if __name__ == "__main__":
         policy_tokenizer,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
-        max_prompt_length=training_args.max_prompt_length,
+        max_prompt_length=script_args.max_length,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 

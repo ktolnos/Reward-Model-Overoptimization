@@ -19,7 +19,6 @@ import pandas as pd
 import numpy as np
 import wandb
 
-from experimental.dataset_annotation import load_reward_model
 from reward_utils import (
     Skywork_PROMPT,
     Skywork_SYSTEM_PROMPT,
@@ -27,12 +26,15 @@ from reward_utils import (
     build_reward_texts,
     get_reward_rm,
     extract_reward_from_response,
+    load_reward_model,
 )
 from data_utils import (
-    format_prompt,
+    format_and_validate_preference_sample,
     setup_tokenizer,
     format_reward_texts,
-    count_tokens_with_special_tokens,
+    get_generation_stop_token_ids,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_CONVERSATION_TOKENS,
 )
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
@@ -263,10 +265,12 @@ def generate_responses_vllm(
 ):
     """Generate responses using vLLM."""
     if sampling_params is None:
+        stop_token_ids = get_generation_stop_token_ids(tokenizer)
         sampling_params = SamplingParams(
             temperature=0,
             max_tokens=args.max_new_tokens,
             logprobs=1 if collect_logprobs else None,
+            stop_token_ids=stop_token_ids,
         )
 
     outputs = model.generate(prompts, sampling_params)
@@ -568,29 +572,31 @@ def main():
         first_checkpoint_path, trust_remote_code=True,
     )
     setup_tokenizer(policy_tokenizer)
+    stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
     # Prepare dataset based on its structure
     prompt_messages_list = None  # structured messages for proper RM formatting
     if "chosen" in dataset.column_names:
         print("Using 'chosen' column for prompts (chosen[:-1]).")
 
-        def extract_prompt(example):
+        def extract_prompt(example, idx):
+            prompt_text, _, _ = format_and_validate_preference_sample(
+                example["chosen"],
+                policy_tokenizer,
+                rejected_messages=example.get("rejected"),
+                max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
+                max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+                sample_id=idx,
+                context="Evaluation",
+            )
             return {
-                "prompt": format_prompt(example["chosen"], policy_tokenizer),
+                "prompt": prompt_text,
                 "prompt_messages": example["chosen"][:-1],
             }
 
-        dataset = dataset.map(extract_prompt, num_proc=1)
+        dataset = dataset.map(extract_prompt, num_proc=1, with_indices=True)
     else:
         raise ValueError("Dataset must have a 'chosen' column.")
-
-    # Filter prompts that exceed max_length (no room for generation)
-    before = len(dataset)
-    dataset = dataset.filter(
-        lambda x: count_tokens_with_special_tokens(x["prompt"], policy_tokenizer) <= args.max_length,
-    )
-    if len(dataset) < before:
-        print(f"Filtered prompts by max_length={args.max_length}: {before} -> {len(dataset)}")
 
     original_prompts = coerce_list(dataset["prompt"])
     prompt_messages_list = dataset["prompt_messages"]
@@ -621,11 +627,13 @@ def main():
             top_p=0.9,
             max_tokens=args.max_new_tokens,
             n=num_responses,
+            stop_token_ids=stop_token_ids,
         )
         baseline_sampling_params = SamplingParams(
             temperature=0,
             max_tokens=args.max_new_tokens,
             n=1,
+            stop_token_ids=stop_token_ids,
         )
 
         baseline_responses = []

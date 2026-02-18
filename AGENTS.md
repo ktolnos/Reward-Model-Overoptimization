@@ -1,12 +1,19 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
-This is a research codebase for "Regularizing Hidden States Enables Learning Generalizable Reward Model for LLMs" (NeurIPS 2024). The repository implements training and evaluation of Generalizable Reward Models (GRM) and supports various RLHF algorithms including PPO, GRPO, and Best-of-N sampling.
+Current experiments focus on BT reward models and their ensembles.
 
-Current experiments are focused on GRPO, assume GRPO unless specified otherwise
+The main pipeline for current experiments involves trainig multiple BT reward models, training SFT policy model, then experimenting with training the policy with GRPO starting from SFT checkpoing. Each GRPO run is automatically evaluated using evaluate_policy.sh.  
+Current experiments are focused on GRPO, assume GRPO unless specified otherwise.
+Don't try to run training and locally.
+To run python locally, activate venv first (there is an `activate` command that automatically does it).
+
+One of the main constraints to keep in mind is that we want consistency across the whole pipeline, with no distribution shifts between data annotation, sft training, RM training, GRPO training (and how it uses SFT checkpoint and trained RMs), and evaluation.
+Tokenization should be consistent across the pipeline and use correct tokenizer for the model for both tokenization and chat template.
+The code should be shared between the pipeline components to ensure consistency.
+
+The datasets are assumed to be preprocessed to exclude prompts over 1000 tokens using Qwen tokenizer (which should be within 1024 tokens for other tokenizers). The response can take up to 1024 tokens, so the full conversation should be within 2048 tokens. That said, code should verify that token requirements are met and fail if they are not met at the dataset loading stage.
+
 
 ## Architecture
 
@@ -14,27 +21,16 @@ Current experiments are focused on GRPO, assume GRPO unless specified otherwise
 
 - **reward_models/** - Reward model training implementations
   - `run_reward_models_train.py` - Main training script for BT (Bradley-Terry) reward models -- currently used by the experiments by default
-  - `run_grm_reward_train.py` - Training script for GRM (regularized) reward models
-  - `grm_utils.py` / `utils.py` - Utilities for reward model training
-  - `reward_trainer.py` / `grm_reward_trainer.py` - Custom trainers
 
 - **rlhf/** - RLHF algorithm implementations
-  - `ppo/` - Proximal Policy Optimization
-    - `my_ppo.py` - Main PPO implementation
-    - `ppo_grm.py` - PPO with GRM reward models
-    - `ppo_rm_ensemble.py` - PPO with ensemble reward models
   - `grpo/` - Group Relative Policy Optimization
     - `my_grpo.py` - Main GRPO implementation
     - `grpo_utils.py` - GRPO utilities
   - `sft/` - Supervised Fine-Tuning
     - `my_sft.py` - SFT implementation
-  - `bon/` - Best-of-N sampling (see `rlhf/bon/README.md`)
-  - `data_generation/` - Dataset generation utilities for RLHF
 
 - **rm_eval/** - Reward model evaluation
   - `eval.py` - Main evaluation script for BT models
-  - `eval_grm.py` - Evaluation script for GRM models
-  - `load_eval_datasets.py` - Dataset loading for evaluation
 
 - **experimental/** - Experimental dataset annotation
   - `dataset_annotation.py` - Annotate datasets with reward model scores
@@ -42,7 +38,7 @@ Current experiments are focused on GRPO, assume GRPO unless specified otherwise
 
 - **scripts/** - Shell scripts for running experiments
   - All scripts use SLURM by default (with `#SBATCH` directives)
-  - Most scripts auto-detect available ports and set up distributed training
+  - Slurm is not avialable on the local environment, so most scripts are not runnable there
 
 ### Key Utilities
 
@@ -53,7 +49,7 @@ Current experiments are focused on GRPO, assume GRPO unless specified otherwise
 
 ### Training Reward Models
 
-Imprtant: Claude code runs not on the compute cluster, so running most scripts is impossible in the local environment (which has 12Gb cuda GPU). Don't try to run GRPO training and such locally. The following is just for claude to consult how the training is currenly using the python scripts.
+Imprtant: Local environment is not on the compute cluster, so running most scripts is impossible in the local environment (which has 12Gb cuda GPU). Don't try to run GRPO training and such locally. The following is just to consult how the training is currenly using the python scripts.
 
 
 ### Training reward models
@@ -115,15 +111,15 @@ This uses `dataset_annotation.py` to annotate datasets with reward model scores.
 
 - **Reasoning Reward Models**: Use LLM-as-judge approach (e.g., Skywork)
   - Identified by `hasattr(model, 'lm_head')` in `reward_utils.py`
-  - Use special prompts (see `Skywork_SYSTEM_PROMPT` in `reward_utils.py`)
-  
-# Current experiments
-
-Current experiments focus on BT reward models.
-
-The main pipeline for current experiments involves trainig multiple BT reward models, training SFT policy model, then experimenting with training the policy with GRPO starting from SFT checkpoing. Each GRPO run is automatically evaluated using evaluate_policy.sh.  
+  - Use special prompts (see `Skywork_SYSTEM_PROMPT` in `reward_utils.py`)  
 
 # Results
 
 Using sequential switching of reward models allows to train Qwen3-0.6B on 10k datapoints from Helpsteer 3 dataset at very low KL penalty. Lower KL penalty allows to achive much higher gold reward than standard training. We have also successfully finetuned a base model using only RL to a decent gold reward. Out of all our experiments, big ensembles seem to be the best way to prevent reward hacking, with mixed strategy of sequentually switching the mean ensemble of 10 reward models being the best so far (uwo is still churning).
+
+# Evaluation
+
+We currently use Skywork/Skywork-Reward-V2-Llama-3.1-8B as the gold reward model for evaluation. 
+Here is the official evaluation script: 
+`rlhf/skywork_reward_official_eval.py`
 

@@ -20,7 +20,13 @@ import matplotlib.pyplot as plt
 import json
 from datetime import datetime
 from reward_utils import get_reward, get_reward_rm, build_reward_texts, is_reasoning
-from data_utils import format_prompt, count_tokens_with_special_tokens
+from data_utils import (
+    format_and_validate_preference_sample,
+    completion_has_stop_token,
+    get_generation_stop_token_ids,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_CONVERSATION_TOKENS,
+)
 import math
 
 
@@ -55,7 +61,7 @@ def build_train_eval_datasets(
     tokenizer,
     eval_proportion,
     size=None,
-    max_prompt_length=None,
+    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
 ):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
@@ -69,6 +75,10 @@ def build_train_eval_datasets(
 
 
 def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
+    max_prompt_length = (
+        DEFAULT_MAX_PROMPT_TOKENS if max_prompt_length is None else max_prompt_length
+    )
+
     def formatting_func(example):
         # Keep structured messages for reward model formatting
         # chosen contains [User, Assistant] (usually). Strip the last message if it's the assistant's.
@@ -76,7 +86,14 @@ def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
         if prompt_msgs and prompt_msgs[-1]["role"] == "assistant":
             prompt_msgs = prompt_msgs[:-1]
 
-        prompt = format_prompt(example["chosen"], tokenizer)
+        prompt, _, _ = format_and_validate_preference_sample(
+            example["chosen"],
+            tokenizer,
+            rejected_messages=example.get("rejected"),
+            max_prompt_length=max_prompt_length,
+            max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+            context="GRPO",
+        )
         return {
             "prompt": prompt,
             "prompt_messages": prompt_msgs,
@@ -97,13 +114,6 @@ def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
     ds = ds.map(
         formatting_func, remove_columns=columns_to_remove, batched=False, num_proc=30
     )
-    if max_prompt_length is not None:
-        before = len(ds)
-        ds = ds.filter(
-            lambda x: count_tokens_with_special_tokens(x["prompt"], tokenizer) <= max_prompt_length,
-            num_proc=10,
-        )
-        print(f"Filtered prompts by max_prompt_length={max_prompt_length}: {before} -> {len(ds)}")
     ds.set_format(type="torch")
     return ds
 
@@ -509,15 +519,16 @@ def build_reward_function(
             assert (
                 completion_ids is not None
             ), "completion_ids must be provided if penalize_no_eos is True"
+            stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
             has_eos_list = []
             for c_ids in completion_ids:
-                if isinstance(c_ids, torch.Tensor):
-                    c_ids = c_ids.tolist()
-                if policy_tokenizer.eos_token_id in c_ids:
-                    has_eos_list.append(True)
-                else:
-                    has_eos_list.append(False)
+                has_eos_list.append(
+                    completion_has_stop_token(
+                        c_ids,
+                        stop_token_ids=stop_token_ids,
+                    )
+                )
 
             has_eos = torch.tensor(has_eos_list, device=reward.device)
 
