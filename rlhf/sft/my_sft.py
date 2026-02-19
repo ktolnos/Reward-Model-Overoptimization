@@ -22,10 +22,6 @@ from trl import (
     SFTTrainer,
 )
 
-# Define a simple chat template if needed
-SIMPLE_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ message['content'] }}\n{% elif message['role'] == 'assistant' %}\n{{ message['content'] }}\n{% endif %}\n{% endfor %}"
-
-
 @dataclass
 class ScriptArguments:
     max_prompt_length: Optional[int] = field(default=DEFAULT_MAX_PROMPT_TOKENS)
@@ -107,9 +103,13 @@ if __name__ == "__main__":
     setup_tokenizer(tokenizer)
     tokenizer.padding_side = "right"  # SFTTrainer requires right padding to avoid fp16 overflow
 
-    # Set chat template if needed
+    # Enforce a model-native chat template to avoid formatting drift.
     if tokenizer.chat_template is None:
-        tokenizer.chat_template = SIMPLE_CHAT_TEMPLATE
+        raise ValueError(
+            f"Tokenizer '{model_args.model_name_or_path}' has no chat_template. "
+            "SFT requires a tokenizer with a native chat template to keep "
+            "formatting consistent across the pipeline."
+        )
     
     
     # Load model
