@@ -152,9 +152,15 @@ STAGE3_ARGS=(
   --source-dataset "${FILTERED_DATASET}"
   --output-dataset "${ANNOTATED_DATASET}"
   --reward-model "${REWARD_MODEL}"
+  --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
+  --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
+  --validation-tokenizer-name "${TOKENIZER_NAME}"
 )
 if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE3_ARGS+=(--private)
+fi
+if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
+  STAGE3_ARGS+=(--trust-remote-code)
 fi
 
 JOB2="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" --dependency="afterok:${JOB1}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"

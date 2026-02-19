@@ -20,7 +20,7 @@ if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
 fi
 cd "${REPO_ROOT}"
 
-export HF_HOME="/nas/ucb/eop/cache"
+export HF_HOME="${HF_HOME:-/nas/ucb/eop/cache}"
 export TMPDIR="/nas/ucb/eop/temp"
 export TEMP="/nas/ucb/eop/temp"
 export TMP="/nas/ucb/eop/temp"

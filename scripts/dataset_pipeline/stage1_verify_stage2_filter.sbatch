@@ -19,6 +19,7 @@ if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
   exit 1
 fi
 cd "${REPO_ROOT}"
+export HF_HOME="${HF_HOME:-/nas/ucb/eop/cache}"
 export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
 # Normalize token env names so huggingface_hub can read either convention.

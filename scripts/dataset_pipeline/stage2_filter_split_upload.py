@@ -19,6 +19,7 @@ from data_utils import (
     tokenize_text_with_special_tokens,
 )
 from scripts.dataset_pipeline.pipeline_common import (
+    clear_hf_dataset_cache,
     ensure_dataset_dict,
     split_three_way,
     validate_preference_example_structure,
@@ -299,6 +300,7 @@ def main() -> None:
         push_kwargs["token"] = hf_token
     split_dict.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
+    clear_hf_dataset_cache(context="Stage2")
 
 
 if __name__ == "__main__":

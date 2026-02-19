@@ -6,7 +6,10 @@ import os
 
 from datasets import DatasetDict, load_dataset
 
-from scripts.dataset_pipeline.pipeline_common import ensure_dataset_dict
+from scripts.dataset_pipeline.pipeline_common import (
+    clear_hf_dataset_cache,
+    ensure_dataset_dict,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +74,7 @@ def main() -> None:
         push_kwargs["token"] = hf_token
     subsampled_dataset.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
+    clear_hf_dataset_cache(context="Stage4")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 from datasets import Dataset, DatasetDict
@@ -23,6 +26,40 @@ def ensure_dataset_dict(dataset_obj: Dataset | DatasetDict) -> DatasetDict:
     if isinstance(dataset_obj, Dataset):
         return DatasetDict({"train": dataset_obj})
     raise TypeError(f"Unsupported dataset object type: {type(dataset_obj)!r}")
+
+
+def get_hf_home_path() -> Path:
+    hf_home = os.getenv("HF_HOME")
+    if hf_home:
+        return Path(hf_home).expanduser()
+    return Path.home() / ".cache" / "huggingface"
+
+
+def clear_hf_dataset_cache(*, context: str | None = None) -> None:
+    """Clear local HF dataset caches so subsequent jobs fetch fresh revisions."""
+    hf_home = get_hf_home_path()
+    label = f"[{context}] " if context else ""
+    print(f"{label}Clearing HF dataset cache under {hf_home}")
+
+    hub_dir = hf_home / "hub"
+    lock_dir = hub_dir / ".locks"
+    targets = [hf_home / "datasets"]
+
+    if hub_dir.exists():
+        targets.extend(sorted(hub_dir.glob("datasets--*")))
+    if lock_dir.exists():
+        targets.extend(sorted(lock_dir.glob("datasets--*")))
+
+    for target in targets:
+        try:
+            if target.is_dir() or target.is_symlink():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                target.unlink()
+        except Exception as exc:  # noqa: BLE001
+            print(f"{label}Warning: failed to remove {target}: {exc}")
+
+    print(f"{label}HF dataset cache cleared.")
 
 
 

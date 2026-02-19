@@ -6,6 +6,7 @@ import os
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
+from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from data_utils import (
@@ -13,10 +14,12 @@ from data_utils import (
     DEFAULT_MAX_PROMPT_TOKENS,
     format_and_validate_preference_sample,
     format_conversation,
+    setup_tokenizer,
     tokenize_for_rm,
 )
 from reward_utils import load_reward_model
 from scripts.dataset_pipeline.pipeline_common import (
+    clear_hf_dataset_cache,
     ensure_dataset_dict,
     validate_preference_example_structure,
 )
@@ -60,6 +63,27 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_CONVERSATION_TOKENS,
         help="Validation max conversation tokens",
     )
+    parser.add_argument(
+        "--validation-tokenizer-name",
+        default="",
+        help=(
+            "Tokenizer used only for strict length validation. "
+            "If omitted, Stage 3 uses the reward model tokenizer."
+        ),
+    )
+    parser.set_defaults(trust_remote_code=True)
+    parser.add_argument(
+        "--trust-remote-code",
+        dest="trust_remote_code",
+        action="store_true",
+        help="Pass trust_remote_code=True when loading validation tokenizer (default).",
+    )
+    parser.add_argument(
+        "--no-trust-remote-code",
+        dest="trust_remote_code",
+        action="store_false",
+        help="Disable trust_remote_code when loading validation tokenizer.",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +92,7 @@ def annotate_split(
     split_data,
     reward_model,
     reward_tokenizer,
+    validation_tokenizer,
     *,
     batch_size: int,
     max_prompt_tokens: int,
@@ -98,10 +123,10 @@ def annotate_split(
                 idx=global_idx,
             )
 
-            # Re-run strict length validation with RM tokenizer for fail-fast consistency.
+            # Re-run strict length validation with the configured validation tokenizer.
             format_and_validate_preference_sample(
                 sample["chosen"],
-                reward_tokenizer,
+                validation_tokenizer,
                 rejected_messages=sample["rejected"],
                 max_prompt_length=max_prompt_tokens,
                 max_conversation_length=max_conversation_tokens,
@@ -159,6 +184,24 @@ def main() -> None:
         reasoning=False,
         device=device,
     )
+    setup_tokenizer(reward_tokenizer, model_name=args.reward_model)
+
+    validation_tokenizer = reward_tokenizer
+    if args.validation_tokenizer_name:
+        print(
+            "Loading validation tokenizer for Stage 3 length checks: "
+            f"{args.validation_tokenizer_name}"
+        )
+        validation_tokenizer = AutoTokenizer.from_pretrained(
+            args.validation_tokenizer_name,
+            trust_remote_code=args.trust_remote_code,
+        )
+        setup_tokenizer(
+            validation_tokenizer,
+            model_name=args.validation_tokenizer_name,
+        )
+    else:
+        print("Using reward tokenizer for Stage 3 length checks.")
 
     annotated_splits = {}
     for split_name, split_data in dataset_dict.items():
@@ -167,6 +210,7 @@ def main() -> None:
             split_data,
             reward_model,
             reward_tokenizer,
+            validation_tokenizer,
             batch_size=args.batch_size,
             max_prompt_tokens=args.max_prompt_tokens,
             max_conversation_tokens=args.max_conversation_tokens,
@@ -180,6 +224,7 @@ def main() -> None:
         push_kwargs["token"] = hf_token
     annotated_dataset.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
+    clear_hf_dataset_cache(context="Stage3")
 
 
 if __name__ == "__main__":
