@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -147,6 +148,7 @@ def annotate_split(
 
 def main() -> None:
     args = parse_args()
+    hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
 
     dataset_dict = ensure_dataset_dict(load_dataset(args.source_dataset))
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -174,6 +176,8 @@ def main() -> None:
 
     print(f"Uploading annotated dataset to {args.output_dataset}")
     push_kwargs = {"private": args.private}
+    if hf_token:
+        push_kwargs["token"] = hf_token
     annotated_dataset.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
 

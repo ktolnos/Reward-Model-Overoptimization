@@ -27,6 +27,14 @@ export TMP="/nas/ucb/eop/temp"
 export PYTHONPYCACHEPREFIX="/nas/ucb/eop/temp/pycache"
 export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
+# Normalize token env names so huggingface_hub can read either convention.
+if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" && -n "${HF_TOKEN:-}" ]]; then
+  export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN}"
+fi
+if [[ -z "${HF_TOKEN:-}" && -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  export HF_TOKEN="${HUGGINGFACE_HUB_TOKEN}"
+fi
+
 SOURCE_DATASET=""
 OUTPUT_DATASET=""
 FRACTION=0.25

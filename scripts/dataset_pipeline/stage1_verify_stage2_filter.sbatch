@@ -21,6 +21,14 @@ fi
 cd "${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
+# Normalize token env names so huggingface_hub can read either convention.
+if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" && -n "${HF_TOKEN:-}" ]]; then
+  export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN}"
+fi
+if [[ -z "${HF_TOKEN:-}" && -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  export HF_TOKEN="${HUGGINGFACE_HUB_TOKEN}"
+fi
+
 SOURCE_DATASET=""
 OUTPUT_DATASET=""
 TOKENIZER_NAME="Qwen/Qwen3-0.6B"
@@ -61,6 +69,50 @@ if [[ -z "${SOURCE_DATASET}" || -z "${OUTPUT_DATASET}" ]]; then
   echo "Both --source-dataset and --output-dataset are required." >&2
   exit 2
 fi
+
+if [[ -z "${HF_TOKEN:-}" && -z "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  echo "ERROR: No HF token found in job environment (HF_TOKEN/HUGGINGFACE_HUB_TOKEN)." >&2
+  exit 2
+fi
+
+python3 - "${OUTPUT_DATASET}" <<'PY'
+import os
+import sys
+from huggingface_hub import HfApi
+
+output_dataset = sys.argv[1]
+namespace = output_dataset.split("/", 1)[0] if "/" in output_dataset else None
+token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
+if not token:
+    raise SystemExit("ERROR: missing HF auth token in environment.")
+
+api = HfApi(token=token)
+try:
+    who = api.whoami()
+except Exception as exc:  # noqa: BLE001
+    raise SystemExit(f"ERROR: HF auth failed before Stage 2 upload: {exc}") from exc
+
+username = who.get("name")
+orgs_raw = who.get("orgs", [])
+org_names = set()
+for org in orgs_raw:
+    if isinstance(org, dict):
+        name = org.get("name")
+    else:
+        name = str(org)
+    if name:
+        org_names.add(name)
+
+allowed_namespaces = {username, *org_names}
+if namespace and namespace not in allowed_namespaces:
+    raise SystemExit(
+        "ERROR: HF token user "
+        f"'{username}' cannot write to namespace '{namespace}'. "
+        f"Allowed namespaces from whoami: {sorted(allowed_namespaces)}"
+    )
+
+print(f"HF auth preflight OK: user={username}, target_namespace={namespace}")
+PY
 
 VERIFY_ARGS=(
   --source-dataset "${SOURCE_DATASET}"

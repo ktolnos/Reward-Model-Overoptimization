@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections import Counter
 
 from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
@@ -190,6 +191,7 @@ def _filter_split(
 
 def main() -> None:
     args = parse_args()
+    hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
 
     print(f"Loading dataset: {args.source_dataset}")
     dataset_dict = ensure_dataset_dict(load_dataset(args.source_dataset))
@@ -293,6 +295,8 @@ def main() -> None:
 
     print(f"Uploading filtered dataset to {args.output_dataset}")
     push_kwargs = {"private": args.private}
+    if hf_token:
+        push_kwargs["token"] = hf_token
     split_dict.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
 

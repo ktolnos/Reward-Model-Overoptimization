@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from datasets import DatasetDict, load_dataset
 
@@ -36,6 +37,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
 
     if not (0.0 < args.fraction <= 1.0):
         raise ValueError(f"--fraction must be in (0, 1], got {args.fraction}")
@@ -65,6 +67,8 @@ def main() -> None:
 
     print(f"Uploading subsampled dataset to {args.output_dataset}")
     push_kwargs = {"private": args.private}
+    if hf_token:
+        push_kwargs["token"] = hf_token
     subsampled_dataset.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
 

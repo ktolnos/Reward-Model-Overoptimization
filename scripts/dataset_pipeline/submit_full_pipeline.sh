@@ -75,13 +75,16 @@ if [[ -z "${HF_TOKEN:-}" && -z "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
   exit 2
 fi
 
+# Normalize token env names so downstream tools can read either convention.
+if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" && -n "${HF_TOKEN:-}" ]]; then
+  export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN}"
+fi
+if [[ -z "${HF_TOKEN:-}" && -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  export HF_TOKEN="${HUGGINGFACE_HUB_TOKEN}"
+fi
+
 SBATCH_EXPORT="ALL"
-if [[ -n "${HF_TOKEN:-}" ]]; then
-  SBATCH_EXPORT+=",HF_TOKEN"
-fi
-if [[ -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
-  SBATCH_EXPORT+=",HUGGINGFACE_HUB_TOKEN"
-fi
+SBATCH_EXPORT+=",HF_TOKEN,HUGGINGFACE_HUB_TOKEN"
 
 sanitize() {
   echo "$1" | sed -e 's#[/:]#-#g' -e 's#[^a-zA-Z0-9_-]#-#g' -e 's#--*#-#g' -e 's#^-##' -e 's#-$##'

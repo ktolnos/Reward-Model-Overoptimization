@@ -37,4 +37,12 @@ export WANDB_CACHE_DIR="/nas/ucb/eop/cache/wandb"
 export WANDB_DATA_DIR="/nas/ucb/eop/cache/wandb-data"
 export WANDB_ARTIFACT_DIR="/nas/ucb/eop/cache/wandb-artifacts"
 
+# Normalize token env names so huggingface_hub can read either convention.
+if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" && -n "${HF_TOKEN:-}" ]]; then
+  export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN}"
+fi
+if [[ -z "${HF_TOKEN:-}" && -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
+  export HF_TOKEN="${HUGGINGFACE_HUB_TOKEN}"
+fi
+
 python3 scripts/dataset_pipeline/stage3_annotate_and_upload.py "$@"
