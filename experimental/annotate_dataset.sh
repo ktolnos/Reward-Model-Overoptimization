@@ -22,6 +22,8 @@ if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
 fi
 cd "${REPO_ROOT}"
 
+export HF_HOME="${HF_HOME:-/nas/ucb/eop/cache}"
+export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
 # Normalize token env names so huggingface_hub can read either convention.
 if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" && -n "${HF_TOKEN:-}" ]]; then

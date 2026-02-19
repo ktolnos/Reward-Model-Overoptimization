@@ -3,17 +3,23 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+from pathlib import Path
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
+# Ensure repo-root imports work even when this script is launched directly.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from data_utils import (
     DEFAULT_MAX_CONVERSATION_TOKENS,
     DEFAULT_MAX_PROMPT_TOKENS,
     format_and_validate_preference_sample,
-    format_conversation,
     setup_tokenizer,
     tokenize_for_rm,
 )
@@ -24,8 +30,10 @@ from scripts.dataset_pipeline.pipeline_common import (
     validate_preference_example_structure,
 )
 
+_MAX_FORMAT_VALIDATION_TOKENS = 10**9
 
-def parse_args() -> argparse.Namespace:
+
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Stage 3: annotate a filtered preference dataset with reward model scores "
@@ -87,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def annotate_split(
+def _annotate_split(
     split_name: str,
     split_data,
     reward_model,
@@ -110,7 +118,7 @@ def annotate_split(
         batch = split_data[start : start + batch_size]
         batch_size_actual = len(batch["chosen"])
 
-        all_conversations = []
+        all_texts: list[str] = []
         batch_original_rows: list[dict] = []
 
         for offset in range(batch_size_actual):
@@ -134,12 +142,27 @@ def annotate_split(
                 context=f"Stage3-{split_name}",
             )
 
-            all_conversations.append(sample["chosen"])
-            all_conversations.append(sample["rejected"])
+            # Use the shared formatter for RM texts as well to avoid formatting drift.
+            _, chosen_text, rejected_text = format_and_validate_preference_sample(
+                sample["chosen"],
+                reward_tokenizer,
+                rejected_messages=sample["rejected"],
+                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                sample_id=global_idx,
+                context=f"Stage3RMFormat-{split_name}",
+            )
+            if rejected_text is None:
+                raise ValueError(
+                    f"Stage3RMFormat-{split_name} missing rejected text "
+                    f"(sample_id={global_idx})."
+                )
+
+            all_texts.append(chosen_text)
+            all_texts.append(rejected_text)
             batch_original_rows.append(sample)
 
-        formatted_texts = [format_conversation(conv, reward_tokenizer) for conv in all_conversations]
-        inputs = tokenize_for_rm(formatted_texts, reward_tokenizer).to(reward_model.device)
+        inputs = tokenize_for_rm(all_texts, reward_tokenizer).to(reward_model.device)
 
         with torch.no_grad():
             outputs = reward_model(**inputs)
@@ -172,7 +195,7 @@ def annotate_split(
 
 
 def main() -> None:
-    args = parse_args()
+    args = _parse_args()
     hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
 
     dataset_dict = ensure_dataset_dict(load_dataset(args.source_dataset))
@@ -205,7 +228,7 @@ def main() -> None:
 
     annotated_splits = {}
     for split_name, split_data in dataset_dict.items():
-        annotated_splits[split_name] = annotate_split(
+        annotated_splits[split_name] = _annotate_split(
             split_name,
             split_data,
             reward_model,

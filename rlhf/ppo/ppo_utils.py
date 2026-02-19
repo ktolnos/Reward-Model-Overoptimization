@@ -213,10 +213,22 @@ def build_dataset_common(data_path, tokenizer, script_args, split='', size=None)
     return ds
 
 def post_process_common_dataset(ds, tokenizer, script_args):
-    from data_utils import format_prompt, tokenize_text_with_special_tokens
+    from data_utils import (
+        format_and_validate_preference_sample,
+        tokenize_text_with_special_tokens,
+    )
+
+    max_format_validation_tokens = 10**9
 
     def formatting_func(example):
-        prompt = format_prompt(example["chosen"], tokenizer)
+        prompt, _, _ = format_and_validate_preference_sample(
+            example["chosen"],
+            tokenizer,
+            rejected_messages=example.get("rejected"),
+            max_prompt_length=max_format_validation_tokens,
+            max_conversation_length=max_format_validation_tokens,
+            context="PPO",
+        )
         tokens = tokenize_text_with_special_tokens(
             prompt,
             tokenizer,

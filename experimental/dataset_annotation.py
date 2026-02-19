@@ -22,8 +22,6 @@ from reward_utils import (
     load_reward_model,
 )
 from data_utils import (
-    format_conversation,
-    format_prompt,
     tokenize_for_rm,
     strip_bos_if_present_batch,
     tokenize_texts_with_special_tokens,
@@ -32,6 +30,8 @@ from data_utils import (
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_CONVERSATION_TOKENS,
 )
+
+_MAX_FORMAT_VALIDATION_TOKENS = 10**9
 
 
 def load_helpsteer2_dataset(split="train"):
@@ -73,19 +73,28 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
         batch = dataset[i:i + batch_size]
 
         # Process all examples in the batch at once
-        all_conversations = []
+        all_texts = []
         batch_size_actual = len(batch["preference_strength"])  # Get actual batch size
 
-        # Add both chosen and rejected conversations to the batch
+        # Format and validate both chosen and rejected conversations.
         for j in range(batch_size_actual):
-            all_conversations.append(batch["chosen"][j])
-            all_conversations.append(batch["rejected"][j])
+            _, chosen_text, rejected_text = format_and_validate_preference_sample(
+                batch["chosen"][j],
+                tokenizer,
+                rejected_messages=batch["rejected"][j],
+                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                sample_id=i + j,
+                context="Annotation",
+            )
+            if rejected_text is None:
+                raise ValueError(f"Missing rejected text after formatting (sample_id={i + j}).")
 
-        # Apply chat template to format all conversations
-        formatted_texts = [format_conversation(conv, tokenizer) for conv in all_conversations]
+            all_texts.append(chosen_text)
+            all_texts.append(rejected_text)
 
         # Tokenize all conversations in a single batch
-        inputs = tokenize_for_rm(formatted_texts, tokenizer).to(device)
+        inputs = tokenize_for_rm(all_texts, tokenizer).to(device)
 
         torch.cuda.empty_cache()
         with torch.no_grad():
@@ -144,7 +153,15 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
         swaps = []
         for j in range(min(len(dataset) - i, batch_size)):
             sample = dataset[i+j]
-            query = format_prompt(sample["chosen"], tokenizer)
+            query, _, _ = format_and_validate_preference_sample(
+                sample["chosen"],
+                tokenizer,
+                rejected_messages=sample["rejected"],
+                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                sample_id=i + j,
+                context="AnnotationReasoning",
+            )
             answer1 = sample["chosen"][-1]["content"]
             answer2 = sample["rejected"][-1]["content"]
 
@@ -258,10 +275,18 @@ def generate_with_reference_policy(
         batch_data = dataset[i:i + batch_size]
         print(batch_size, len(batch_data))
 
-        prompts = [
-            format_prompt(item['chosen'], tokenizer)
-            for item in batch_data
-        ]
+        prompts = []
+        for j, item in enumerate(batch_data):
+            prompt_text, _, _ = format_and_validate_preference_sample(
+                item["chosen"],
+                tokenizer,
+                rejected_messages=item.get("rejected"),
+                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                sample_id=i + j,
+                context="ReferencePolicy",
+            )
+            prompts.append(prompt_text)
 
         inputs = tokenize_texts_with_special_tokens(
             prompts,
@@ -321,18 +346,25 @@ def evaluate_with_reference_reward_model(
 
     for i in tqdm(range(0, len(dataset), batch_size), desc="Evaluating with reference reward model"):
         batch_data = dataset[i:i + batch_size]
-        all_conversations = []
+        all_texts = []
 
-        for item in batch_data:
+        for j, item in enumerate(batch_data):
             prompt_conv = item['chosen'][:-1]
             for k in range(num_responses):
                 response_text = item.get(f'reference_response_{k+1}')
                 if response_text:
                     full_conv = prompt_conv + [{'role': 'assistant', 'content': response_text}]
-                    all_conversations.append(full_conv)
+                    _, full_text, _ = format_and_validate_preference_sample(
+                        full_conv,
+                        tokenizer,
+                        max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                        max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                        sample_id=i + j,
+                        context="ReferenceReward",
+                    )
+                    all_texts.append(full_text)
 
-        formatted_texts = [format_conversation(conv, tokenizer) for conv in all_conversations]
-        inputs = tokenize_for_rm(formatted_texts, tokenizer).to(device)
+        inputs = tokenize_for_rm(all_texts, tokenizer).to(device)
 
         with torch.no_grad():
             outputs = reward_model(**inputs)

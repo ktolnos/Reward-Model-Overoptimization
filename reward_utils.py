@@ -109,7 +109,7 @@ def build_reward_texts(prompts, completions, tokenizer):
     """Build scored texts from prompts and completions, appending EOT.
 
     The EOT token is appended so the scored text matches the RM training
-    distribution (format_conversation always includes EOT). The RM
+    distribution (chat-template full conversations include EOT). The RM
     classification head is trained to predict at the EOT position.
     """
     raise ValueError("Current experiments expect to use apply_chat_template. This error is to avoid accidentally using incorrect formatting")
@@ -145,7 +145,7 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
     """Score texts with a reward model.
 
     Args:
-        texts: Pre-formatted text strings (from format_conversation or prompt+completion).
+        texts: Pre-formatted text strings (from shared formatting helpers).
         require_grad: If True, keep gradients for the reward computation.
         batch_size: If set, processes in batches (for large inputs). Returns CPU tensor.
     """

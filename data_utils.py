@@ -6,8 +6,8 @@ Conventions:
 - No truncation during tokenization; datasets must be pre-filtered
 - format_reward_texts: for RM scoring (Evaluation, GRPO rewards, Annotation).
   Matches HF model-card convention (reconstruct -> strip BOS -> tokenize with add_special_tokens=True).
-- format_prompt: for generation inputs (GRPO prompts, eval prompts)
-- format_conversation: for full conversations (RM training, SFT, annotation)
+- _format_prompt: internal helper for generation prompt formatting
+- _format_conversation: internal helper for full conversation formatting
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
 
@@ -209,11 +209,9 @@ def validate_conversation_messages_or_fail(
         )
 
 
-def format_prompt(conversation, tokenizer):
+def _format_prompt(conversation, tokenizer):
     """Format the prompt portion of a conversation (all messages except the last).
     Returns a string ending with the generation prompt marker.
-
-    Used by: GRPO dataset, evaluation, prompt extraction, precompute_reward_means.
     """
     messages = conversation[:-1]
     return tokenizer.apply_chat_template(
@@ -224,13 +222,12 @@ def format_prompt(conversation, tokenizer):
     )
 
 
-def format_conversation(conversation, tokenizer):
+def _format_conversation(conversation, tokenizer):
     """Format a full conversation (prompt + response) with chat template.
     Returns a string with proper assistant header and EOT around the response.
 
-    Used by: RM dataset prep, SFT dataset, dataset annotation.
-
-    Key property: format_conversation(msgs) starts with format_prompt(msgs) as a prefix.
+    Internal helper used by format_and_validate_preference_sample.
+    Key property: _format_conversation(msgs) starts with _format_prompt(msgs) as a prefix.
     """
     return tokenizer.apply_chat_template(
         conversation,
@@ -275,8 +272,8 @@ def format_and_validate_preference_sample(
                 f"{context} chosen/rejected must share identical prompt messages{sample_suffix}."
             )
 
-    prompt_text = format_prompt(chosen_messages, tokenizer)
-    chosen_text = format_conversation(chosen_messages, tokenizer)
+    prompt_text = _format_prompt(chosen_messages, tokenizer)
+    chosen_text = _format_conversation(chosen_messages, tokenizer)
     if not chosen_text.startswith(prompt_text):
         sample_suffix = f" (sample_id={sample_id})" if sample_id is not None else ""
         raise ValueError(
@@ -300,7 +297,7 @@ def format_and_validate_preference_sample(
 
     rejected_text = None
     if rejected_messages is not None:
-        rejected_text = format_conversation(rejected_messages, tokenizer)
+        rejected_text = _format_conversation(rejected_messages, tokenizer)
         validate_length_or_fail(
             rejected_text,
             max_conversation_length,
