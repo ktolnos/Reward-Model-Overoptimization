@@ -77,9 +77,9 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 1 \
     --eval_strategy "steps" \
-    --eval_steps 0.0625 \
+    --eval_steps 0.05 \
     --save_strategy "steps" \
-    --save_steps 0.0625 \
+    --save_steps 0.05 \
     --save_only_model True \
     --learning_rate 1e-5 \
     --warmup_ratio 0 \
