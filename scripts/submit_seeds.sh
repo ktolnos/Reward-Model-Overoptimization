@@ -3,7 +3,7 @@
 # Default values
 START_SEED=${1:-610}
 END_SEED=${2:-699}
-SAVE_LAST_ONLY=${3:-False}
+SAVE_LAST_ONLY=${3:-True}
 SKIP_OPTIMIZER=${4:-True}
 
 echo "Submitting jobs for seeds $START_SEED to $END_SEED"
