@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import os
+import sys
 import torch
 import numpy as np
 import pandas as pd
@@ -17,6 +18,9 @@ from transformers import (
 import argparse
 from load_datasets import build_datasets_inference, prepare_data_loader
 from utils import create_output_directory
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 @dataclass
@@ -50,7 +54,11 @@ def evaluate_and_collect_results(model, data_loader, tokenizer, accelerator, bat
     
     with torch.no_grad():
         for i, batch in enumerate(data_loader):
-            reward_tensors = model(batch["input_ids"].to(model.device), attention_mask=batch["attention_mask"].to(model.device)).logits.reshape(-1)
+            model_output = model(
+                batch["input_ids"].to(model.device),
+                attention_mask=batch["attention_mask"].to(model.device),
+            )
+            reward_tensors = extract_reward_tensors_from_model_output(model, model_output)
             full_rewards.extend(reward_tensors)
             full_prompts.extend(batch['input_ids'])
             if 'source' in batch.keys():

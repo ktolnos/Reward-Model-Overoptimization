@@ -16,6 +16,7 @@ from ppo_utils import (print_trainable_parameters, collator, eval_model, build_d
 from rm_utils import load_reward_model
 from config import get_config
 from data_utils import tokenize_text_with_special_tokens
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 @dataclass
@@ -164,7 +165,15 @@ for epoch in range(epochs):
                                        temp_lis]
 
         with torch.no_grad():
-            reward_tensors = [reward_model(x['input_ids'].to(rm_gpu_id)).logits[0] for x in encoded_prompt_response]
+            reward_tensors = []
+            for x in encoded_prompt_response:
+                model_inputs = {"input_ids": x["input_ids"].to(rm_gpu_id)}
+                if "attention_mask" in x:
+                    model_inputs["attention_mask"] = x["attention_mask"].to(rm_gpu_id)
+                model_output = reward_model(**model_inputs)
+                reward_tensors.append(
+                    extract_reward_tensors_from_model_output(reward_model, model_output)
+                )
         rewards = [r.item() for r in reward_tensors]
 
         # normalize using the first batch statistics

@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM
 from trl import PreTrainedModelWrapper
 from peft import PeftModel, PeftConfig
 from safetensors import safe_open
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 def unwrap_model(model: nn.Module) -> nn.Module:
@@ -366,7 +367,8 @@ def load_model_withhead(model_name, peft_name, tokenizer, device, \
 
 def model_withhead_forward(model, input_ids, attention_mask, device, forward_type='reward'):
     if forward_type == 'reward':
-        _, _, reward_tensors = model(input_ids.to(device), attention_mask=attention_mask.to(device))
+        model_output = model(input_ids.to(device), attention_mask=attention_mask.to(device))
+        reward_tensors = extract_reward_tensors_from_model_output(model, model_output)
     elif forward_type == 'dpo':
         _, reward_tensors, _ = model(input_ids.to(device), attention_mask=attention_mask.to(device))
     else:

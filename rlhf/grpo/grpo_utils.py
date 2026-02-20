@@ -298,9 +298,18 @@ def precompute_reward_means(
         for j in range(0, len(all_conversations), batch_size):
             batch = all_conversations[j : j + batch_size]
 
-            # Reconstruct conversations properly for this RM
-            from data_utils import format_reward_texts
-            reward_texts = format_reward_texts(batch, responses=None, rm_tokenizer=reward_tokenizer)
+            # Format and validate full conversations with the RM tokenizer.
+            reward_texts = []
+            for sample_id, conv in enumerate(batch):
+                _, full_text, _ = format_and_validate_preference_sample(
+                    conv,
+                    reward_tokenizer,
+                    max_prompt_length=None,
+                    max_conversation_length=None,
+                    sample_id=sample_id,
+                    context="GRPO RM mean precompute",
+                )
+                reward_texts.append(full_text)
 
             scores = get_reward_rm(
                 reward_model, reward_tokenizer, reward_texts, batch_size=batch_size

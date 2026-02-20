@@ -4,8 +4,8 @@ Conventions:
 - apply_chat_template may include BOS; strip BOS before tokenization, then always use add_special_tokens=True
 - padding_side="left" everywhere
 - No truncation during tokenization; datasets must be pre-filtered
-- format_reward_texts: for RM scoring (Evaluation, GRPO rewards, Annotation).
-  Matches HF model-card convention (reconstruct -> strip BOS -> tokenize with add_special_tokens=True).
+- format_and_validate_preference_sample: single source of truth for chat
+  formatting + length validation (used by SFT/GRPO/RM evaluation/annotation).
 - _format_prompt: internal helper for generation prompt formatting
 - _format_conversation: internal helper for full conversation formatting
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
@@ -248,6 +248,9 @@ def format_and_validate_preference_sample(
 ):
     """Format prompt/conversation texts and validate prompt/full-length constraints.
 
+    Pass ``None`` for ``max_prompt_length`` and/or ``max_conversation_length`` to
+    skip that validation.
+
     Returns:
         Tuple of (prompt_text, chosen_text, rejected_text_or_None).
     """
@@ -280,65 +283,36 @@ def format_and_validate_preference_sample(
             f"{context} formatting mismatch: prompt is not a prefix of chosen conversation{sample_suffix}."
         )
 
-    validate_length_or_fail(
-        prompt_text,
-        max_prompt_length,
-        name=f"{context} prompt",
-        tokenizer=tokenizer,
-        sample_id=sample_id,
-    )
-    validate_length_or_fail(
-        chosen_text,
-        max_conversation_length,
-        name=f"{context} chosen conversation",
-        tokenizer=tokenizer,
-        sample_id=sample_id,
-    )
-
-    rejected_text = None
-    if rejected_messages is not None:
-        rejected_text = _format_conversation(rejected_messages, tokenizer)
+    if max_prompt_length is not None:
         validate_length_or_fail(
-            rejected_text,
+            prompt_text,
+            max_prompt_length,
+            name=f"{context} prompt",
+            tokenizer=tokenizer,
+            sample_id=sample_id,
+        )
+    if max_conversation_length is not None:
+        validate_length_or_fail(
+            chosen_text,
             max_conversation_length,
-            name=f"{context} rejected conversation",
+            name=f"{context} chosen conversation",
             tokenizer=tokenizer,
             sample_id=sample_id,
         )
 
+    rejected_text = None
+    if rejected_messages is not None:
+        rejected_text = _format_conversation(rejected_messages, tokenizer)
+        if max_conversation_length is not None:
+            validate_length_or_fail(
+                rejected_text,
+                max_conversation_length,
+                name=f"{context} rejected conversation",
+                tokenizer=tokenizer,
+                sample_id=sample_id,
+            )
+
     return prompt_text, chosen_text, rejected_text
-
-
-def format_reward_texts(prompt_messages_list, responses, rm_tokenizer):
-    """Format conversations for RM scoring using the RM's own chat template.
-
-    Args:
-        prompt_messages_list: If 'responses' is provided, this is a list of
-            structured prompt message lists. If 'responses' is None, this is
-            a list of full conversation message lists (e.g. from a dataset).
-        responses: Optional list of assistant response strings.
-        rm_tokenizer: Tokenizer for the reward model.
-
-    Returns:
-        List of formatted strings with BOS stripped (caller uses add_special_tokens=True).
-    """
-    texts = []
-    if responses is not None:
-        # Hybrid mode: reconstruct from prompt + response
-        for prompt_msgs, response in zip(prompt_messages_list, responses):
-            full_conv = list(prompt_msgs) + [{"role": "assistant", "content": response}]
-            texts.append(_format_single_conv_for_rm(full_conv, rm_tokenizer))
-    else:
-        # Direct mode: use full conversations (e.g. ground truth from dataset)
-        for conv in prompt_messages_list:
-            texts.append(_format_single_conv_for_rm(conv, rm_tokenizer))
-    return texts
-
-
-def _format_single_conv_for_rm(conversation, tokenizer):
-    """Helper to apply chat template and strip BOS."""
-    text = tokenizer.apply_chat_template(conversation, tokenize=False)
-    return strip_bos_if_present(text, tokenizer)
 
 
 def tokenize_for_rm(texts, tokenizer):

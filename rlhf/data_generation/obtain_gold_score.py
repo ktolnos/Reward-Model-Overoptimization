@@ -1,5 +1,6 @@
 import os
 import argparse
+import sys
 import numpy as np
 import pandas as pd
 import torch
@@ -15,6 +16,9 @@ from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
 )
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 
@@ -87,8 +91,16 @@ def obtain_gold_score(script_args):
         pbar = tqdm(total=len(dataset) // script_args.per_device_batch_size // accelerator.num_processes)
     with torch.no_grad():
         for i, batch in enumerate(data_loader):
-            reward_chosen_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask_chosen"].to(device)).logits.reshape(-1)
-            reward_rejected_tensors = model(batch["input_ids_rejected"].to(device), attention_mask=batch["attention_mask_rejected"].to(device)).logits.reshape(-1)
+            chosen_output = model(
+                batch["input_ids"].to(device),
+                attention_mask=batch["attention_mask_chosen"].to(device),
+            )
+            rejected_output = model(
+                batch["input_ids_rejected"].to(device),
+                attention_mask=batch["attention_mask_rejected"].to(device),
+            )
+            reward_chosen_tensors = extract_reward_tensors_from_model_output(model, chosen_output)
+            reward_rejected_tensors = extract_reward_tensors_from_model_output(model, rejected_output)
             full_rewards_chosen.extend(reward_chosen_tensors)
             full_rewards_rejected.extend(reward_rejected_tensors)
             full_chosen_prompts.extend(batch['input_ids'])

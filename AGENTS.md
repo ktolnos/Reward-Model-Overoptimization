@@ -14,6 +14,8 @@ The code should be shared between the pipeline components to ensure consistency.
 
 The datasets are assumed to be preprocessed to exclude prompts over 1000 tokens using Qwen tokenizer (which should be within 1024 tokens for other tokenizers). The response can take up to 1024 tokens, so the full conversation should be within 2048 tokens. That said, code should verify that token requirements are met and fail if they are not met at the dataset loading stage.
 
+Ignore code related to GRM training, PPO, and BoN (best of n), these parts are not relevant to current experiments and are not maintained. I will update them when needed.
+
 
 ## Architecture
 

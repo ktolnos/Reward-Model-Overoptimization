@@ -15,6 +15,7 @@ tqdm.pandas()
 from peft import LoraConfig, PeftModel
 import matplotlib.pyplot as plt
 from model_utils import load_model_withhead
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 
@@ -83,7 +84,17 @@ class RMEnsemble():
         results = []
         with torch.no_grad():
             for i in range(len(self.peft_path_list)):
-                reward_tensors = [self.reward_models[i](x['input_ids'].to(self.gpu_ids[i])).logits[0] for x in encoded_prompt_response] 
+                reward_tensors = []
+                for x in encoded_prompt_response:
+                    model_inputs = {"input_ids": x["input_ids"].to(self.gpu_ids[i])}
+                    if "attention_mask" in x:
+                        model_inputs["attention_mask"] = x["attention_mask"].to(self.gpu_ids[i])
+                    model_output = self.reward_models[i](**model_inputs)
+                    reward_tensors.append(
+                        extract_reward_tensors_from_model_output(
+                            self.reward_models[i], model_output
+                        )
+                    )
                 results.append(torch.concat(reward_tensors).view(-1, 1))
 
         if self.ensemble_method == 'avg':

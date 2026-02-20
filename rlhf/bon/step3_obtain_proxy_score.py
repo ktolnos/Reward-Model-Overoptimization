@@ -21,7 +21,9 @@ from utils import create_output_directory
 
 # Add the `./reward_models` path to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reward_models')))
-from grm_utils import load_model_withhead, model_withhead_forward
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from grm_utils import load_model_withhead
+from reward_utils import extract_reward_tensors_from_model_output
 
 
 
@@ -99,10 +101,11 @@ def obtain_proxy_score():
     
     with torch.no_grad():
         for batch in data_loader:
-            if script_args.model_type == 'grm':
-                reward_tensors = model_withhead_forward(model, batch["input_ids"], batch["attention_mask"], device, forward_type='reward') 
-            else:
-                reward_tensors = model(batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device)).logits.reshape(-1)
+            model_output = model(
+                batch["input_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+            )
+            reward_tensors = extract_reward_tensors_from_model_output(model, model_output)
 
             full_rewards.extend(reward_tensors)
             full_prompts.extend(batch['input_ids'])

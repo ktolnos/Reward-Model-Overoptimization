@@ -6,10 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 import torch
-from sympy import false
 from transformers import (
     AutoModelForCausalLM,
-    AutoModelForSequenceClassification,
     AutoTokenizer,
     HfArgumentParser,
 )
@@ -23,7 +21,6 @@ from reward_utils import (
     Skywork_PROMPT,
     Skywork_SYSTEM_PROMPT,
     Skywork_ASSISTANT_PROMPT,
-    build_reward_texts,
     get_reward_rm,
     extract_reward_from_response,
     load_reward_model,
@@ -31,7 +28,6 @@ from reward_utils import (
 from data_utils import (
     format_and_validate_preference_sample,
     setup_tokenizer,
-    format_reward_texts,
     get_generation_stop_token_ids,
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_CONVERSATION_TOKENS,
@@ -145,6 +141,13 @@ class ScriptArguments:
             "help": "vLLM GPU memory utilization. Lower this if running into OOM with RMs loaded."
         },
     )
+    secondary_rm_name: Optional[str] = field(
+        default="Ray2333/GRM-Gemma-2B-sftreg",
+        metadata={
+            "help": "Name of the secondary reward model for cross-validation against gold RM. "
+                    "Set to 'none' to disable."
+        },
+    )
 
 
 def load_reward_model_impl(model_path_or_name, device):
@@ -152,6 +155,62 @@ def load_reward_model_impl(model_path_or_name, device):
         model_path_or_name, reasoning=False, device=device
     )
     return model, tokenizer
+
+
+def score_responses_with_rm(
+    responses,
+    prompt_messages_list,
+    args,
+    rm_model_or_name,
+    rm_tokenizer=None,
+    *,
+    checkpoint_num=None,
+):
+    """Score one checkpoint's responses with a reward model."""
+    loaded_here = False
+    if isinstance(rm_model_or_name, str):
+        rm_model, rm_tokenizer = load_reward_model_impl(rm_model_or_name, args.device)
+        loaded_here = True
+    else:
+        rm_model = rm_model_or_name
+
+    if rm_tokenizer is None:
+        raise ValueError("rm_tokenizer must be provided when scoring reward models.")
+
+    try:
+        if len(prompt_messages_list) != len(responses):
+            raise ValueError(
+                "Prompt/response mismatch: "
+                f"{len(prompt_messages_list)} prompts vs {len(responses)} responses."
+            )
+
+        texts = []
+        context = f"Evaluation checkpoint {checkpoint_num}"
+
+        for sample_id, (prompt_messages, response) in enumerate(
+            zip(prompt_messages_list, responses)
+        ):
+            full_conv = list(prompt_messages) + [{"role": "assistant", "content": response}]
+            _, full_text, _ = format_and_validate_preference_sample(
+                full_conv,
+                rm_tokenizer,
+                max_prompt_length=None,
+                max_conversation_length=None,
+                sample_id=sample_id,
+                context=context,
+            )
+            texts.append(full_text)
+        return (
+            get_reward_rm(rm_model, rm_tokenizer, texts, batch_size=args.batch_size)
+            .cpu()
+            .float()
+            .numpy()
+        )
+    finally:
+        if loaded_here:
+            del rm_model, rm_tokenizer
+            gc.collect()
+            torch.cuda.empty_cache()
 
 
 
@@ -803,22 +862,12 @@ def main():
                 torch.cuda.empty_cache()
 
     else:
-        # --- Reward Model Evaluation (Original Logic) ---
+        # --- Reward Model Evaluation ---
         print("Starting Reward Model evaluation...")
-        print("Loading reward models...")
-        if args.evaluate_with_training_rm:
-            training_rm, training_rm_tokenizer = load_reward_model_impl(
-                args.training_rm_path, args.device
-            )
-        gold_rm, gold_rm_tokenizer = load_reward_model_impl(
-            args.gold_rm_name, args.device
-        )
 
-        # Load base policy for KL calculation if specified
+        # Load base policy for KL calculation (needs to stay on GPU during generation).
         base_policy_model = None
-        kl_reward_data = (
-            []
-        )  # Accumulate (checkpoint, mean_kl, mean_gold_reward) for final plot
+        kl_reward_data = []  # Accumulate (checkpoint, kl_grpo, gold_reward) for final plot
         if args.kl_base_model_path:
             print(f"Loading base policy for KL from {args.kl_base_model_path}...")
             base_policy_model = load_policy_model(
@@ -841,6 +890,7 @@ def main():
         try:
             for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
                 checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
+                checkpoint_num = int(checkpoint.split("-")[1])
                 print(f"\nEvaluating {checkpoint}")
 
                 # Update weights if not the first checkpoint (which was used for init)
@@ -848,11 +898,6 @@ def main():
                     update_vllm_weights(llm, checkpoint_path)
 
                 try:
-                    # Use string prompts for vLLM
-                    prompts_list = original_prompts
-
-                    # Generate responses
-                    # We always get full_ids and prompt_lens if kl_base_model_path is set, because generate_responses_vllm handles it
                     (
                         responses,
                         full_ids_list,
@@ -861,78 +906,18 @@ def main():
                         policy_token_logprobs,
                     ) = generate_responses_vllm(
                         llm,
-                        prompts_list,
+                        original_prompts,
                         policy_tokenizer,
                         args,
                         collect_logprobs=base_policy_model is not None,
                     )
 
-                    # Format responses using each RM's own chat template so the
-                    # scored text matches each RM's training distribution.
-                    if prompt_messages_list is not None:
-                        if args.evaluate_with_training_rm:
-                            training_reward_texts = format_reward_texts(
-                                prompt_messages_list, responses, training_rm_tokenizer
-                            )
-                        gold_reward_texts = format_reward_texts(
-                            prompt_messages_list, responses, gold_rm_tokenizer
-                        )
-                    else:
-                        raise ValueError("No structured messages provided")
-                        # Fallback: no structured messages, plain concatenation
-                        # fallback_texts = [p + c for p, c in zip(prompts_list, responses)]
-                        # if args.evaluate_with_training_rm:
-                        #     training_reward_texts = fallback_texts
-                        # gold_reward_texts = fallback_texts
+                    checkpoint_results = {"checkpoint": checkpoint_num}
 
-                    if args.evaluate_with_training_rm:
-                        training_rm_scores = get_reward_rm(
-                            training_rm,
-                            training_rm_tokenizer,
-                            training_reward_texts,
-                            batch_size=args.batch_size,
-                        ).cpu().float().numpy()
-
-                    print("\n\nreward texts\n\n", "\n;\n".join(gold_reward_texts[:2]))
-
-                    gold_rm_scores = get_reward_rm(
-                        gold_rm,
-                        gold_rm_tokenizer,
-                        gold_reward_texts,
-                        batch_size=args.batch_size,
-                    ).cpu().float().numpy()
-
-                    checkpoint_num = int(checkpoint.split("-")[1])
-                    checkpoint_results = {
-                        "checkpoint": checkpoint_num,
-                        "gold_rm/mean": float(np.mean(gold_rm_scores)),
-                        "gold_rm/std": float(np.std(gold_rm_scores)),
-                    }
-                    if not args.disable_wandb:
-                        checkpoint_results["gold_rm/scores_hist"] = wandb.Histogram(
-                            gold_rm_scores
-                        )
-
-                    if args.evaluate_with_training_rm:
-                        checkpoint_results["training_rm/mean"] = float(
-                            np.mean(training_rm_scores)
-                        )
-                        checkpoint_results["training_rm/std"] = float(
-                            np.std(training_rm_scores)
-                        )
-                        if not args.disable_wandb:
-                            checkpoint_results["training_rm/scores_hist"] = (
-                                wandb.Histogram(training_rm_scores)
-                            )
-
-                    # KL calculation
+                    # KL calculation must happen here while vllm logprobs are available.
                     if base_policy_model is not None:
-                        # Policy mean logprobs come directly from vLLM
-                        policy_mean_lp = policy_mean_logprobs
-
-                        # Get log probs from base model (HF model)
                         (
-                            base_sum_lp,
+                            _,
                             base_mean_lp,
                             base_token_lp_list,
                         ) = get_log_probs_from_ids(
@@ -945,12 +930,9 @@ def main():
 
                         # KL(policy || base) = E_policy[log(policy) - log(base)]
                         # Standard KL (can be negative)
-                        kl_per_sample = policy_mean_lp - np.array(base_mean_lp)
+                        kl_per_sample = policy_mean_logprobs - np.array(base_mean_lp)
                         kl_mean = float(np.mean(kl_per_sample))
                         kl_std = float(np.std(kl_per_sample))
-
-                        checkpoint_results["kl/mean"] = kl_mean
-                        checkpoint_results["kl/std"] = kl_std
 
                         # GRPO KL (non-negative)
                         # kl = exp(log_ref - log_policy) - (log_ref - log_policy) - 1
@@ -958,13 +940,12 @@ def main():
                         for pol_lp, ref_lp in zip(
                             policy_token_logprobs, base_token_lp_list
                         ):
-                            # Ensure same length (should be gauranteed by logic)
+                            # Ensure same length (should be guaranteed by logic)
                             min_len = min(len(pol_lp), len(ref_lp))
                             pol_lp = np.array(pol_lp[:min_len])
                             ref_lp = np.array(ref_lp[:min_len])
 
-                            # per token KL
-                            # diff = log_ref - log_policy
+                            # per token KL; diff = log_ref - log_policy
                             diff = ref_lp - pol_lp
                             per_token_kl = np.exp(diff) - diff - 1
                             kl_grpo_per_sample.append(np.mean(per_token_kl))
@@ -972,32 +953,102 @@ def main():
                         kl_grpo_mean = float(np.mean(kl_grpo_per_sample))
                         kl_grpo_std = float(np.std(kl_grpo_per_sample))
 
-                        checkpoint_results["kl/grpo_mean"] = kl_grpo_mean
-                        checkpoint_results["kl/grpo_std"] = kl_grpo_std
+                        checkpoint_results.update(
+                            {
+                            "kl/mean": kl_mean,
+                            "kl/std": kl_std,
+                            "kl/grpo_mean": kl_grpo_mean,
+                            "kl/grpo_std": kl_grpo_std,
+                            }
+                        )
 
-                        # Accumulate data for the final aggregate plot
+                    # Score with all reward models for this checkpoint.
+                    print(f"  Scoring gold RM ({args.gold_rm_name})...")
+                    gold_rm_scores = score_responses_with_rm(
+                        responses,
+                        prompt_messages_list,
+                        args,
+                        args.gold_rm_name,
+                        checkpoint_num=checkpoint_num,
+                    )
+                    checkpoint_results["gold_rm/mean"] = float(np.mean(gold_rm_scores))
+                    checkpoint_results["gold_rm/std"] = float(np.std(gold_rm_scores))
+                    if not args.disable_wandb:
+                        checkpoint_results["gold_rm/scores_hist"] = wandb.Histogram(
+                            gold_rm_scores
+                        )
+
+                    if args.evaluate_with_training_rm:
+                        print(f"  Scoring training RM ({args.training_rm_path})...")
+                        training_rm_scores = score_responses_with_rm(
+                            responses,
+                            prompt_messages_list,
+                            args,
+                            args.training_rm_path,
+                            checkpoint_num=checkpoint_num,
+                        )
+                        checkpoint_results["training_rm/mean"] = float(
+                            np.mean(training_rm_scores)
+                        )
+                        checkpoint_results["training_rm/std"] = float(
+                            np.std(training_rm_scores)
+                        )
+                        if not args.disable_wandb:
+                            checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(
+                                training_rm_scores
+                            )
+
+                    if args.secondary_rm_name and args.secondary_rm_name.lower() != "none":
+                        print(f"  Scoring secondary RM ({args.secondary_rm_name})...")
+                        secondary_rm_scores = score_responses_with_rm(
+                            responses,
+                            prompt_messages_list,
+                            args,
+                            args.secondary_rm_name,
+                            checkpoint_num=checkpoint_num,
+                        )
+                        checkpoint_results["secondary_rm/mean"] = float(
+                            np.mean(secondary_rm_scores)
+                        )
+                        checkpoint_results["secondary_rm/std"] = float(
+                            np.std(secondary_rm_scores)
+                        )
+                        if not args.disable_wandb:
+                            checkpoint_results["secondary_rm/scores_hist"] = wandb.Histogram(
+                                secondary_rm_scores
+                            )
+
+                    # Accumulate data for the final aggregate plot.
+                    if "kl/grpo_mean" in checkpoint_results:
                         kl_reward_data.append(
                             {
                                 "checkpoint": checkpoint_num,
-                                "kl_grpo": kl_grpo_mean,
+                                "kl_grpo": checkpoint_results["kl/grpo_mean"],
                                 "gold_reward": float(np.mean(gold_rm_scores)),
                             }
                         )
 
                     if not args.disable_wandb:
-                        wandb.log(checkpoint_results)
+                        wandb.log(checkpoint_results, step=checkpoint_num)
 
-                    if "gold_rm/scores_hist" in checkpoint_results:
-                        del checkpoint_results["gold_rm/scores_hist"]
-                    if "training_rm/scores_hist" in checkpoint_results:
-                        del checkpoint_results["training_rm/scores_hist"]
-                    results.append(checkpoint_results)
+                    # Strip wandb-only objects before appending to CSV results.
+                    results.append(
+                        {
+                            k: v
+                            for k, v in checkpoint_results.items()
+                            if not isinstance(v, wandb.Histogram)
+                        }
+                    )
 
                 except Exception as e:
-                    print(f"Error checking checkpoint {checkpoint}: {e}")
+                    print(f"Error evaluating checkpoint {checkpoint}: {e}")
                     import traceback
 
                     traceback.print_exc()
+                    raise RuntimeError(
+                        f"Reward-model evaluation failed for checkpoint {checkpoint}. "
+                        "Failing fast to avoid silently incomplete results."
+                    ) from e
 
         finally:
             if "llm" in locals():

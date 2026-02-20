@@ -131,14 +131,100 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions,
     to handle cross-tokenizer scoring (e.g. scoring Qwen outputs with Llama RM).
     """
     if prompt_messages is not None:
-        from data_utils import format_reward_texts
-        texts = format_reward_texts(prompt_messages, completions, reward_tokenizer)
+        from data_utils import format_and_validate_preference_sample
+
+        if completions is None:
+            raise ValueError(
+                "completions must be provided when prompt_messages are used for reward scoring."
+            )
+        if len(prompt_messages) != len(completions):
+            raise ValueError(
+                "Prompt/completion length mismatch for reward scoring: "
+                f"{len(prompt_messages)} prompts vs {len(completions)} completions."
+            )
+
+        texts = []
+        for sample_id, (prompt_msgs, completion) in enumerate(
+            zip(prompt_messages, completions)
+        ):
+            full_conv = list(prompt_msgs) + [{"role": "assistant", "content": completion}]
+            _, full_text, _ = format_and_validate_preference_sample(
+                full_conv,
+                reward_tokenizer,
+                max_prompt_length=None,
+                max_conversation_length=None,
+                sample_id=sample_id,
+                context="Reward scoring",
+            )
+            texts.append(full_text)
     else:
         texts = build_reward_texts(prompts, completions, reward_tokenizer)
 
     if is_reasoning(reward_model):
         return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
     return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
+
+
+def extract_reward_tensors_from_model_output(reward_model, model_output):
+    """Single source of truth for extracting scalar rewards from RM forwards.
+
+    Supported cases:
+    - Standard sequence-classification models: use logits[:, 0].
+    - ValueHead-based GRM models (Ray/TRL wrappers): use the 3rd output tensor.
+    - GRM wrappers that directly return a reward tensor.
+    """
+
+    # GRM wrappers may directly return the reward tensor.
+    if torch.is_tensor(model_output):
+        rewards = model_output
+        return rewards.reshape(-1)
+
+    # ValueHead wrappers (for example Ray GRM) return (lm_logits, loss, value).
+    if hasattr(reward_model, "v_head"):
+        if not isinstance(model_output, (tuple, list)) or len(model_output) < 3:
+            raise ValueError(
+                "ValueHead reward model must return (lm_logits, loss, value). "
+                f"Got output type={type(model_output)}."
+            )
+        rewards = model_output[2]
+        if not torch.is_tensor(rewards):
+            raise ValueError(
+                "Expected reward tensor at index 2 for ValueHead reward model, "
+                f"got {type(rewards)}."
+            )
+        return rewards.reshape(-1)
+
+    # Standard sequence-classification path.
+    logits = None
+    if hasattr(model_output, "logits"):
+        logits = model_output.logits
+    elif isinstance(model_output, (tuple, list)) and len(model_output) > 0:
+        # For return_dict=False outputs, logits are typically first.
+        # If the first element is scalar loss, allow second as fallback.
+        first = model_output[0]
+        second = model_output[1] if len(model_output) > 1 else None
+        if torch.is_tensor(first) and first.ndim >= 2:
+            logits = first
+        elif torch.is_tensor(second) and second.ndim >= 2:
+            logits = second
+
+    if logits is None or not torch.is_tensor(logits):
+        raise ValueError(
+            "Could not extract logits from reward model output. "
+            f"Output type={type(model_output)}."
+        )
+
+    if logits.ndim == 1:
+        return logits.reshape(-1)
+    if logits.ndim == 2 and logits.shape[-1] >= 1:
+        return logits[:, 0].reshape(-1)
+    raise ValueError(f"Unexpected logits shape for reward extraction: {tuple(logits.shape)}")
+
+
+def forward_reward_model(reward_model, reward_inputs):
+    """Run reward model forward pass and extract scalar reward tensor."""
+    model_output = reward_model(**reward_inputs)
+    return extract_reward_tensors_from_model_output(reward_model, model_output)
 
 
 def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None):
@@ -155,9 +241,9 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
         reward_inputs = tokenize_for_rm(texts, reward_tokenizer)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
-            return reward_model(**reward_inputs).logits[:, 0]
+            return forward_reward_model(reward_model, reward_inputs)
         with torch.inference_mode():
-            return reward_model(**reward_inputs).logits[:, 0]
+            return forward_reward_model(reward_model, reward_inputs)
     # Batched processing
     all_rewards = []
     for i in range(0, len(texts), batch_size):
@@ -165,11 +251,11 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
         reward_inputs = tokenize_for_rm(batch, reward_tokenizer)
         reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
         if require_grad:
-            rewards = reward_model(**reward_inputs).logits[:, 0]
+            rewards = forward_reward_model(reward_model, reward_inputs)
             all_rewards.append(rewards)
             continue
         with torch.inference_mode():
-            rewards = reward_model(**reward_inputs).logits[:, 0]
+            rewards = forward_reward_model(reward_model, reward_inputs)
             all_rewards.append(rewards.cpu())
     return torch.cat(all_rewards)
 
