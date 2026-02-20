@@ -3,11 +3,12 @@
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
-#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=48:00:00
-#SBATCH --qos=default
+#SBATCH --qos=high
+#SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
+#SBATCH --gres=gpu:1
 
-#SELECTGPU A100-SXM4-80GB, A100-PCI-80GB
+### # SBATCH --gres=gpu:A100-PCI-80GB:1
 
 REPO_ROOT=""
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
