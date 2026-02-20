@@ -25,6 +25,7 @@ if [[ ! -f "${REPO_ROOT}/AGENTS.md" ]]; then
     exit 1
 fi
 cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH}"
 
 devices=0
 n_gpu=1
