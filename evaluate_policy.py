@@ -533,18 +533,24 @@ def main():
 
     # --- Common Setup ---
     print("Loading evaluation dataset...")
-    split = (
-        "test"
-        if args.dataset_name.startswith("/")
-        or "ktolnos/helpsteer3_gold" in args.dataset_name
-        else (
-            "validation"
-            if args.dataset_name == "ktolnos/helpsteer3-preference-chosenrrejected"
-            else "train"
-        )
-    )
-    print("Using dataset split:", split)
-    dataset = load_dataset(args.dataset_name, split=split)
+    dataset_obj = load_dataset(args.dataset_name)
+    split_priority = ("validation", "test", "train")
+    if hasattr(dataset_obj, "keys"):
+        available_splits = list(dataset_obj.keys())
+        print(f"Available dataset splits: {available_splits}")
+        split = next((s for s in split_priority if s in dataset_obj), None)
+        if split is None:
+            split = available_splits[0]
+            print(
+                f"None of {split_priority} found. Falling back to first available split: {split}"
+            )
+        else:
+            print(f"Using dataset split by priority {split_priority}: {split}")
+        dataset = dataset_obj[split]
+    else:
+        split = "<single>"
+        print("Dataset has no named splits; using the loaded dataset as-is.")
+        dataset = dataset_obj
     if args.debug:
         print("Debug mode: using only first 100 prompts")
         dataset = dataset.select(range(min(100, len(dataset))))
