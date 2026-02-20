@@ -34,7 +34,8 @@ log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(dat
 # base_model_name="Qwen/Qwen3-0.6B-Base"
 base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260219_224557_1060185/checkpoint-740"
 # base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260106_012931_1016814/checkpoint-158"
-dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
+dataset_path="ktolnos/helpsteer3v2_annotated_25pct"
+# dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
 # dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
 # dataset_path="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B"
 #dataset_path="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer_anntoated_policy_Qwen3-06B-Base_reward_Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05"
@@ -53,19 +54,24 @@ gpu=0 #,1,2,3
 learning_rate="1e-6"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
+beta="0.005"
+rm_switch_strategy="ensemble"
+ensemble_aggregation="mean"
+mix_strategy="disjoint"
+mix_ensemble_size=10
 if [ -n "$LAST_COMMIT_MESSAGE" ]; then
     COMMIT_MSG="$LAST_COMMIT_MESSAGE"
 else
     # shellcheck disable=SC2004
     COMMIT_MSG=$(git log -1 --pretty=%s)
 fi
-DEFAULT_WANDB_NAME="${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
-wandb_name="$DEFAULT_WANDB_NAME"
+DEFAULT_WANDB_NAME_BASE="${COMMIT_MSG// /_}"
+wandb_name_base="$DEFAULT_WANDB_NAME_BASE"
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --run_name) wandb_name="$2_${SLURM_JOB_ID}"; shift ;;
+        --run_name) wandb_name_base="$2"; shift ;;
         *) ;;
     esac
     shift
@@ -86,7 +92,6 @@ export LOCAL_RANK=0
 export WORLD_SIZE=1
 export MASTER_ADDR=localhost
 export WANDB_PROJECT="grpo"
-export WANDB_RUN_NAME=${wandb_name}
 
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_BT_RM_Qwen3-0.6B_len3000_fulltrain_1e-05_data/logs/checkpoint-256/"
 #  "Ray2333/GRM-gemma2-2B-rewardmodel-ft"
@@ -108,6 +113,17 @@ reward_model_paths=(
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/609_Qwen3-0.6B_len2000_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-1173"
 )
 
+num_reward_models=${#reward_model_paths[@]}
+run_name_suffix="KL${beta}_${rm_switch_strategy}_${num_reward_models}rms"
+if [[ "${rm_switch_strategy}" == "ensemble" || "${rm_switch_strategy}" == "mix" ]]; then
+    run_name_suffix="${run_name_suffix}_${ensemble_aggregation}"
+fi
+if [[ "${rm_switch_strategy}" == "mix" ]]; then
+    run_name_suffix="${run_name_suffix}_${mix_strategy}_${mix_ensemble_size}-mixens"
+fi
+wandb_name="${wandb_name_base}_${run_name_suffix}_${SLURM_JOB_ID}"
+
+export WANDB_RUN_NAME=${wandb_name}
 export WANDB_RUN_GROUP=${log_dir}
 
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
@@ -122,7 +138,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --use_vllm True \
     --vllm_gpu_memory_utilization 0.1 \
     --vllm_mode "colocate" \
-    --beta 0.005 \
+    --beta ${beta} \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \
@@ -134,8 +150,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \
-    --ensemble_aggregation "uwo" \
+    --ensemble_aggregation "${ensemble_aggregation}" \
     --save_steps 0.05 \
+    --save_only_model True \
     --run_name ${wandb_name} \
     --logging_steps 0.01 \
     --learning_rate ${learning_rate} \
@@ -166,16 +183,16 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
     --rm_switches_multiplier 3 \
-    --rm_switch_strategy 'sequential' \
-    --mix_ensemble_size 10 \
-    --mix_strategy 'disjoint' \
+    --rm_switch_strategy "${rm_switch_strategy}" \
+    --mix_ensemble_size ${mix_ensemble_size} \
+    --mix_strategy "${mix_strategy}" \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --vllm_max_model_length 2048 \
     || exit 1
 
-    # --rm_switch_strategy 'mix' or 'sequential' or 'ensemble' or 'random_disjoint'
-#     --mix_strategy 'sliding' or 'disjoint'
+    # --rm_switch_strategy 'mix' or 'sequential' or 'ensemble'
+#     --mix_strategy 'sliding' or 'disjoint' or 'random_disjoint'
 #    --relu_chosen_reward_loss 0.1 \
 #    --relu_chosen_use_rejected_baseline True \
 #    --rm_switches_multiplier 50 \
