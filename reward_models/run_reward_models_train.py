@@ -46,7 +46,10 @@ class ScriptArguments:
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
-    dataset: List[str]
+    dataset: List[str] = field(
+        default_factory=list,
+        metadata={"help": "One or more dataset repo/path values."},
+    )
     dataset_mode: Optional[str] = field(
         default="",
         metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},
