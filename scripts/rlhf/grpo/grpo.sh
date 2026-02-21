@@ -5,10 +5,10 @@
 #SBATCH --mem=64gb
 #SBATCH --time=48:00:00
 #SBATCH --qos=high
+#SBATCH --nodes=1
 #SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
 #SBATCH --gres=gpu:1
 
-### # SBATCH --gres=gpu:A100-PCI-80GB:1
 
 REPO_ROOT=""
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then

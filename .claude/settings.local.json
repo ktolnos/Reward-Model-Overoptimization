@@ -8,7 +8,11 @@
       "Bash(find:*)",
       "Bash(glob:*)",
       "Bash(grep:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:tatsu-lab.github.io)",
+      "Bash(git -C /home/eop/Reward-Model-Overoptimization log --oneline -15)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:proceedings.iclr.cc)"
     ]
   },
   "prefersReducedMotion": false
