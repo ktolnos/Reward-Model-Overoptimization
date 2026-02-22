@@ -209,31 +209,65 @@ def validate_conversation_messages_or_fail(
         )
 
 
+def _apply_chat_template_no_thinking(tokenizer, messages, *, add_generation_prompt=False):
+    """Apply chat template with a best-effort enable_thinking=False setting.
+
+    Some tokenizers support ``enable_thinking`` while others don't. This helper
+    keeps one calling convention for all tokenizers and falls back cleanly when
+    the kwarg is unsupported.
+    """
+    kwargs = {
+        "tokenize": False,
+        "add_generation_prompt": add_generation_prompt,
+    }
+    try:
+        return tokenizer.apply_chat_template(
+            messages,
+            enable_thinking=False,
+            **kwargs,
+        )
+    except TypeError as exc:
+        # Older tokenizers may not accept enable_thinking.
+        if "enable_thinking" not in str(exc):
+            raise
+        return tokenizer.apply_chat_template(messages, **kwargs)
+
+
 def _format_prompt(conversation, tokenizer):
     """Format the prompt portion of a conversation (all messages except the last).
     Returns a string ending with the generation prompt marker.
     """
     messages = conversation[:-1]
-    return tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False,
+    return _apply_chat_template_no_thinking(
+        tokenizer, messages, add_generation_prompt=True
     )
 
 
 def _format_conversation(conversation, tokenizer):
-    """Format a full conversation (prompt + response) with chat template.
-    Returns a string with proper assistant header and EOT around the response.
+    """Format a full conversation with content-insensitive continuation logic.
 
-    Internal helper used by format_and_validate_preference_sample.
-    Key property: _format_conversation(msgs) starts with _format_prompt(msgs) as a prefix.
+    We always build:
+    ``prompt + assistant_content + assistant_suffix``,
+    where ``assistant_suffix`` is inferred from the empty-assistant render under
+    the same tokenizer/template settings.
     """
-    return tokenizer.apply_chat_template(
-        conversation,
-        tokenize=False,
-        enable_thinking=False,
+    prompt_text = _format_prompt(conversation, tokenizer)
+    prompt_messages = conversation[:-1]
+    assistant_content = conversation[-1]["content"]
+
+    # Use an empty assistant response to infer suffix (for example turn-end token).
+    empty_assistant_conv = list(prompt_messages) + [{"role": "assistant", "content": ""}]
+    full_with_empty_assistant = _apply_chat_template_no_thinking(
+        tokenizer, empty_assistant_conv, add_generation_prompt=False
     )
+
+    if not full_with_empty_assistant.startswith(prompt_text):
+        raise ValueError(
+            "Chat template mismatch: prompt is not a prefix of empty-assistant conversation."
+        )
+
+    assistant_suffix = full_with_empty_assistant[len(prompt_text) :]
+    return prompt_text + assistant_content + assistant_suffix
 
 
 def format_and_validate_preference_sample(
