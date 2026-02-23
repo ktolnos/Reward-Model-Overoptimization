@@ -92,7 +92,6 @@ def load_reward_model(
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     if getattr(tokenizer, "pad_token_id", None) is not None:
         model.config.pad_token_id = tokenizer.pad_token_id
-    model.device = torch.device(device)
     model.eval()
     return model, tokenizer
 
