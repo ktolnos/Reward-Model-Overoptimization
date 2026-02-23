@@ -101,6 +101,7 @@ def _annotate_split(
     reward_model,
     reward_tokenizer,
     validation_tokenizer,
+    rm_device,
     *,
     batch_size: int,
     max_prompt_tokens: int,
@@ -162,7 +163,7 @@ def _annotate_split(
             all_texts.append(rejected_text)
             batch_original_rows.append(sample)
 
-        inputs = tokenize_for_rm(all_texts, reward_tokenizer).to(reward_model.device)
+        inputs = tokenize_for_rm(all_texts, reward_tokenizer).to(rm_device)
 
         with torch.no_grad():
             outputs = reward_model(**inputs)
@@ -234,6 +235,7 @@ def main() -> None:
             reward_model,
             reward_tokenizer,
             validation_tokenizer,
+            torch.device(device),
             batch_size=args.batch_size,
             max_prompt_tokens=args.max_prompt_tokens,
             max_conversation_tokens=args.max_conversation_tokens,

@@ -92,6 +92,7 @@ def load_reward_model(
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     if getattr(tokenizer, "pad_token_id", None) is not None:
         model.config.pad_token_id = tokenizer.pad_token_id
+    model.device = torch.device(device)
     model.eval()
     return model, tokenizer
 
@@ -227,7 +228,14 @@ def forward_reward_model(reward_model, reward_inputs):
     return extract_reward_tensors_from_model_output(reward_model, model_output)
 
 
-def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, batch_size=None):
+def get_reward_rm(
+    reward_model,
+    reward_tokenizer,
+    texts,
+    require_grad=False,
+    batch_size=None,
+    device=None,
+):
     """Score texts with a reward model.
 
     Args:
@@ -237,9 +245,11 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
     """
     from data_utils import tokenize_for_rm
 
+    rm_device = torch.device(device) if device is not None else reward_model.device
+
     if batch_size is None:
         reward_inputs = tokenize_for_rm(texts, reward_tokenizer)
-        reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
+        reward_inputs = prepare_input(reward_inputs, device=rm_device)
         if require_grad:
             return forward_reward_model(reward_model, reward_inputs)
         with torch.inference_mode():
@@ -249,7 +259,7 @@ def get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=False, bat
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         reward_inputs = tokenize_for_rm(batch, reward_tokenizer)
-        reward_inputs = prepare_input(reward_inputs, device=reward_model.device)
+        reward_inputs = prepare_input(reward_inputs, device=rm_device)
         if require_grad:
             rewards = forward_reward_model(reward_model, reward_inputs)
             all_rewards.append(rewards)

@@ -201,7 +201,13 @@ def score_responses_with_rm(
             )
             texts.append(full_text)
         return (
-            get_reward_rm(rm_model, rm_tokenizer, texts, batch_size=args.batch_size)
+            get_reward_rm(
+                rm_model,
+                rm_tokenizer,
+                texts,
+                batch_size=args.batch_size,
+                device=args.device,
+            )
             .cpu()
             .float()
             .numpy()
