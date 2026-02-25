@@ -635,15 +635,29 @@ def main():
             dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
             print(f"Subsampling to {args.subsample_n} prompts.")
 
-    checkpoints = sorted(
-        [d for d in os.listdir(args.checkpoints_dir) if d.startswith("checkpoint-")],
-        key=lambda x: int(x.split("-")[1]),
-    )
+    if os.path.isdir(args.checkpoints_dir):
+        checkpoints = sorted(
+            [d for d in os.listdir(args.checkpoints_dir) if d.startswith("checkpoint-")],
+            key=lambda x: int(x.split("-")[1]),
+        )
+    else:
+        checkpoints = []
 
+    # Support passing a single checkpoint path or HuggingFace model name directly.
+    single_model_path = None
     if not checkpoints:
-        raise ValueError(f"No checkpoints found in directory: {args.checkpoints_dir}")
+        basename = os.path.basename(args.checkpoints_dir.rstrip(os.sep))
+        if basename.startswith("checkpoint-"):
+            try:
+                step = int(basename.split("-")[1])
+            except (ValueError, IndexError):
+                step = 0
+        else:
+            step = 0
+        single_model_path = args.checkpoints_dir
+        checkpoints = [f"checkpoint-{step}"]
 
-    first_checkpoint_path = os.path.join(args.checkpoints_dir, checkpoints[0])
+    first_checkpoint_path = single_model_path or os.path.join(args.checkpoints_dir, checkpoints[0])
 
     print("Loading tokenizer...")
     policy_tokenizer = AutoTokenizer.from_pretrained(
@@ -765,7 +779,6 @@ def main():
 
         # Initialize vLLM with the first checkpoint
         # We reuse this instance and update weights for subsequent checkpoints
-        first_checkpoint_path = os.path.join(args.checkpoints_dir, checkpoints[0])
         print(f"Initializing vLLM with {first_checkpoint_path}")
         llm = LLM(
             model=first_checkpoint_path,
@@ -778,7 +791,7 @@ def main():
             for checkpoint in tqdm(
                 checkpoints, desc="Evaluating checkpoints with LLM Judge"
             ):
-                checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
+                checkpoint_path = single_model_path or os.path.join(args.checkpoints_dir, checkpoint)
                 checkpoint_num = int(checkpoint.split("-")[1])
                 print(f"\nEvaluating {checkpoint}")
 
@@ -888,7 +901,6 @@ def main():
             )
 
         # Initialize vLLM with the first checkpoint
-        first_checkpoint_path = os.path.join(args.checkpoints_dir, checkpoints[0])
         print(f"Initializing vLLM with {first_checkpoint_path}")
         llm = LLM(
             model=first_checkpoint_path,
@@ -902,7 +914,7 @@ def main():
 
         try:
             for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
-                checkpoint_path = os.path.join(args.checkpoints_dir, checkpoint)
+                checkpoint_path = single_model_path or os.path.join(args.checkpoints_dir, checkpoint)
                 checkpoint_num = int(checkpoint.split("-")[1])
                 print(f"\nEvaluating {checkpoint}")
 

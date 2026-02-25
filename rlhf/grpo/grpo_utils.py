@@ -181,6 +181,8 @@ rew_mean_count = defaultdict(int)
 ensemble_metric_sum = defaultdict(float)
 ensemble_metric_count = defaultdict(int)
 _last_logged_step = -1  # tracks which global_step we last logged+reset at
+_reward_buffer = []  # raw rewards buffered across micro-batches within a global step
+_prev_batch_step = -1  # tracks which global_step the buffer belongs to
 
 
 def _accumulate_metric(metric_sum, metric_count, metric_name, metric_value):
@@ -461,11 +463,11 @@ def build_reward_function(
     precomputed_statistics=None,
 ):
     def model_reward_func(prompts, completions, **kwargs):
-        global rew_mean_sum, rew_mean_count, ensemble_metric_sum, ensemble_metric_count, _last_logged_step
+        global rew_mean_sum, rew_mean_count, ensemble_metric_sum, ensemble_metric_count, _last_logged_step, _reward_buffer, _prev_batch_step
         current_global_step = controller.trainer.state.global_step
         should_log = (
             current_global_step > 0
-            and current_global_step % controller.trainer.args.logging_steps == 0
+            and current_global_step % controller.trainer.state.logging_steps == 0
             and _last_logged_step != current_global_step
         )
 
@@ -526,6 +528,8 @@ def build_reward_function(
         # --- Step 2: Calculate raw rewards and log ---
         all_rewards_raw = []
         rewards_dict = {}
+        n_clipped = 0
+        n_total = 0
 
         # Parallel streams in main thread
         streams = []
@@ -568,6 +572,13 @@ def build_reward_function(
                     if std_reward < RM_STD_EPS:
                         std_reward = 1.0
                     rew = rew / std_reward
+
+            if script_args.clip_reward_max is not None:
+                clip_val = script_args.clip_reward_max
+                n_clipped += (rew > clip_val).sum().item()
+                n_total += rew.numel()
+                rew = torch.min(rew, torch.tensor(clip_val, device=rew.device))
+
             all_rewards_raw.append(rew)
 
             _accumulate_metric(
@@ -583,6 +594,17 @@ def build_reward_function(
                     rew_mean_count,
                     model_metric_name,
                     step=current_global_step,
+                )
+
+        if n_total > 0:
+            _accumulate_metric(
+                ensemble_metric_sum, ensemble_metric_count,
+                "rewards/clipped_pct", n_clipped / n_total * 100,
+            )
+            if should_log and wandb.run is not None:
+                _log_mean_metric(
+                    ensemble_metric_sum, ensemble_metric_count,
+                    "rewards/clipped_pct", step=current_global_step,
                 )
 
         # --- Step 3: Process and aggregate rewards ---
@@ -702,26 +724,29 @@ def build_reward_function(
                 new_rewards = torch.min(current_unfinished_rewards, target_reward)
                 reward[unfinished_indices] = new_rewards
 
-        per_step_batch_reward_metrics = {
-            "rewards/batch_mean": reward.mean().item(),
-            "rewards/batch_min": reward.min().item(),
-            "rewards/batch_max": reward.max().item(),
-            "rewards/batch_std": reward.std(unbiased=False).item(),
-        }
-        for metric_name, metric_value in per_step_batch_reward_metrics.items():
-            _accumulate_metric(
-                ensemble_metric_sum,
-                ensemble_metric_count,
-                metric_name,
-                metric_value,
-            )
+        # Flush completed step's rewards and compute true batch stats
+        if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:
+            all_step_rewards = torch.cat(_reward_buffer)
+            batch_stats = {
+                "rewards/batch_mean": all_step_rewards.mean().item(),
+                "rewards/batch_min": all_step_rewards.min().item(),
+                "rewards/batch_max": all_step_rewards.max().item(),
+                "rewards/batch_std": all_step_rewards.std(unbiased=False).item(),
+            }
+            for metric_name, metric_value in batch_stats.items():
+                _accumulate_metric(
+                    ensemble_metric_sum, ensemble_metric_count, metric_name, metric_value
+                )
+            _reward_buffer.clear()
+
+        _reward_buffer.append(reward.detach().cpu())
+        _prev_batch_step = current_global_step
+
+        _batch_metric_keys = ["rewards/batch_mean", "rewards/batch_min", "rewards/batch_max", "rewards/batch_std"]
         if should_log and wandb.run is not None:
-            for metric_name in per_step_batch_reward_metrics.keys():
+            for metric_name in _batch_metric_keys:
                 _log_mean_metric(
-                    ensemble_metric_sum,
-                    ensemble_metric_count,
-                    metric_name,
-                    step=current_global_step,
+                    ensemble_metric_sum, ensemble_metric_count, metric_name, step=current_global_step,
                 )
 
         if controller.k_top_responses > 0:

@@ -525,7 +525,7 @@ def get_reward_reasoning(
             final_rewards[original_idx] = group_rewards[i]
 
     if reward_controller is not None:
-        if reward_controller.trainer.state.global_step % reward_controller.logging_steps == 0:
+        if reward_controller.trainer.state.global_step % reward_controller.trainer.state.logging_steps == 0:
             winner_id = np.argmax(final_rewards.cpu().float().numpy()[:max_num_players])
             winner_generations = tournaments_data[0]['players_state'][winner_id]['generations']
             winner_completions = tournaments_data[0]['players_state'][winner_id]['prompts']

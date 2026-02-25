@@ -125,6 +125,13 @@ class MyGRPOScriptArguments:
             "help": "whether to divide by per-model reward std after mean subtraction."
         },
     )
+    clip_reward_max: Optional[float] = field(
+        default=None,
+        metadata={
+            "help": "clip normalized per-model rewards to [-clip_reward_max, clip_reward_max]. "
+            "Requires rm_subtract_mean_reward_per_model and rm_scale_reward_by_std_per_model."
+        },
+    )
     penalize_no_eos: Optional[bool] = field(
         default=False,
         metadata={
@@ -155,6 +162,15 @@ if __name__ == "__main__":
     if training_args.vllm_max_model_length != None:
         raise ValueError("vllm_max_model_length is overrieden. Consider changing DEFAULT_MAX_CONVERSATION_TOKENS in data_utils.py")
     training_args.vllm_max_model_length = DEFAULT_MAX_CONVERSATION_TOKENS
+
+    if script_args.clip_reward_max is not None and (
+        not script_args.rm_subtract_mean_reward_per_model
+        or not script_args.rm_scale_reward_by_std_per_model
+    ):
+        raise ValueError(
+            "clip_reward_max requires both rm_subtract_mean_reward_per_model "
+            "and rm_scale_reward_by_std_per_model to be enabled."
+        )
 
     if pet_config.online_pet_enabled:
         assert (
