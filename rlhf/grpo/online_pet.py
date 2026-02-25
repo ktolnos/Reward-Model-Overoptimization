@@ -70,6 +70,18 @@ class OnlinePETCallback(TrainerCallback):
 
 
         if pet_config.online_pet_enabled:
+            raise NotImplementedError(
+                "Online PET is not currently supported. Known issues that must be fixed first:\n"
+                "1. The adversarial buffer stores (prompt_string, completion) tuples, but "
+                "get_reward() without prompt_messages falls through to build_reward_texts() "
+                "which raises ValueError. Fix: store prompt_messages in the buffer and pass "
+                "them to get_reward().\n"
+                "2. rm_tokenizer.max_length is hardcoded to 1024 instead of "
+                "DEFAULT_MAX_CONVERSATION_TOKENS (2048).\n"
+                "3. wandb.log uses wandb.run.step instead of state.global_step, causing "
+                "x-axis misalignment.\n"
+                "Fix these before enabling online PET."
+            )
             if self.pet_config.rm_gradient_checkpointing:
                 for rm in self.reward_models:
                     rm.gradient_checkpointing_enable()

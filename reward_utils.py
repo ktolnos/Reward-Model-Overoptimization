@@ -161,7 +161,18 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions,
         texts = build_reward_texts(prompts, completions, reward_tokenizer)
 
     if is_reasoning(reward_model):
-        return get_reward_reasoning(reward_model, reward_tokenizer, prompts, completions, reward_controller=reward_controller)
+        raise NotImplementedError(
+            "Reasoning reward models are not currently supported in this code path. "
+            "Known issues that must be fixed first:\n"
+            "1. `prompts` passed here are chat-template-formatted strings (e.g. containing "
+            "<|im_start|> tokens) but get_reward_reasoning plugs them into the Skywork "
+            "judge template as the raw 'question', corrupting judge input.\n"
+            "2. _run_batched_pairwise_comparisons only returns the last batch's "
+            "prompts_for_model and generated_texts (variables are overwritten each "
+            "batch iteration instead of accumulated), silently corrupting tournament "
+            "player state for > generation_batch_size comparisons per round.\n"
+            "Fix these before enabling reasoning RMs."
+        )
     return get_reward_rm(reward_model, reward_tokenizer, texts, require_grad=require_grad, batch_size=batch_size)
 
 

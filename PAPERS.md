@@ -628,6 +628,151 @@ Link: https://arxiv.org/abs/2409.13156
 
 ---
 
+# Dataset Cross-Reference: Which Papers Share Which Setup
+
+For each dataset used in 2+ papers, listing the papers, their policy/RM models, RL algorithm, and evaluation method. This helps identify where a single experiment on our end can produce numbers comparable to multiple papers simultaneously.
+
+---
+
+## AlpacaFarm
+
+Used in: **#1, #2 (appendix), #3 (eval only), #5, #10, #12**
+
+| Paper | Role | Policy | RM(s) | Gold RM | RL Alg | Eval |
+|---|---|---|---|---|---|---|
+| #1 Iterated RLHF | Full pipeline (SFT+RM+RL) | `pythia-410m` | `pythia-70m`, `pythia-160m` | `AlpacaFarm-Human 7B` | PPO | Gold RM score + KL |
+| #2 BSPO | **Appendix D.9 only** | `Alpaca-7B` | not specified for this split | not specified | PPO | Gold-RM curves |
+| #3 EPPO | **OOD eval only** (not training) | `Llama3-8B` / `Llama2-7B` / `Mistral-7B` / `DeepSeek-7B` | — | — | — | GPT-4 W/T/L |
+| #5 Inf-Time RH | Human-pref setup (BoN, not RL training) | `Pythia-1.4B` (SFT, no RLHF) | `Pythia-44M` (proxy) | `AlpacaRM 7B` | BoN/BoP (inference-time) | Gold RM reward |
+| #10 Coste et al. | Full pipeline (SFT+RM+RL) | `Pythia-1.4B` | `Pythia-7M/44M/1.3B` | `AlpacaFarm-Human 7B` | PPO + BoN | Gold RM score + KL, win rate |
+| #12 InfoRM | Simulation setting | 7B-scale SFT (AlpacaFarm-style) | 70M–7B InfoRM variants | `AlpacaFarm-Human 7B` (implied) | PPO | Gold RM vs KL curves |
+
+**Key differences**: Policy size ranges from 410M (#1) to 7B (#3, #12). Papers #1 and #10 are the most directly comparable (both Pythia-based, both PPO, both use the same 7B gold RM on identical data splits). Paper #3 uses AlpacaFarm only for OOD generalization testing, not training.
+
+**For our experiment**: Using Pythia-1.4B policy + Pythia-44M/70M RMs + 7B gold RM gives direct comparison to #1 and #10, and partial comparison to #12's simulation curves.
+
+---
+
+## Anthropic-HH (Helpful + Harmless)
+
+Used in: **#3, #7, #8, #12, #14, #18 (as part of mix)**
+
+| Paper | Role | Policy | RM(s) | Gold / Eval RM | RL Alg | Eval |
+|---|---|---|---|---|---|---|
+| #3 EPPO | RM + RL training (dialogue) | `Llama3-8B`, `Llama2-7B`, `Mistral-7B`, `DeepSeek-7B` | Standard RM from SFT backbone | — | PPO | GPT-4 W/T/L |
+| #7 ARA | RM training (sycophancy task) | `Llama-2-7B` | Frozen proxy RM (unspecified) | GPT-4 factual accuracy | PPO | GPT-4 + SycophancyEval |
+| #8 CausalRM | Dialogue RM + RLHF training | `Qwen2.5-7B` (SFT on ShareGPT) | CausalRM / Standard / GoalRM / InfoRM | — | PPO | `Qwen3-Max` W/T/L |
+| #12 InfoRM | Real-world setting | `Vicuna-7B-v1.5` | InfoRM / Standard / Ensemble / WARM | — | PPO | GPT-4 W/T/L |
+| #14 AdvPO | Full pipeline | `Llama-7B` | `Llama-7B` (proxy), `Vicuna-13B` (gold) | `Vicuna-13B` | PPO | GPT-4 W/T/L + human |
+| #18 RRM | Part of RLHFlow mix (115k pairs) | `Gemma-2-9B-it` | RM / RRM from `Gemma-2-9B-it` | — | DPO + BoN | RewardBench + AlpacaEval2 |
+
+**Key differences**: Policy models differ substantially (Llama-2-7B in #7/#14, Llama-3-8B in #3, Qwen2.5-7B in #8, Vicuna-7B in #12, Gemma-2-9B in #18). Eval judge also varies (GPT-4 in #3/#7/#12/#14, Qwen3-Max in #8, RewardBench+AlpacaEval in #18). The RL algorithm is PPO everywhere except #18 (DPO). SFT data varies: #3 and #8 SFT on ShareGPT, others SFT on HH chosen or their own SFT data.
+
+**For our experiment**: Using Llama-2-7B policy + Anthropic-HH training gives the broadest overlap. GPT-4 W/T/L eval is needed for direct comparison to #3, #12, #14. Papers #7 and #8 use specialized eval (sycophancy, Qwen3-Max) that requires more adaptation.
+
+---
+
+## Reddit TL;DR
+
+Used in: **#3, #11, #12, #14**
+
+| Paper | Role | Policy | RM(s) | Gold / Eval RM | RL Alg | Eval |
+|---|---|---|---|---|---|---|
+| #3 EPPO | Full pipeline (SFT+RM+RL) | `Llama3-8B`, `Llama2-7B`, `Mistral-7B`, `DeepSeek-7B` | Standard RM from SFT backbone | — | PPO | GPT-4 W/T/L |
+| #11 WARM | Full pipeline | `PaLM-XS` (proprietary) | `PaLM-XXS` WARM / ENS / individual | `PaLM-XS` control RM | PPO (RLHF) | Oracle pairwise preference (AI-labeler) |
+| #12 InfoRM | Real-world setting | `Vicuna-7B-v1.5` | InfoRM / Standard / Ensemble / WARM | — | PPO | GPT-4 W/T/L |
+| #14 AdvPO | Full pipeline | `Llama-7B` | `Llama-7B` (proxy), `Llama-13B` (gold) | `Llama-13B` | PPO | GPT-4 W/T/L + human |
+
+**Key differences**: Policy models differ (7-8B LLMs in #3/#12/#14, proprietary PaLM in #11). WARM (#11) uses PaLM models — not reproducible with open-source weights. The other three (#3, #12, #14) all use open 7B policies + GPT-4 eval, making them the comparable cluster. Preference data source: #11 uses RLAIF (PaLM-L CoT labels), others use `openai/summarize_from_feedback` human labels.
+
+**For our experiment**: #11 (WARM) is not directly reproducible (PaLM), but the metric format (oracle win rate curves) is comparable if we use a local gold RM. Papers #3, #12, #14 share GPT-4 W/T/L eval on open 7B-class models.
+
+---
+
+## UltraFeedback
+
+Used in: **#2, #13, #18 (as part of mix)**
+
+| Paper | Role | Policy | RM(s) | Gold / Eval RM | RL Alg | Eval |
+|---|---|---|---|---|---|---|
+| #2 BSPO | Main RM + RL training | `Alpaca-7B` | GPT2-large / TinyLlama / ShearedLlama (proxy); `Llama3-8B` (gold) | `Llama3-8B` on 57k UltraFeedback | PPO | Gold-RM curves + GPT-4o Elo |
+| #13 RPO | DPO-style training (beta series) | `zephyr-7b-beta` | RM-free (DPO reparameterization) | — | DPO (RPO variant) | GPT-4 W/T/L + MT-Bench + AlpacaEval2 |
+| #18 RRM | Part of RLHFlow mix (340k pairs) | `Gemma-2-9B-it` | RM / RRM from `Gemma-2-9B-it` | — | DPO + BoN | RewardBench + AlpacaEval2 |
+
+**Key differences**: Very different setups. #2 uses UltraFeedback as the core RM dataset with PPO. #13 uses it for DPO-style training (RM-free). #18 includes it as one component of a 700k-pair mix. Policy models differ across all three.
+
+**For our experiment**: Limited overlap. Would only make sense if targeting BSPO (#2) specifically.
+
+---
+
+## ShareGPT (SFT data)
+
+Used in: **#3, #8**
+
+| Paper | Role | Policy | Notes |
+|---|---|---|---|
+| #3 EPPO | SFT for dialogue task | `Llama3-8B` / `Llama2-7B` / `Mistral-7B` / `DeepSeek-7B` | SFT on ShareGPT, then RM+RL on Anthropic-HH |
+| #8 CausalRM | SFT backbone for dialogue | `Qwen2.5-7B` | SFT on ShareGPT, then RM+RL on Anthropic-HH |
+
+**Note**: Both papers that use ShareGPT for SFT pair it with Anthropic-HH for RM/RL training. This is a standard two-stage pipeline: ShareGPT for instruction-following SFT, Anthropic-HH for preference-based RL.
+
+---
+
+## HelpSteer variants
+
+Used in: **#6, #16, #18 (as part of mix)**
+
+| Paper | Variant | Role | Policy | Notes |
+|---|---|---|---|---|
+| #6 Outcome Accuracy | HelpSteer3-Atomic (1000 examples) | GenRM training + eval | `Qwen3-30B-A3B` / `Qwen3-14B` | GRPO, Arena Hard v2 eval |
+| #16 Adv-RM | HelpSteer-2-Preferences | Synthetic RLHF setup (relabeled by gold RM `Llama-3.1-Nemotron-70B-Reward`) | `Llama-3.1-8B-Instruct` | Adversarial training, RewardBench eval |
+| #18 RRM | HelpSteer (37k pairs) | Part of 700k-pair RLHFlow mix | `Gemma-2-9B-it` | One of 8 datasets in the mix |
+
+**Key differences**: Each uses a different HelpSteer version at a very different scale and for a different purpose. No overlap in policy models or training setups.
+
+---
+
+## RewardBench (RM evaluation)
+
+Used in: **#4, #16, #17, #18**
+
+| Paper | Role | RM(s) evaluated | Notes |
+|---|---|---|---|
+| #4 Rethinking RM Eval | Referenced as baseline benchmark design | 14 math RMs | Compares RewardBench-style design to overoptimization-predictive designs |
+| #16 Adv-RM | RM quality check post-adversarial training | `Llama-3.1-8B-Instruct` RM/Adv-RM | Baseline `0.8329` vs Adv-RM `0.8399` |
+| #17 GRM | Primary RM generalization benchmark | Gemma-2B / Mistral-7B GRM variants | Up to `87.0` avg for GRM-8B |
+| #18 RRM | Primary RM quality benchmark | `Gemma-2-9B-it` RM/RRM | RM `80.61` vs RRM `84.15` avg |
+
+**Note**: RewardBench is RM-eval only (no policy training involved). Not directly relevant to our RLHF experiment design but useful for reporting RM quality if we want to position our BT ensemble RMs on this benchmark.
+
+---
+
+## MT-Bench (policy evaluation)
+
+Used in: **#8 (OOD eval), #13, #17 (RM eval), #18**
+
+| Paper | Role | Policy evaluated | Score type |
+|---|---|---|---|
+| #8 CausalRM | OOD eval for dialogue RLHF | `Qwen2.5-7B` | Pairwise accuracy |
+| #13 RPO | Policy quality benchmark | `zephyr-7b-beta/gemma` | GPT-4 1-10 scale (RPO `7.381` vs DPO `7.278`) |
+| #17 GRM | OOD RM evaluation (human judgements split) | — (RM eval, not policy) | RM classification accuracy |
+| #18 RRM | Policy quality benchmark | `Gemma-2-9B-it` DPO policies | GPT-4 1-10 scale (RRM `8.31` vs RM `7.27`) |
+
+---
+
+## AlpacaEval 2.0 (policy evaluation)
+
+Used in: **#13, #18**
+
+| Paper | Policy evaluated | LC Win Rate | Raw Win Rate |
+|---|---|---|---|
+| #13 RPO | `zephyr-7b-beta` | RPO `23.28` vs DPO `21.15` | RPO `21.01` vs DPO `17.27` |
+| #18 RRM | `Gemma-2-9B-it` DPO | RRM `52.49` vs RM `33.46` | RRM `43.31` vs RM `41.07` |
+
+**Note**: Only 2 papers report AlpacaEval numbers, and they use very different base models. Not a high-coverage eval for our purposes.
+
+---
+
 # Recommended Experiments for Head-to-Head Comparison
 
 The goal: use an existing dataset + base policy, train BT reward models and GRPO policy using **our** pipeline, and compare final gold reward / win rate / overoptimization curves against reported numbers from the papers above. We do NOT reimplement their methods — we compare against their published results.

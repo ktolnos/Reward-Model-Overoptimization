@@ -112,7 +112,7 @@ setup_tokenizer(tokenizer, model_name=script_args.base_model)
 tokenizer.max_length = script_args.max_length
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, mode=script_args.dataset_mode, model_name='GRM', size=100 if script_args.debug else None)
+train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, model_name='GRM', size=100 if script_args.debug else None)
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 

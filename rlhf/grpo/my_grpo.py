@@ -19,13 +19,19 @@ from transformers.utils import PaddingStrategy
 from trl.models import prepare_deepspeed
 
 from qrm_gemma_tokenizer import TokenizerWrapper
-from data_utils import setup_tokenizer, get_generation_stop_token_ids
+from data_utils import (
+    setup_tokenizer,
+    get_generation_stop_token_ids,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_RESPONSE_TOKENS,
+    DEFAULT_MAX_CONVERSATION_TOKENS,
+)
 
 tqdm.pandas()
 from grpo_utils import (
     build_train_eval_datasets,
     build_reward_function,
-    precompute_reward_means,
+    precompute_reward_statistics,
     RewardController,
 )
 from online_pet import OnlinePETConfig, OnlinePETCallback
@@ -48,7 +54,6 @@ from trl import (
     GRPOConfig,
     GRPOTrainer,
     AutoModelForCausalLMWithValueHead,
-    ScriptArguments,
     get_kbit_device_map,
     get_peft_config,
 )
@@ -57,8 +62,7 @@ from pathlib import Path
 
 
 @dataclass
-class ScriptArguments:
-    max_length: Optional[int] = field(default=1024)
+class MyGRPOScriptArguments:
     dataset_path: Optional[str] = field(
         default="", metadata={"help": "training dataset path"}
     )
@@ -110,9 +114,15 @@ class ScriptArguments:
         },
     )
     rm_subtract_mean_reward_per_model: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={
             "help": "whether to subtract mean reward per model."
+        },
+    )
+    rm_scale_reward_by_std_per_model: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "whether to divide by per-model reward std after mean subtraction."
         },
     )
     penalize_no_eos: Optional[bool] = field(
@@ -133,11 +143,20 @@ class ScriptArguments:
 
 if __name__ == "__main__":
     parser = HfArgumentParser(
-        (ScriptArguments, GRPOConfig, ModelConfig, OnlinePETConfig)
+        (MyGRPOScriptArguments, GRPOConfig, ModelConfig, OnlinePETConfig)
     )
     script_args, training_args, model_args, pet_config = (
         parser.parse_args_into_dataclasses()
     )
+    if training_args.max_prompt_length != 512:
+        raise ValueError("max_prompt_length is overrieden. Consider changing DEFAULT_MAX_PROMPT_TOKENS in data_utils.py")
+    training_args.max_prompt_length = DEFAULT_MAX_PROMPT_TOKENS
+    if training_args.max_completion_length != 256:
+        raise ValueError("max_completion_length is overrieden. Consider changing DEFAULT_MAX_RESPONSE_TOKENS in data_utils.py")
+    training_args.max_completion_length = DEFAULT_MAX_RESPONSE_TOKENS
+    if training_args.vllm_max_model_length != None:
+        raise ValueError("vllm_max_model_length is overrieden. Consider changing DEFAULT_MAX_CONVERSATION_TOKENS in data_utils.py")
+    training_args.vllm_max_model_length = DEFAULT_MAX_CONVERSATION_TOKENS
 
     if pet_config.online_pet_enabled:
         assert (
@@ -159,8 +178,6 @@ if __name__ == "__main__":
             trust_remote_code=model_args.trust_remote_code,
         )
         setup_tokenizer(tokenizer)
-        tokenizer.max_length = script_args.max_length
-
         if "QRM" in reward_model_path:
             print("wrapping QRM tokenizer")
             tokenizer = TokenizerWrapper(tokenizer, reward_model_path)
@@ -177,15 +194,14 @@ if __name__ == "__main__":
     setup_tokenizer(policy_tokenizer)
     policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
-    # Pre-compute per-model mean rewards before loading the policy model (to keep GPU free)
-    precomputed_means = None
+    # Pre-compute per-model reward statistics before loading the policy model (to keep GPU free).
+    precomputed_statistics = None
     if (script_args.rm_subtract_mean_reward_per_model):
-        precomputed_means = precompute_reward_means(
+        precomputed_statistics = precompute_reward_statistics(
             reward_model_paths=script_args.reward_model_paths,
             reward_tokenizers=reward_tokenizers,
             dataset_path=script_args.dataset_path,
             output_dir=str(Path(training_args.output_dir).parent),
-            policy_tokenizer=policy_tokenizer,
             trust_remote_code=model_args.trust_remote_code,
         )
 
@@ -194,6 +210,7 @@ if __name__ == "__main__":
         trust_remote_code=model_args.trust_remote_code,
         torch_dtype=torch.bfloat16,
     )
+    policy.resize_token_embeddings(len(policy_tokenizer))
     policy.config.pad_token_id = policy_tokenizer.pad_token_id
     if hasattr(policy, "generation_config"):
         policy.generation_config.pad_token_id = policy_tokenizer.pad_token_id
@@ -208,7 +225,6 @@ if __name__ == "__main__":
         policy_tokenizer,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
-        max_prompt_length=script_args.max_length,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 
@@ -237,7 +253,7 @@ if __name__ == "__main__":
         script_args,
         reward_controller,
         policy_tokenizer,
-        precomputed_means=precomputed_means,
+        precomputed_statistics=precomputed_statistics,
     )
 
     pet_callback = OnlinePETCallback(
@@ -268,10 +284,6 @@ if __name__ == "__main__":
     )
     pet_callback.accelerator = trainer.accelerator
     reward_controller.trainer = trainer
-
-    logging_steps = int(training_args.logging_steps * len(train_dataset))
-    print("Logging steps:", logging_steps)
-    reward_controller.logging_steps = logging_steps
 
     trainer.train()
 

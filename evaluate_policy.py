@@ -397,7 +397,7 @@ def load_policy_model(model_path, tokenizer, device):
     """Loads a policy model from a path."""
     print(f"Loading model from {model_path}")
     model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=torch.float16, device_map=device
+        model_path, torch_dtype=torch.bfloat16, device_map=device
     )
     model.resize_token_embeddings(len(tokenizer))
     model.config.pad_token_id = tokenizer.pad_token_id
@@ -426,7 +426,7 @@ def update_vllm_weights(llm, model_path, device="cpu"):
     # Load HF model to CPU to avoid OOM
     # We use the same configuration/architecture/tokenizer, just different weights
     hf_model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=torch.float16, device_map=device, trust_remote_code=True
+        model_path, torch_dtype=torch.bfloat16, device_map=device, trust_remote_code=True
     )
 
     # Access vLLM internal model
@@ -456,6 +456,13 @@ def get_llm_judge_verdicts(
     Gets verdicts from an LLM judge for pairs of responses.
     Returns a list of preferences: 1 if response1 is better, -1 if response2 is better, 0 for a tie.
     """
+    raise NotImplementedError(
+        "LLM judge evaluation is not currently supported. "
+        "Known issue: `prompts` passed here are chat-template-formatted strings "
+        "(e.g. containing <|im_start|> tokens) but get plugged into the Skywork "
+        "judge template as the raw 'question', corrupting judge input. "
+        "Fix: pass structured prompt_messages and extract the raw user question."
+    )
     api_key = args.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError(
@@ -886,7 +893,7 @@ def main():
         llm = LLM(
             model=first_checkpoint_path,
             tokenizer=first_checkpoint_path,
-            dtype="float16",
+            dtype="bfloat16",
             tensor_parallel_size=torch.cuda.device_count(),
             gpu_memory_utilization=args.gpu_memory_utilization,
             max_model_len=args.max_length + args.max_new_tokens,

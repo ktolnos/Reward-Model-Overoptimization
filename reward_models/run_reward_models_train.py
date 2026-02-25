@@ -16,7 +16,7 @@ from transformers import (
 )
 from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset, build_dataset
-from data_utils import setup_tokenizer
+from data_utils import setup_tokenizer, DEFAULT_MAX_CONVERSATION_TOKENS
 from utils import (
     print_trainable_parameters,
     compute_metrics,
@@ -41,7 +41,7 @@ class ScriptArguments:
         default="cosine",
         metadata={"help": "The lr scheduler"},
     )
-    max_length: Optional[int] = field(default=1024)
+    max_length: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
     gradient_checkpointing: Optional[bool] = field(default=False)
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
@@ -49,10 +49,6 @@ class ScriptArguments:
     dataset: List[str] = field(
         default_factory=list,
         metadata={"help": "One or more dataset repo/path values."},
-    )
-    dataset_mode: Optional[str] = field(
-        default="",
-        metadata={"help": "use from '', '40k', and '400k' for the paper's experiments"},
     )
     # lora
     use_lora: Optional[bool] = field(default=True)
@@ -153,7 +149,6 @@ setup_tokenizer(tokenizer, model_name=script_args.base_model)
 train_dataset, eval_dataset = load_train_eval_dataset(
     dataset_list[0],
     tokenizer,
-    mode=script_args.dataset_mode,
     size=100 if script_args.debug else None,
     seed=script_args.seed,
 )

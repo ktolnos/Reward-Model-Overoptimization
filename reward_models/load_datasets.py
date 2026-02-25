@@ -87,7 +87,7 @@ def build_dataset(
 
 
 def load_train_eval_dataset(
-    data_path, tokenizer, size=None, mode="", model_name="", seed=42
+    data_path, tokenizer, size=None, model_name="", seed=42
 ):
     dataset = build_dataset(
         data_path, tokenizer, split="train", size=size, model_name=model_name

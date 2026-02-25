@@ -148,7 +148,7 @@ tqdm==4.67.1
 traitlets==5.14.3
 transformers==4.51.3
 triton==3.3.0
-trl==0.17.0
+trl==26.0.1
 types-python-dateutil==2.9.0.20241206
 typing_extensions==4.13.2
 tzdata==2025.2

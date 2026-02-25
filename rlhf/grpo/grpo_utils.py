@@ -1,3 +1,40 @@
+"""GRPO utilities.
+
+W&B metrics emitted by this module:
+- reward/<rm_name>:
+  Mean normalized reward for each active RM, averaged over steps since the
+  previous logging event.
+- rewards/ensemble_mean:
+  Mean across active RMs (per sample, then batch mean), interval-averaged.
+- rewards/ensemble_min:
+  Min across active RMs (per sample, then batch mean), interval-averaged.
+- rewards/ensemble_max:
+  Max across active RMs (per sample, then batch mean), interval-averaged.
+- rewards/ensemble_std:
+  Std across active RMs (per sample, then batch mean), interval-averaged.
+- rewards/ensemble_mean_minus_std:
+  (mean - std) across active RMs (per sample, then batch mean),
+  interval-averaged.
+- rewards/ensemble_range:
+  (max - min) across active RMs (per sample, then batch mean),
+  interval-averaged.
+- rewards/ensemble_active_rms:
+  Number of active RMs, interval-averaged.
+- rewards/batch_mean:
+  Batch-level scalar reward mean after aggregation and post-processing,
+  interval-averaged. Different from ensemble_mean when aggregation is not
+  "mean" (e.g. "min", "uwo", Adv-RM) or when penalize_no_eos modifies reward.
+- rewards/batch_min:
+  Batch-level scalar reward min after aggregation and post-processing,
+  interval-averaged.
+- rewards/batch_max:
+  Batch-level scalar reward max after aggregation and post-processing,
+  interval-averaged.
+- rewards/batch_std:
+  Batch-level scalar reward std after aggregation and post-processing,
+  interval-averaged.
+"""
+
 import gc
 import os
 from collections import defaultdict
@@ -34,11 +71,13 @@ from data_utils import (
 )
 import math
 
+REWARD_STATISTICS_CACHE_VERSION = 1
+RM_STD_EPS = 1e-6
+
 
 @dataclass
 class RewardController:
     trainer: GRPOTrainer = None
-    logging_steps: float = 1
     save_path: str = None
     generations_df: pd.DataFrame = None
     k_top_responses: int = 0
@@ -137,8 +176,31 @@ def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
     return model
 
 # Important: use for logging only, the values are reset after logging to represent the current mean accurately. Do not use for calculations.
-rew_mean_sum = defaultdict(float) 
+rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
+ensemble_metric_sum = defaultdict(float)
+ensemble_metric_count = defaultdict(int)
+_last_logged_step = -1  # tracks which global_step we last logged+reset at
+
+
+def _accumulate_metric(metric_sum, metric_count, metric_name, metric_value):
+    metric_sum[metric_name] += float(metric_value)
+    metric_count[metric_name] += 1
+
+
+def _log_mean_metric(metric_sum, metric_count, metric_name, step):
+    if metric_count[metric_name] == 0:
+        return
+    wandb.log(
+        {metric_name: metric_sum[metric_name] / metric_count[metric_name]},
+        step=step,
+    )
+
+
+def _reset_metric_buffers(metric_sum, metric_count):
+    for metric_name in list(metric_sum.keys()):
+        metric_sum[metric_name] = 0.0
+        metric_count[metric_name] = 0
 
 
 def get_active_indices(current_step, total_steps, num_rms, args):
@@ -198,30 +260,26 @@ def get_active_indices(current_step, total_steps, num_rms, args):
     return list(range(num_rms))  # Default fallback
 
 
-def precompute_reward_means(
+def precompute_reward_statistics(
     reward_model_paths,
     reward_tokenizers,
     dataset_path,
     output_dir,
-    policy_tokenizer,
     sample_size=1000,
     batch_size=64,
     trust_remote_code=True,
 ):
-    """Pre-compute per-model mean rewards on a fixed dataset sample.
+    """Pre-compute per-model reward statistics on a fixed dataset sample.
 
     Loads the raw dataset (before post-processing removes chosen/rejected),
     samples items, scores both chosen and rejected completions with each
-    reward model, and returns the per-model mean. Results are cached to disk.
-
-    Uses policy_tokenizer for prompt formatting (matching runtime GRPO distribution)
-    and RM tokenizer for final tokenization (matching scoring).
+    reward model, and returns per-model mean/std values. Results are cached to disk.
     """
-    cache_dir = os.path.join(output_dir, "reward_means")
+    cache_dir = os.path.join(output_dir, "reward_statistics")
     os.makedirs(cache_dir, exist_ok=True)
 
-    # First pass: check cache for all models, identify which need computation
-    precomputed_means = {}
+    # First pass: check cache for all models, identify which need computation.
+    precomputed_statistics = {}
     uncached = []  # list of (index, model_path, cache_file)
 
     for i, model_path in enumerate(reward_model_paths):
@@ -233,23 +291,56 @@ def precompute_reward_means(
         if os.path.exists(cache_file):
             with open(cache_file, "r") as f:
                 cached = json.load(f)
-            precomputed_means[model_path] = cached["mean_reward"]
+
+            cache_version = cached.get("version")
+            if cache_version != REWARD_STATISTICS_CACHE_VERSION:
+                print(
+                    f"[PrecomputeStats] RM {i} ({model_path}): stale cache version "
+                    f"{cache_version!r} != {REWARD_STATISTICS_CACHE_VERSION}; recomputing."
+                )
+                uncached.append((i, model_path, cache_file))
+                continue
+
+            cached_dataset = cached.get("dataset_path")
+            if cached_dataset != dataset_path:
+                print(
+                    f"[PrecomputeStats] RM {i} ({model_path}): cache dataset mismatch "
+                    f"({cached_dataset!r} != {dataset_path!r}); recomputing."
+                )
+                uncached.append((i, model_path, cache_file))
+                continue
+
+            if "mean_reward" not in cached or "std_reward" not in cached:
+                print(
+                    f"[PrecomputeStats] RM {i} ({model_path}): cache missing mean/std; recomputing."
+                )
+                uncached.append((i, model_path, cache_file))
+                continue
+
+            precomputed_statistics[model_path] = {
+                "mean_reward": float(cached["mean_reward"]),
+                "std_reward": float(cached["std_reward"]),
+            }
             print(
-                f"[PrecomputeMeans] RM {i} ({model_path}): "
-                f"loaded cached mean={cached['mean_reward']:.4f}"
+                f"[PrecomputeStats] RM {i} ({model_path}): loaded cached "
+                f"mean={cached['mean_reward']:.4f}, std={cached['std_reward']:.4f}"
             )
         else:
             uncached.append((i, model_path, cache_file))
 
     if not uncached:
-        print(f"[PrecomputeMeans] All {len(reward_model_paths)} models cached, skipping dataset load")
-        return precomputed_means
+        print(
+            f"[PrecomputeStats] All {len(reward_model_paths)} models cached, skipping dataset load"
+        )
+        return precomputed_statistics
 
     # Load raw dataset and build (prompt, completion) pairs only if needed
-    print(f"[PrecomputeMeans] {len(uncached)} models need computation, loading dataset...")
+    print(
+        f"[PrecomputeStats] {len(uncached)} models need computation, loading dataset..."
+    )
     raw_ds = datasets.load_dataset(dataset_path, split="train")
     n = min(sample_size, len(raw_ds))
-    sample = raw_ds.select(range(n))
+    sample = raw_ds.shuffle(seed=42).select(range(n))
 
     all_conversations = []
     for item in sample:
@@ -259,13 +350,13 @@ def precompute_reward_means(
             all_conversations.append(item["rejected"])
 
     print(
-        f"[PrecomputeMeans] Collected {len(all_conversations)} full conversations "
+        f"[PrecomputeStats] Collected {len(all_conversations)} full conversations "
         f"from {n} dataset items"
     )
 
-    # Second pass: compute means for uncached models
+    # Second pass: compute statistics for uncached models.
     for i, model_path, cache_file in uncached:
-        print(f"[PrecomputeMeans] RM {i} ({model_path}): computing...")
+        print(f"[PrecomputeStats] RM {i} ({model_path}): computing...")
         reward_tokenizer = reward_tokenizers[i]
         reward_model = _load_reward_model(
             model_path, reward_tokenizer, trust_remote_code
@@ -274,18 +365,23 @@ def precompute_reward_means(
 
         # Reasoning models produce zero-mean BT scores by construction
         if is_reasoning(reward_model):
-            precomputed_means[model_path] = 0.0
+            precomputed_statistics[model_path] = {
+                "mean_reward": 0.0,
+                "std_reward": 1.0,
+            }
             print(
-                f"[PrecomputeMeans] RM {i} is reasoning model; "
-                f"setting mean=0.0 (BT scores are zero-mean)"
+                f"[PrecomputeStats] RM {i} is reasoning model; "
+                f"setting mean=0.0, std=1.0"
             )
             del reward_model
             gc.collect()
             torch.cuda.empty_cache()
 
             cache_data = {
+                "version": REWARD_STATISTICS_CACHE_VERSION,
                 "model_path": model_path,
                 "mean_reward": 0.0,
+                "std_reward": 1.0,
                 "num_samples": 0,
                 "dataset_path": dataset_path,
                 "computed_at": datetime.now().isoformat(),
@@ -307,7 +403,7 @@ def precompute_reward_means(
                     max_prompt_length=None,
                     max_conversation_length=None,
                     sample_id=sample_id,
-                    context="GRPO RM mean precompute",
+                    context="GRPO RM statistics precompute",
                 )
                 reward_texts.append(full_text)
 
@@ -316,18 +412,31 @@ def precompute_reward_means(
             ).cpu().float().numpy()
             all_rewards_for_model.extend(scores)
 
-        mean_reward = np.mean(all_rewards_for_model).item()
-        precomputed_means[model_path] = mean_reward
+        mean_reward = float(np.mean(all_rewards_for_model))
+        std_reward = float(np.std(all_rewards_for_model))
+        if std_reward < RM_STD_EPS:
+            print(
+                f"[PrecomputeStats] RM {i} ({model_path}) has tiny std={std_reward:.8f}; "
+                "using std=1.0 to avoid unstable scaling."
+            )
+            std_reward = 1.0
+
+        precomputed_statistics[model_path] = {
+            "mean_reward": mean_reward,
+            "std_reward": std_reward,
+        }
 
         print(
-            f"[PrecomputeMeans] RM {i} mean={mean_reward:.4f} "
+            f"[PrecomputeStats] RM {i} mean={mean_reward:.4f}, std={std_reward:.4f} "
             f"(n={len(all_rewards_for_model)}), cached to {cache_file}"
         )
 
         # Save cache
         cache_data = {
+            "version": REWARD_STATISTICS_CACHE_VERSION,
             "model_path": model_path,
             "mean_reward": mean_reward,
+            "std_reward": std_reward,
             "num_samples": len(all_rewards_for_model),
             "dataset_path": dataset_path,
             "computed_at": datetime.now().isoformat(),
@@ -340,7 +449,7 @@ def precompute_reward_means(
         gc.collect()
         torch.cuda.empty_cache()
 
-    return precomputed_means
+    return precomputed_statistics
 
 
 def build_reward_function(
@@ -349,13 +458,15 @@ def build_reward_function(
     script_args,
     controller: RewardController,
     policy_tokenizer=None,
-    precomputed_means=None,
+    precomputed_statistics=None,
 ):
     def model_reward_func(prompts, completions, **kwargs):
-        global rew_mean_sum, rew_mean_count
+        global rew_mean_sum, rew_mean_count, ensemble_metric_sum, ensemble_metric_count, _last_logged_step
+        current_global_step = controller.trainer.state.global_step
         should_log = (
-            controller.trainer.state.global_step > 0
-            and controller.trainer.state.global_step % controller.logging_steps == 0
+            current_global_step > 0
+            and current_global_step % controller.trainer.args.logging_steps == 0
+            and _last_logged_step != current_global_step
         )
 
         # --- Common Setup ---
@@ -408,12 +519,6 @@ def build_reward_function(
                     gc.collect()
                     torch.cuda.empty_cache()
 
-        if should_log and wandb.run is not None:
-            wandb.log(
-                {"reward/active_rm_indices": active_indices},
-                step=controller.trainer.state.global_step,
-            )
-
         models_to_process = []
         for i in active_indices:
             models_to_process.append((reward_models[i], reward_tokenizers[i]))
@@ -446,20 +551,38 @@ def build_reward_function(
 
         for rew, model_name in results:
             rewards_dict[model_name] = rew.detach()
+            model_metric_name = f"reward/{model_name}"
 
-            # Subtract pre-computed per-model mean to remove arbitrary constant offsets from BT loss.
-            # Important for "min" (normalizes scales) and "uwo" (offsets would appear as false disagreement).
-            if (precomputed_means is not None):
-                rew = rew - precomputed_means[model_name]
+            # Normalize per-model rewards using fixed pre-computed statistics.
+            # Important for "min" and "uwo", where raw offsets/scales can bias aggregation.
+            if precomputed_statistics is not None:
+                if model_name not in precomputed_statistics:
+                    raise KeyError(
+                        f"Missing precomputed statistics for {model_name}. "
+                        f"Available keys: {list(precomputed_statistics.keys())}"
+                    )
+                stats = precomputed_statistics[model_name]
+                rew = rew - stats["mean_reward"]
+                if script_args.rm_scale_reward_by_std_per_model:
+                    std_reward = float(stats["std_reward"])
+                    if std_reward < RM_STD_EPS:
+                        std_reward = 1.0
+                    rew = rew / std_reward
             all_rewards_raw.append(rew)
 
-            rew_mean_sum[model_name] += rew.mean().item()
-            rew_mean_count[model_name] += 1
+            _accumulate_metric(
+                rew_mean_sum,
+                rew_mean_count,
+                model_metric_name,
+                rew.mean().item(),
+            )
 
             if should_log and wandb.run is not None:
-                rew_mean_for_model = rew_mean_sum[model_name] / rew_mean_count[model_name]
-                wandb.log(
-                    {f"reward/{model_name}": rew_mean_for_model}, step=wandb.run.step
+                _log_mean_metric(
+                    rew_mean_sum,
+                    rew_mean_count,
+                    model_metric_name,
+                    step=current_global_step,
                 )
 
         # --- Step 3: Process and aggregate rewards ---
@@ -473,6 +596,38 @@ def build_reward_function(
             processed_rewards.append(processed_rew)
 
         rewards_tensor = torch.stack(processed_rewards, dim=1)
+        per_step_ensemble_mean = rewards_tensor.mean(dim=1)
+        per_step_ensemble_min = rewards_tensor.min(dim=1).values
+        per_step_ensemble_max = rewards_tensor.max(dim=1).values
+        per_step_ensemble_std = rewards_tensor.std(dim=1, unbiased=False)
+        per_step_ensemble_metrics = {
+            "rewards/ensemble_mean": per_step_ensemble_mean.mean().item(),
+            "rewards/ensemble_min": per_step_ensemble_min.mean().item(),
+            "rewards/ensemble_max": per_step_ensemble_max.mean().item(),
+            "rewards/ensemble_std": per_step_ensemble_std.mean().item(),
+            "rewards/ensemble_mean_minus_std": (
+                per_step_ensemble_mean - per_step_ensemble_std
+            ).mean().item(),
+            "rewards/ensemble_range": (
+                per_step_ensemble_max - per_step_ensemble_min
+            ).mean().item(),
+            "rewards/ensemble_active_rms": float(len(active_indices)),
+        }
+        for metric_name, metric_value in per_step_ensemble_metrics.items():
+            _accumulate_metric(
+                ensemble_metric_sum,
+                ensemble_metric_count,
+                metric_name,
+                metric_value,
+            )
+        if should_log and wandb.run is not None:
+            for metric_name in per_step_ensemble_metrics.keys():
+                _log_mean_metric(
+                    ensemble_metric_sum,
+                    ensemble_metric_count,
+                    metric_name,
+                    step=current_global_step,
+                )
 
         if len(active_indices) == 1:
             reward = rewards_tensor.squeeze(1)
@@ -503,16 +658,6 @@ def build_reward_function(
             mean_reward = rewards_tensor.mean(dim=1)
             std_reward = rewards_tensor.std(dim=1, unbiased=False)
             reward = mean_reward - script_args.uwo_lambda * std_reward
-
-            if should_log and wandb.run is not None:
-                wandb.log(
-                    {
-                        "reward/uwo_mean": mean_reward.mean().item(),
-                        "reward/uwo_std": std_reward.mean().item(),
-                        "reward/uwo_final": reward.mean().item(),
-                    },
-                    step=controller.trainer.state.global_step,
-                )
         else:
             raise ValueError(
                 f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"
@@ -556,6 +701,28 @@ def build_reward_function(
                 current_unfinished_rewards = reward[unfinished_indices]
                 new_rewards = torch.min(current_unfinished_rewards, target_reward)
                 reward[unfinished_indices] = new_rewards
+
+        per_step_batch_reward_metrics = {
+            "rewards/batch_mean": reward.mean().item(),
+            "rewards/batch_min": reward.min().item(),
+            "rewards/batch_max": reward.max().item(),
+            "rewards/batch_std": reward.std(unbiased=False).item(),
+        }
+        for metric_name, metric_value in per_step_batch_reward_metrics.items():
+            _accumulate_metric(
+                ensemble_metric_sum,
+                ensemble_metric_count,
+                metric_name,
+                metric_value,
+            )
+        if should_log and wandb.run is not None:
+            for metric_name in per_step_batch_reward_metrics.keys():
+                _log_mean_metric(
+                    ensemble_metric_sum,
+                    ensemble_metric_count,
+                    metric_name,
+                    step=current_global_step,
+                )
 
         if controller.k_top_responses > 0:
             # Group rewards by prompt, since prompts are repeated for each completion in a group.
@@ -618,9 +785,9 @@ def build_reward_function(
             controller.generations_df.to_csv(controller.save_path, index=False)
 
         if should_log:
-            for model_path in rew_mean_sum.keys():
-                rew_mean_sum[model_path] = 0
-                rew_mean_count[model_path] = 0
+            _reset_metric_buffers(rew_mean_sum, rew_mean_count)
+            _reset_metric_buffers(ensemble_metric_sum, ensemble_metric_count)
+            _last_logged_step = current_global_step
         return reward.tolist()
 
     return model_reward_func
