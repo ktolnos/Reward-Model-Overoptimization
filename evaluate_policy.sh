@@ -46,6 +46,7 @@ while [[ "$#" -gt 0 ]]; do
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
         --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
         --checkpoint) CHECKPOINTS_DIR="$2"; shift ;;
+        --skip_validation) SKIP_VALIDATION=1 ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -84,6 +85,7 @@ python evaluate_policy.py \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).json" \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
+    $([ ! -z "${SKIP_VALIDATION:-}" ] && echo "--skip_validation True") \
 
 #     --subsample_n 25 \
 

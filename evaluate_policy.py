@@ -148,6 +148,12 @@ class ScriptArguments:
                     "Set to 'none' to disable."
         },
     )
+    skip_validation: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip prompt/conversation length validation (pass None for max_prompt_length and max_conversation_length)."
+        },
+    )
 
 
 def load_reward_model_impl(model_path_or_name, device):
@@ -676,8 +682,8 @@ def main():
                 example["chosen"],
                 policy_tokenizer,
                 rejected_messages=example.get("rejected"),
-                max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
-                max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+                max_prompt_length=None if args.skip_validation else DEFAULT_MAX_PROMPT_TOKENS,
+                max_conversation_length=None if args.skip_validation else DEFAULT_MAX_CONVERSATION_TOKENS,
                 sample_id=idx,
                 context="Evaluation",
             )
