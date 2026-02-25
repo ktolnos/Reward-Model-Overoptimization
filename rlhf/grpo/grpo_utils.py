@@ -190,12 +190,12 @@ def _accumulate_metric(metric_sum, metric_count, metric_name, metric_value):
     metric_count[metric_name] += 1
 
 
-def _log_mean_metric(metric_sum, metric_count, metric_name, step):
+def _log_mean_metric(metric_sum, metric_count, metric_name):
     if metric_count[metric_name] == 0:
         return
     wandb.log(
         {metric_name: metric_sum[metric_name] / metric_count[metric_name]},
-        step=step,
+        step=wandb.run.step,
     )
 
 
@@ -593,7 +593,6 @@ def build_reward_function(
                     rew_mean_sum,
                     rew_mean_count,
                     model_metric_name,
-                    step=current_global_step,
                 )
 
         if n_total > 0:
@@ -604,7 +603,7 @@ def build_reward_function(
             if should_log and wandb.run is not None:
                 _log_mean_metric(
                     ensemble_metric_sum, ensemble_metric_count,
-                    "rewards/clipped_pct", step=current_global_step,
+                    "rewards/clipped_pct",
                 )
 
         # --- Step 3: Process and aggregate rewards ---
@@ -648,7 +647,6 @@ def build_reward_function(
                     ensemble_metric_sum,
                     ensemble_metric_count,
                     metric_name,
-                    step=current_global_step,
                 )
 
         if len(active_indices) == 1:
@@ -746,7 +744,7 @@ def build_reward_function(
         if should_log and wandb.run is not None:
             for metric_name in _batch_metric_keys:
                 _log_mean_metric(
-                    ensemble_metric_sum, ensemble_metric_count, metric_name, step=current_global_step,
+                    ensemble_metric_sum, ensemble_metric_count, metric_name,
                 )
 
         if controller.k_top_responses > 0:
