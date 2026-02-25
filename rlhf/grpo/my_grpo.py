@@ -148,8 +148,6 @@ if __name__ == "__main__":
     script_args, training_args, model_args, pet_config = (
         parser.parse_args_into_dataclasses()
     )
-    if training_args.max_prompt_length != 512:
-        raise ValueError("max_prompt_length is overrieden. Consider changing DEFAULT_MAX_PROMPT_TOKENS in data_utils.py")
     training_args.max_prompt_length = DEFAULT_MAX_PROMPT_TOKENS
     if training_args.max_completion_length != 256:
         raise ValueError("max_completion_length is overrieden. Consider changing DEFAULT_MAX_RESPONSE_TOKENS in data_utils.py")
