@@ -278,6 +278,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mix_strategy "${mix_strategy}" \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
+    --clip_reward_max 3.0 \
     || exit 1
 
     # --rm_switch_strategy 'mix' or 'sequential' or 'ensemble'
