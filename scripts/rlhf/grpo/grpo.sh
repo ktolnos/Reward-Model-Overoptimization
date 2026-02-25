@@ -56,8 +56,8 @@ learning_rate="1e-5"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 beta="0"
-rm_switch_strategy="mix" # "ensemble" or "sequential" or "mix"
-ensemble_aggregation="uwo" # "mean" or "min" or "uwo"
+rm_switch_strategy="ensemble" # "ensemble" or "sequential" or "mix"
+ensemble_aggregation="mean" # "mean" or "min" or "uwo"
 mix_strategy="disjoint" # "disjoint" or "sliding" or "random_disjoint"
 mix_ensemble_size=10
 if [ -n "$LAST_COMMIT_MESSAGE" ]; then
