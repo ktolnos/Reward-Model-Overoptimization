@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=3:00:00
+#SBATCH --time=5:00:00
 #SBATCH --qos=high
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
