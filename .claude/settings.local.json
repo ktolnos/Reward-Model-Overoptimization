@@ -19,7 +19,12 @@
       "WebFetch(domain:api.github.com)",
       "Bash(pdftotext:*)",
       "Bash(python3 -c \"from transformers import TrainingArguments; import inspect; print\\(inspect.signature\\(TrainingArguments.__init__\\)\\)\")",
-      "Bash(git checkout rlhf/grpo/grpo_utils.py)"
+      "Bash(git checkout rlhf/grpo/grpo_utils.py)",
+      "Bash(ls /home/eop/Reward-Model-Overoptimization/rlhf/grpo/*.md /home/eop/Reward-Model-Overoptimization/rlhf/*.md)",
+      "WebFetch(domain:)",
+      "Bash(pip show model-training)",
+      "Bash(python3 -c \"import model_training; print\\(model_training.__file__\\)\")",
+      "Bash(python3:*)"
     ]
   },
   "prefersReducedMotion": false
