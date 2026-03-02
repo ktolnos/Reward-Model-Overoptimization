@@ -3,7 +3,7 @@
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
-#SBATCH --time=48:00:00
+#SBATCH --time=168:00:00
 #SBATCH --qos=high
 #SBATCH --nodes=1
 #SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
