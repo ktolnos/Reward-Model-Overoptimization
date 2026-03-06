@@ -9,8 +9,6 @@ from datasets import Dataset, DatasetDict
 
 from data_utils import format_and_validate_preference_sample
 
-MAX_FORMAT_VALIDATION_TOKENS = 10**9
-
 
 def sanitize_repo_id_component(value: str) -> str:
     sanitized = value.replace("/", "-").replace(":", "-")
@@ -132,13 +130,13 @@ def validate_apply_chat_template_compatibility(
     split_name: str,
     idx: int,
 ) -> None:
-    # Uses very large limits to validate formatting compatibility without doing length filtering here.
+    # Validate formatting compatibility without doing length filtering here.
     format_and_validate_preference_sample(
         example["chosen"],
         tokenizer,
         rejected_messages=example["rejected"],
-        max_prompt_length=MAX_FORMAT_VALIDATION_TOKENS,
-        max_conversation_length=MAX_FORMAT_VALIDATION_TOKENS,
+        length_config="default",
+        skip_validation=True,
         sample_id=idx,
         context=f"{split_name}",
     )

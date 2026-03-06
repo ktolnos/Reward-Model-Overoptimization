@@ -18,19 +18,18 @@ from grm_reward_trainer import GRMDataCollatorWithPadding, GRMRewardTrainer
 from load_datasets import load_train_eval_dataset
 from utils import print_trainable_parameters, grm_compute_metrics
 from grm_utils import AutoModelForCausalLMWithValueHead
-from data_utils import setup_tokenizer
+from data_utils import setup_tokenizer, get_length_config
 
 
 @dataclass
 class ScriptArguments:
     # training args
-    per_device_train_batch_size: Optional[int] = field(default=1) 
+    per_device_train_batch_size: Optional[int] = field(default=1)
     gradient_accumulation_steps: Optional[int] = field(default=16)
     learning_rate: Optional[float] = field(default=1e-5)
     num_train_epochs: Optional[int] = field(default=2, metadata={"help": "The number of training epochs for the reward model."})
     optim: Optional[str] = field(default="adamw_hf",  metadata={"help": "The optimizer to use."})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "The lr scheduler"},)
-    max_length: Optional[int] = field(default=1024) 
     gradient_checkpointing: Optional[bool] = field(default=True)
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
@@ -72,11 +71,12 @@ class ScriptArguments:
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
+_max_conv_tokens = get_length_config("default")["max_conversation_tokens"]
 model_name_split = script_args.base_model.split("/")[-1]
 if script_args.use_lora:
-    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{_max_conv_tokens}_lora{script_args.lora_r}_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
 else:
-    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_len{_max_conv_tokens}_fulltrain_{script_args.learning_rate}_data{script_args.dataset.split('/')[-1]}"
 
 device = Accelerator().local_process_index 
 
@@ -109,10 +109,9 @@ training_args = TrainingArguments(
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast = False)
 setup_tokenizer(tokenizer, model_name=script_args.base_model)
-tokenizer.max_length = script_args.max_length
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, model_name='GRM', size=100 if script_args.debug else None)
+train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, model_name='GRM', size=100 if script_args.debug else None, length_config="default")
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 
@@ -168,7 +167,7 @@ trainer_params = {
     "train_dataset": train_dataset,
     "eval_dataset": eval_dataset,
     "compute_metrics": grm_compute_metrics,
-    "data_collator": GRMDataCollatorWithPadding(tokenizer=tokenizer, max_length=script_args.max_length),
+    "data_collator": GRMDataCollatorWithPadding(tokenizer=tokenizer),
     'weight_ratio': script_args.weight_ratio,
     'reference_free': script_args.reference_free,
     'sft_only': script_args.sft_only,

@@ -17,9 +17,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from data_utils import (
-    DEFAULT_MAX_CONVERSATION_TOKENS,
-    DEFAULT_MAX_PROMPT_TOKENS,
     format_and_validate_preference_sample,
+    get_length_config,
     setup_tokenizer,
     tokenize_for_rm,
 )
@@ -30,10 +29,9 @@ from scripts.dataset_pipeline.pipeline_common import (
     validate_preference_example_structure,
 )
 
-_MAX_FORMAT_VALIDATION_TOKENS = 10**9
-
 
 def _parse_args() -> argparse.Namespace:
+    _default_cfg = get_length_config("default")
     parser = argparse.ArgumentParser(
         description=(
             "Stage 3: annotate a filtered preference dataset with reward model scores "
@@ -62,13 +60,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-prompt-tokens",
         type=int,
-        default=DEFAULT_MAX_PROMPT_TOKENS,
+        default=_default_cfg["max_prompt_tokens"],
         help="Validation max prompt tokens",
     )
     parser.add_argument(
         "--max-conversation-tokens",
         type=int,
-        default=DEFAULT_MAX_CONVERSATION_TOKENS,
+        default=_default_cfg["max_conversation_tokens"],
         help="Validation max conversation tokens",
     )
     parser.add_argument(
@@ -137,8 +135,7 @@ def _annotate_split(
                 sample["chosen"],
                 validation_tokenizer,
                 rejected_messages=sample["rejected"],
-                max_prompt_length=max_prompt_tokens,
-                max_conversation_length=max_conversation_tokens,
+                length_config="default",
                 sample_id=global_idx,
                 context=f"Stage3-{split_name}",
             )
@@ -148,8 +145,8 @@ def _annotate_split(
                 sample["chosen"],
                 reward_tokenizer,
                 rejected_messages=sample["rejected"],
-                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
-                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                length_config="default",
+                skip_validation=True,
                 sample_id=global_idx,
                 context=f"Stage3RMFormat-{split_name}",
             )

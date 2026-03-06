@@ -24,7 +24,20 @@
       "WebFetch(domain:)",
       "Bash(pip show model-training)",
       "Bash(python3 -c \"import model_training; print\\(model_training.__file__\\)\")",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(chmod +x /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/*.sh /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/*.py)",
+      "Bash(PYTHONPATH=\"rlhf/grpo:.\" python -c \":*)",
+      "Bash(bash -n scripts/paper_comparison/train_paper_sft.sh)",
+      "Bash(bash -n scripts/paper_comparison/train_paper_rm.sh)",
+      "Bash(bash -n scripts/paper_comparison/grpo_paper.sh)",
+      "Bash(bash -n scripts/paper_comparison/evaluate_paper.sh)",
+      "Bash(bash --version)",
+      "Bash(bash -n /home/eop/Reward-Model-Overoptimization/scripts/rlhf/grpo/grpo.sh)",
+      "Bash(for f in /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/*.sh /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/*.py)",
+      "Bash(do sed -i 's/\\\\r$//' \"$f\")",
+      "Bash(done)",
+      "Bash(bash -n /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/evaluate_paper.sh)",
+      "Bash(pip install pytest)"
     ]
   },
   "prefersReducedMotion": false

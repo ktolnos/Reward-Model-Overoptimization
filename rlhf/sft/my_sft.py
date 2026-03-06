@@ -12,8 +12,9 @@ from data_utils import (
     format_and_validate_preference_sample,
     tokenize_for_sft,
     setup_tokenizer,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    load_policy_and_tokenizer,
+    get_length_config,
+    DATASET_LENGTH_CONFIGS,
 )
 
 from trl import (
@@ -24,41 +25,41 @@ from trl import (
 
 @dataclass
 class ScriptArguments:
-    max_prompt_length: Optional[int] = field(default=DEFAULT_MAX_PROMPT_TOKENS)
-    max_conversation_length: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
+    length_config: str = field(metadata={
+        'help': f'Name of the length config from DATASET_LENGTH_CONFIGS. Available: {list(DATASET_LENGTH_CONFIGS.keys())}'
+    })
     dataset_path: Optional[str] = field(default='', metadata={'help': 'training dataset path'})
     dbg: Optional[bool] = field(default=False)
 
-def build_train_eval_datasets(data_path_train, tokenizer, script_args, eval_proportion, size=None):
+def build_train_eval_datasets(data_path_train, tokenizer, *, length_config, eval_proportion, size=None):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
         ds = ds.select(range(0, size))
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
     ds_train = ds_dict['train']
     ds_eval = ds_dict['test']
-    ds_train = post_process_common_dataset(ds_train, tokenizer, script_args)
-    ds_eval = post_process_common_dataset(ds_eval, tokenizer, script_args)
+    ds_train = post_process_common_dataset(ds_train, tokenizer, length_config=length_config)
+    ds_eval = post_process_common_dataset(ds_eval, tokenizer, length_config=length_config)
     return ds_train, ds_eval
 
 
-def build_dataset_common(data_path, tokenizer, script_args, split='', size=None):
+def build_dataset_common(data_path, tokenizer, *, length_config, split='', size=None):
     ds = datasets.load_dataset(data_path, split=split)
 
     if size is not None:
         ds = ds.select(range(0, size))
 
-    ds = post_process_common_dataset(ds, tokenizer, script_args)
+    ds = post_process_common_dataset(ds, tokenizer, length_config=length_config)
     return ds
 
-def post_process_common_dataset(ds, tokenizer, script_args):
+def post_process_common_dataset(ds, tokenizer, *, length_config):
     def formatting_func(example):
         chosen_messages = example["chosen"]
 
         prompt_text, full_text, _ = format_and_validate_preference_sample(
             chosen_messages,
             tokenizer,
-            max_prompt_length=script_args.max_prompt_length,
-            max_conversation_length=script_args.max_conversation_length,
+            length_config=length_config,
             sample_id=example.get("id"),
             context="SFT",
         )
@@ -95,39 +96,26 @@ if __name__ == "__main__":
     ################
     # Model & Tokenizer
     ################
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
+    model, tokenizer = load_policy_and_tokenizer(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
     )
-    setup_tokenizer(tokenizer)
     tokenizer.padding_side = "right"  # SFTTrainer requires right padding to avoid fp16 overflow
 
-    # Enforce a model-native chat template to avoid formatting drift.
+    # Enforce a chat template to avoid formatting drift.
     if tokenizer.chat_template is None:
         raise ValueError(
             f"Tokenizer '{model_args.model_name_or_path}' has no chat_template. "
-            "SFT requires a tokenizer with a native chat template to keep "
+            "SFT requires a tokenizer with a chat template to keep "
             "formatting consistent across the pipeline."
         )
-    
-    
-    # Load model
-    model = AutoModelForCausalLM.from_pretrained(
-        model_args.model_name_or_path,
-        trust_remote_code=model_args.trust_remote_code,
-        torch_dtype=torch.bfloat16,
-    )
-    
-    # Resize token embeddings if needed
-    model.resize_token_embeddings(len(tokenizer))
-    model.config.pad_token_id = tokenizer.pad_token_id
     
     ################
     # Dataset
     ################
     train_dataset, eval_dataset = build_train_eval_datasets(
-        script_args.dataset_path, tokenizer, script_args,
+        script_args.dataset_path, tokenizer,
+        length_config=script_args.length_config,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None
     )

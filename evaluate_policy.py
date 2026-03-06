@@ -29,8 +29,8 @@ from data_utils import (
     format_and_validate_preference_sample,
     setup_tokenizer,
     get_generation_stop_token_ids,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    get_length_config,
+    DATASET_LENGTH_CONFIGS,
 )
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
@@ -154,6 +154,13 @@ class ScriptArguments:
             "help": "Skip prompt/conversation length validation (pass None for max_prompt_length and max_conversation_length)."
         },
     )
+    length_config: Optional[str] = field(
+        default="default",
+        metadata={
+            "help": "Name of the length config from DATASET_LENGTH_CONFIGS. "
+            "Use 'alpacafarm_paper' for the paper comparison (520/256/776)."
+        },
+    )
 
 
 def load_reward_model_impl(model_path_or_name, device):
@@ -200,8 +207,8 @@ def score_responses_with_rm(
             _, full_text, _ = format_and_validate_preference_sample(
                 full_conv,
                 rm_tokenizer,
-                max_prompt_length=None,
-                max_conversation_length=None,
+                length_config="default",
+                skip_validation=True,
                 sample_id=sample_id,
                 context=context,
             )
@@ -672,6 +679,9 @@ def main():
     setup_tokenizer(policy_tokenizer)
     stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
+    # Resolve length config for validation.
+    length_cfg = get_length_config(args.length_config)
+
     # Prepare dataset based on its structure
     prompt_messages_list = None  # structured messages for proper RM formatting
     if "chosen" in dataset.column_names:
@@ -682,8 +692,8 @@ def main():
                 example["chosen"],
                 policy_tokenizer,
                 rejected_messages=example.get("rejected"),
-                max_prompt_length=None if args.skip_validation else DEFAULT_MAX_PROMPT_TOKENS,
-                max_conversation_length=None if args.skip_validation else DEFAULT_MAX_CONVERSATION_TOKENS,
+                length_config=args.length_config,
+                skip_validation=args.skip_validation,
                 sample_id=idx,
                 context="Evaluation",
             )

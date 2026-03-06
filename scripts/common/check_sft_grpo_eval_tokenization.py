@@ -62,18 +62,6 @@ def main():
         help="Assistant response used for the synthetic test sample.",
     )
     parser.add_argument(
-        "--max-prompt-length",
-        type=int,
-        default=4096,
-        help="Validation max prompt length.",
-    )
-    parser.add_argument(
-        "--max-conversation-length",
-        type=int,
-        default=8192,
-        help="Validation max full-conversation length.",
-    )
-    parser.add_argument(
         "--show-details",
         action="store_true",
         help="Print prompt/full text repr and boundary token window.",
@@ -98,22 +86,22 @@ def main():
     prompt_sft, full_sft, _ = format_and_validate_preference_sample(
         chosen_messages,
         tokenizer,
-        max_prompt_length=args.max_prompt_length,
-        max_conversation_length=args.max_conversation_length,
+        length_config="default",
+        skip_validation=True,
         context="SFT-check",
     )
     prompt_grpo, full_grpo, _ = format_and_validate_preference_sample(
         chosen_messages,
         tokenizer,
-        max_prompt_length=args.max_prompt_length,
-        max_conversation_length=args.max_conversation_length,
+        length_config="default",
+        skip_validation=True,
         context="GRPO-check",
     )
     prompt_eval, full_eval, _ = format_and_validate_preference_sample(
         chosen_messages,
         tokenizer,
-        max_prompt_length=args.max_prompt_length,
-        max_conversation_length=args.max_conversation_length,
+        length_config="default",
+        skip_validation=True,
         context="Eval-check",
     )
 

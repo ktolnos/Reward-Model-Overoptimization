@@ -218,15 +218,13 @@ def post_process_common_dataset(ds, tokenizer, script_args):
         tokenize_text_with_special_tokens,
     )
 
-    max_format_validation_tokens = 10**9
-
     def formatting_func(example):
         prompt, _, _ = format_and_validate_preference_sample(
             example["chosen"],
             tokenizer,
             rejected_messages=example.get("rejected"),
-            max_prompt_length=max_format_validation_tokens,
-            max_conversation_length=max_format_validation_tokens,
+            length_config="default",
+            skip_validation=True,
             context="PPO",
         )
         tokens = tokenize_text_with_special_tokens(

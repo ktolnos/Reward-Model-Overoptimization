@@ -14,7 +14,6 @@ from transformers import AutoTokenizer
 class RewardDataCollatorWithPadding:
     tokenizer: AutoTokenizer
     padding: Union[bool, str, PaddingStrategy] = True
-    max_length: Optional[int] = None
     pad_to_multiple_of: Optional[int] = None
     return_tensors: str = "pt"
 
@@ -39,7 +38,6 @@ class RewardDataCollatorWithPadding:
         batch = self.tokenizer.pad(
             merged_features,
             padding=self.padding,
-            max_length=self.max_length,
             pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors=self.return_tensors,
         )

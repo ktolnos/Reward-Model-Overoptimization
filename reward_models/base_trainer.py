@@ -71,61 +71,13 @@ class RewardTrainer(Trainer):
             None,
         ),
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-        max_length: Optional[int] = None,
         peft_config: Optional[Dict] = None,
     ):
-        """
-        Initialize RewardTrainer.
-
-        Args:
-            model (`transformers.PreTrainedModel`):
-                The model to train, preferably an `AutoModelForSequenceClassification`.
-            args (`RewardConfig`):
-                The arguments to use for training.
-            data_collator (`transformers.DataCollator`):
-                The data collator to use for training. If None is specified, the default data collator (`RewardDataCollatorWithPadding`) will be used
-                which will pad the sequences to the maximum length of the sequences in the batch, given a dataset of paired sequences.
-            train_dataset (`datasets.Dataset`):
-                The dataset to use for training.
-            eval_dataset (`datasets.Dataset`):
-                The dataset to use for evaluation.
-            tokenizer (`transformers.PreTrainedTokenizerBase`):
-                The tokenizer to use for training. This argument is required if you want to use the default data collator.
-            model_init (`Callable[[], transformers.PreTrainedModel]`):
-                The model initializer to use for training. If None is specified, the default model initializer will be used.
-            compute_metrics (`Callable[[transformers.EvalPrediction], Dict]`, *optional* defaults to `compute_accuracy`):
-                The metrics to use for evaluation. If no metrics are specified, the default metric (`compute_accuracy`) will be used.
-            callbacks (`List[transformers.TrainerCallback]`):
-                The callbacks to use for training.
-            optimizers (`Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]`):
-                The optimizer and scheduler to use for training.
-            preprocess_logits_for_metrics (`Callable[[torch.Tensor, torch.Tensor], torch.Tensor]`):
-                The function to use to preprocess the logits before computing the metrics.
-            max_length (`int`, defaults to `None`):
-                The maximum length of the sequences in the batch. This argument is required if you want to use the default data collator.
-            peft_config (`Dict`, defaults to `None`):
-                The PEFT configuration to use for training. If you pass a PEFT configuration, the model will be wrapped in a PEFT model.
-        """
         if type(args) == TrainingArguments:
             warnings.warn(
                 "Using `transformers.TrainingArguments` for `args` is deprecated and will be removed in a future version. Please use `RewardConfig` instead.",
                 FutureWarning,
             )
-            if max_length is not None:
-                warnings.warn(
-                    "The `max_length` argument is deprecated and will be removed in a future version. Please use the `RewardConfig` to set `max_length` instead.",
-                    FutureWarning,
-                )
-        else:
-            if max_length is not None and args.max_length is not None:
-                raise ValueError(
-                    "You cannot specify both `max_length` and `args.max_length`. Please use the `RewardConfig` to set `max_length` once."
-                )
-            if max_length is not None and args.max_length is None:
-                warnings.warn(
-                    "The `max_length` argument is deprecated and will be removed in a future version. Please use the `RewardConfig` to set `max_length` instead.",
-                    FutureWarning,
-                )
         if not is_peft_available() and peft_config is not None:
             raise ValueError(
                 "PEFT is not installed and you passed a `peft_config` in the trainer's kwargs, please install it to use the PEFT models"
@@ -157,28 +109,9 @@ class RewardTrainer(Trainer):
         if data_collator is None:
             if tokenizer is None:
                 raise ValueError(
-                    "max_length or a tokenizer must be specified when using the default RewardDataCollatorWithPadding"
+                    "A tokenizer must be specified when using the default RewardDataCollatorWithPadding"
                 )
-            if type(args) == TrainingArguments:
-                if max_length is None:
-                    warnings.warn(
-                        "When using RewardDataCollatorWithPadding, you should set `max_length` in RewardConfig."
-                        " It will be set to `512` by default, but you should do it yourself in the future.",
-                        UserWarning,
-                    )
-                    max_length = 512
-            else:
-                if max_length is None and args.max_length is None:
-                    warnings.warn(
-                        "When using RewardDataCollatorWithPadding, you should set `max_length` in RewardConfig."
-                        " It will be set to `512` by default, but you should do it yourself in the future.",
-                        UserWarning,
-                    )
-                    max_length = 512
-                if max_length is None and args.max_length is not None:
-                    max_length = args.max_length
-
-            data_collator = RewardDataCollatorWithPadding(tokenizer, max_length=max_length)
+            data_collator = RewardDataCollatorWithPadding(tokenizer)
 
             if args.remove_unused_columns:
                 try:  # for bc before https://github.com/huggingface/transformers/pull/25435

@@ -66,8 +66,7 @@ from data_utils import (
     format_and_validate_preference_sample,
     completion_has_stop_token,
     get_generation_stop_token_ids,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    get_length_config,
 )
 import math
 
@@ -105,7 +104,8 @@ def build_train_eval_datasets(
     tokenizer,
     eval_proportion,
     size=None,
-    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
+    *,
+    length_config,
 ):
     ds = datasets.load_dataset(data_path_train, split="train")
     if size is not None:
@@ -113,16 +113,12 @@ def build_train_eval_datasets(
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
     ds_train = ds_dict["train"]
     ds_eval = ds_dict["test"]
-    ds_train = post_process_common_dataset(ds_train, tokenizer, max_prompt_length)
-    ds_eval = post_process_common_dataset(ds_eval, tokenizer, max_prompt_length)
+    ds_train = post_process_common_dataset(ds_train, tokenizer, length_config=length_config)
+    ds_eval = post_process_common_dataset(ds_eval, tokenizer, length_config=length_config)
     return ds_train, ds_eval
 
 
-def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
-    max_prompt_length = (
-        DEFAULT_MAX_PROMPT_TOKENS if max_prompt_length is None else max_prompt_length
-    )
-
+def post_process_common_dataset(ds, tokenizer, *, length_config):
     def formatting_func(example):
         # Keep structured messages for reward model formatting
         # chosen contains [User, Assistant] (usually). Strip the last message if it's the assistant's.
@@ -134,8 +130,7 @@ def post_process_common_dataset(ds, tokenizer, max_prompt_length=None):
             example["chosen"],
             tokenizer,
             rejected_messages=example.get("rejected"),
-            max_prompt_length=max_prompt_length,
-            max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+            length_config=length_config,
             context="GRPO",
         )
         return {
@@ -402,8 +397,8 @@ def precompute_reward_statistics(
                 _, full_text, _ = format_and_validate_preference_sample(
                     conv,
                     reward_tokenizer,
-                    max_prompt_length=None,
-                    max_conversation_length=None,
+                    length_config="default",
+                    skip_validation=True,
                     sample_id=sample_id,
                     context="GRPO RM statistics precompute",
                 )
@@ -673,11 +668,15 @@ def build_reward_function(
             reward = rewards_tensor.min(dim=1).values
         elif script_args.ensemble_aggregation == "uwo":
             # Uncertainty-Weighted Optimization (UWO) from Coste et al. (2310.02743)
-            # r_UWO = mean - lambda * std
-            # Penalizes high disagreement across reward models
+            # Penalizes high disagreement across reward models.
+            # Paper formula: r_UWO = mean - lambda * variance
+            # Default:       r_UWO = mean - lambda * std
             mean_reward = rewards_tensor.mean(dim=1)
-            std_reward = rewards_tensor.std(dim=1, unbiased=False)
-            reward = mean_reward - script_args.uwo_lambda * std_reward
+            if getattr(script_args, "uwo_use_variance", False):
+                uncertainty = rewards_tensor.var(dim=1, unbiased=False)
+            else:
+                uncertainty = rewards_tensor.std(dim=1, unbiased=False)
+            reward = mean_reward - script_args.uwo_lambda * uncertainty
         else:
             raise ValueError(
                 f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"

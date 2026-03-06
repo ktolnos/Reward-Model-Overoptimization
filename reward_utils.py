@@ -44,6 +44,11 @@ Skywork_ASSISTANT_PROMPT = """## Analysis
 Let's analyze this step by step and decide which assistant is better, and then answer \\boxed{Assistant 1} or \\boxed{Assistant 2}."""
 
 
+def _is_alpacafarm_rm(model_name):
+    """Detect AlpacaFarm reward models by name/path."""
+    return "alpaca_farm" in model_name or "alpaca-farm" in model_name
+
+
 def load_reward_model(
     model_name,
     reasoning,
@@ -53,17 +58,51 @@ def load_reward_model(
     trust_remote_code=True,
     use_device_map=True,
 ):
-    """Load a reward model and its tokenizer for either RM or reasoning mode."""
+    """Load a reward model and its tokenizer for either RM or reasoning mode.
+
+    Special-cases the AlpacaFarm gold RM which uses a custom ``RewardModel``
+    class from the ``alpaca_farm`` package and outputs ``.rewards`` instead of
+    ``.logits[:, 0]``.
+    """
     from transformers import (
         AutoModelForCausalLM,
         AutoModelForSequenceClassification,
         AutoTokenizer,
     )
-    from data_utils import setup_tokenizer
+    from data_utils import setup_tokenizer, setup_alpacafarm_gold_chat_template
     from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # AlpacaFarm gold RM path: uses custom RewardModel class from alpaca_farm.
+    if _is_alpacafarm_rm(model_name):
+        print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
+        try:
+            from alpaca_farm.models.reward_model import RewardModel
+        except ImportError as exc:
+            raise ImportError(
+                "alpaca_farm package is required for the AlpacaFarm gold RM. "
+                "Install with: pip install git+https://github.com/tlc4418/alpaca_farm.git"
+            ) from exc
+
+        if tokenizer is None:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name, trust_remote_code=trust_remote_code,
+            )
+        setup_tokenizer(tokenizer, model_name=model_name)
+        setup_alpacafarm_gold_chat_template(tokenizer)
+
+        model = RewardModel.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+        )
+        if use_device_map:
+            model = model.to(device)
+        if getattr(tokenizer, "pad_token_id", None) is not None:
+            model.config.pad_token_id = tokenizer.pad_token_id
+        model.eval()
+        return model, tokenizer
 
     kwargs = {
         "torch_dtype": torch.bfloat16,
@@ -151,8 +190,8 @@ def get_reward(reward_model, reward_tokenizer, prompts, completions,
             _, full_text, _ = format_and_validate_preference_sample(
                 full_conv,
                 reward_tokenizer,
-                max_prompt_length=None,
-                max_conversation_length=None,
+                length_config="default",
+                skip_validation=True,
                 sample_id=sample_id,
                 context="Reward scoring",
             )
@@ -180,10 +219,15 @@ def extract_reward_tensors_from_model_output(reward_model, model_output):
     """Single source of truth for extracting scalar rewards from RM forwards.
 
     Supported cases:
+    - AlpacaFarm RewardModel: use .rewards attribute.
     - Standard sequence-classification models: use logits[:, 0].
     - ValueHead-based GRM models (Ray/TRL wrappers): use the 3rd output tensor.
     - GRM wrappers that directly return a reward tensor.
     """
+
+    # AlpacaFarm RewardModel outputs have a .rewards attribute.
+    if hasattr(model_output, "rewards") and torch.is_tensor(model_output.rewards):
+        return model_output.rewards.reshape(-1)
 
     # GRM wrappers may directly return the reward tensor.
     if torch.is_tensor(model_output):

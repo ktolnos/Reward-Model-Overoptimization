@@ -77,9 +77,7 @@ class OnlinePETCallback(TrainerCallback):
                 "which raises ValueError. Fix: store prompt_messages in the buffer and pass "
                 "them to get_reward().\n"
                 "2. rm_tokenizer.max_length is hardcoded to 1024 instead of "
-                "DEFAULT_MAX_CONVERSATION_TOKENS (2048).\n"
-                "3. wandb.log uses wandb.run.step instead of state.global_step, causing "
-                "x-axis misalignment.\n"
+                "the active length config.\n"
                 "Fix these before enabling online PET."
             )
             if self.pet_config.rm_gradient_checkpointing:
@@ -109,7 +107,8 @@ class OnlinePETCallback(TrainerCallback):
             preference_dataset, eval_dataset = load_train_eval_dataset(
                 data_path=self.pet_config.preference_dataset_path,
                 tokenizer=rm_tokenizer,
-                model_name=self.model_name
+                model_name=self.model_name,
+                length_config="default",
             )
             self.preference_dataloader = DataLoader(
                 preference_dataset,

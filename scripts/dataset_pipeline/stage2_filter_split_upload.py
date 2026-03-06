@@ -10,11 +10,9 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from data_utils import (
-    DEFAULT_MAX_CONVERSATION_TOKENS,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_RESPONSE_TOKENS,
     count_tokens_with_special_tokens,
     format_and_validate_preference_sample,
+    get_length_config,
     setup_tokenizer,
     tokenize_text_with_special_tokens,
 )
@@ -57,12 +55,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-ratio", type=float, default=0.9)
     parser.add_argument("--test-ratio", type=float, default=0.05)
     parser.add_argument("--heldout-ratio", type=float, default=0.05)
-    parser.add_argument("--max-prompt-tokens", type=int, default=DEFAULT_MAX_PROMPT_TOKENS)
-    parser.add_argument("--max-response-tokens", type=int, default=DEFAULT_MAX_RESPONSE_TOKENS)
+    _default_cfg = get_length_config("default")
+    parser.add_argument("--max-prompt-tokens", type=int, default=_default_cfg["max_prompt_tokens"])
+    parser.add_argument("--max-response-tokens", type=int, default=_default_cfg["max_response_tokens"])
     parser.add_argument(
         "--max-conversation-tokens",
         type=int,
-        default=DEFAULT_MAX_CONVERSATION_TOKENS,
+        default=_default_cfg["max_conversation_tokens"],
     )
     parser.add_argument("--max-errors", type=int, default=20)
     parser.add_argument(
@@ -128,8 +127,8 @@ def _filter_split(
                 sample["chosen"],
                 tokenizer,
                 rejected_messages=sample["rejected"],
-                max_prompt_length=10**9,
-                max_conversation_length=10**9,
+                length_config="default",
+                skip_validation=True,
                 sample_id=idx,
                 context=f"Stage2Format-{split_name}",
             )

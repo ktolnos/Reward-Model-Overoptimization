@@ -11,9 +11,112 @@ Conventions:
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
 
-DEFAULT_MAX_PROMPT_TOKENS = 1024    
-DEFAULT_MAX_RESPONSE_TOKENS = 1024
-DEFAULT_MAX_CONVERSATION_TOKENS = DEFAULT_MAX_PROMPT_TOKENS + DEFAULT_MAX_RESPONSE_TOKENS
+# Dataset-specific length configurations for pipeline consistency.
+# Training scripts select a config via --length_config and assert the active
+# constants match the dataset being used.
+DATASET_LENGTH_CONFIGS = {
+    "default": {
+        "max_prompt_tokens": 1024,
+        "max_response_tokens": 1024,
+        "max_conversation_tokens": 2048,
+    },
+    "alpacafarm_paper": {
+        "max_prompt_tokens": 520,
+        "max_response_tokens": 256,
+        "max_conversation_tokens": 776,
+    },
+}
+
+
+def get_length_config(config_name):
+    """Return a length config dict by name, or raise if unknown."""
+    if config_name not in DATASET_LENGTH_CONFIGS:
+        raise ValueError(
+            f"Unknown length config '{config_name}'. "
+            f"Available: {list(DATASET_LENGTH_CONFIGS.keys())}"
+        )
+    return DATASET_LENGTH_CONFIGS[config_name]
+
+
+# ---- Pythia / Open-Assistant v2 chat template ----
+
+_PYTHIA_OA_V2_CHAT_TEMPLATE = (
+    "{% for message in messages %}"
+    "{% if message['role'] == 'user' %}"
+    "<|prompter|>{{ message['content'] }}<|endoftext|>"
+    "{% elif message['role'] == 'assistant' %}"
+    "<|assistant|>{{ message['content'] }}<|endoftext|>"
+    "{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}<|assistant|>{% endif %}"
+)
+
+_PYTHIA_EXPECTED_SPECIAL_TOKENS = ("<|prompter|>", "<|assistant|>", "<|endoftext|>")
+
+# Tokens added by the Open-Assistant SFT process, in their original order.
+# <|endoftext|> is already the native EOS token (id 0) in all Pythia models.
+# The order matters: it determines token IDs and must match published SFT
+# checkpoints (e.g. tlc4418/pythia_70m_sft).
+_PYTHIA_OA_TOKENS_TO_ADD = (
+    "<|system|>", "<|prefix_begin|>", "<|prefix_end|>",
+    "<|prompter|>", "<|assistant|>",
+)
+
+
+def setup_pythia_chat_template(tokenizer):
+    """Register the Open-Assistant v2 chat template on a Pythia tokenizer.
+
+    The SFT'd Pythia models from the paper added <|prompter|> and <|assistant|>
+    as special tokens.  This function verifies they exist and sets a Jinja2
+    chat template that replicates the paper's manual string formatting so that
+    ``apply_chat_template`` produces identical token IDs.
+
+    Called at load time -- does NOT save anything to disk.
+    """
+    vocab = tokenizer.get_vocab()
+    for tok in _PYTHIA_EXPECTED_SPECIAL_TOKENS:
+        if tok not in vocab:
+            raise ValueError(
+                f"Pythia tokenizer is missing expected special token '{tok}'. "
+                "Make sure you are loading from an SFT'd checkpoint that has "
+                "the Open-Assistant vocabulary additions (e.g. tlc4418/pythia_70m_sft)."
+            )
+    tokenizer.chat_template = _PYTHIA_OA_V2_CHAT_TEMPLATE
+    return tokenizer
+
+
+# ---- AlpacaFarm gold RM chat template (Alpaca instruction format) ----
+
+_ALPACAFARM_GOLD_CHAT_TEMPLATE = (
+    "{% set ns = namespace(instruction='', input='') %}"
+    "{% for message in messages %}"
+    "{% if message['role'] == 'user' %}"
+    "{% set ns.instruction = message['content'] %}"
+    "{% endif %}"
+    "{% endfor %}"
+    "Below is an instruction that describes a task. "
+    "Write a response that appropriately completes the request.\n\n"
+    "### Instruction:\n{{ ns.instruction }}\n\n"
+    "### Response:\n"
+    "{% for message in messages %}"
+    "{% if message['role'] == 'assistant' %}{{ message['content'] }}{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}{% endif %}"
+)
+
+
+def setup_alpacafarm_gold_chat_template(tokenizer):
+    """Register the Alpaca instruction-format chat template on a tokenizer.
+
+    The AlpacaFarm 7B gold reward model was trained on the Alpaca prompt
+    template (``### Instruction:`` / ``### Response:``).  This sets a Jinja2
+    chat template so the gold RM tokenizer goes through the same
+    ``apply_chat_template`` code path as everything else.
+
+    Called at load time -- does NOT save anything to disk.
+    """
+    tokenizer.chat_template = _ALPACAFARM_GOLD_CHAT_TEMPLATE
+    return tokenizer
 
 
 def _looks_like_llama_model(tokenizer, model_name=None):
@@ -31,8 +134,35 @@ def _looks_like_llama_model(tokenizer, model_name=None):
     return False
 
 
+def _has_pythia_oa_tokens(tokenizer):
+    """Check if the tokenizer has the Open-Assistant special tokens used by
+    the SFT'd Pythia models from Coste et al."""
+    vocab = tokenizer.get_vocab()
+    return all(tok in vocab for tok in _PYTHIA_EXPECTED_SPECIAL_TOKENS)
+
+
+def _looks_like_pythia_model(tokenizer, model_name=None):
+    """Best-effort detection for Pythia-family tokenizers/models."""
+    candidates = [
+        model_name,
+        getattr(tokenizer, "name_or_path", None),
+    ]
+    for candidate in candidates:
+        if candidate and "pythia" in str(candidate).lower():
+            return True
+    return False
+
+
 def setup_tokenizer(tokenizer, model_name=None):
-    """Ensure consistent tokenizer configuration across all stages."""
+    """Ensure consistent tokenizer configuration across all stages.
+
+    Automatically detects Pythia models by name and ensures the
+    Open-Assistant v2 special tokens (``<|prompter|>``, ``<|assistant|>``)
+    and chat template are present.  For SFT'd checkpoints the tokens already
+    exist; for base Pythia they are added to the vocabulary (the caller must
+    resize model embeddings afterwards -- ``load_policy_and_tokenizer`` does
+    this automatically).
+    """
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         # Keep legacy Llama behavior: use [PAD] if the tokenizer has no pad token.
@@ -42,7 +172,56 @@ def setup_tokenizer(tokenizer, model_name=None):
             tokenizer.pad_token = "[PAD]"
         elif tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+
+    # Auto-detect Pythia models: add OA v2 tokens if missing, then set template.
+    if tokenizer.chat_template is None and _looks_like_pythia_model(tokenizer, model_name=model_name):
+        if not _has_pythia_oa_tokens(tokenizer):
+            vocab = tokenizer.get_vocab()
+            tokens_to_add = [t for t in _PYTHIA_OA_TOKENS_TO_ADD if t not in vocab]
+            if tokens_to_add:
+                tokenizer.add_special_tokens(
+                    {"additional_special_tokens": tokens_to_add}
+                )
+                print(
+                    f"Added {tokens_to_add} to Pythia tokenizer. "
+                    "Remember to resize model embeddings."
+                )
+        setup_pythia_chat_template(tokenizer)
+
     return tokenizer
+
+
+def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
+    """Load a policy model and its tokenizer with consistent setup.
+
+    Handles:
+    - Tokenizer loading and ``setup_tokenizer`` (auto-detects Pythia chat template).
+    - Model loading in bfloat16.
+    - Embedding resizing to match the tokenizer.
+    - ``pad_token_id`` propagation to model config and ``generation_config``.
+
+    Returns ``(model, tokenizer)``.
+    """
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name_or_path, trust_remote_code=trust_remote_code,
+    )
+    setup_tokenizer(tokenizer, model_name=model_name_or_path)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        trust_remote_code=trust_remote_code,
+        torch_dtype=torch.bfloat16,
+    )
+    model.resize_token_embeddings(len(tokenizer))
+    model.config.pad_token_id = tokenizer.pad_token_id
+    if hasattr(model, "generation_config"):
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
+        model.generation_config.eos_token_id = get_generation_stop_token_ids(tokenizer)
+
+    return model, tokenizer
 
 
 def strip_bos_if_present(text, tokenizer):
@@ -275,15 +454,17 @@ def format_and_validate_preference_sample(
     tokenizer,
     *,
     rejected_messages=None,
-    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
-    max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+    length_config,
+    skip_validation=False,
     sample_id=None,
     context="sample",
 ):
     """Format prompt/conversation texts and validate prompt/full-length constraints.
 
-    Pass ``None`` for ``max_prompt_length`` and/or ``max_conversation_length`` to
-    skip that validation.
+    Args:
+        length_config: Name of a DATASET_LENGTH_CONFIGS entry (e.g. ``"default"``).
+            Required keyword argument — every caller must specify it explicitly.
+        skip_validation: If ``True``, skip length validation entirely (formatting only).
 
     Returns:
         Tuple of (prompt_text, chosen_text, rejected_text_or_None).
@@ -317,18 +498,18 @@ def format_and_validate_preference_sample(
             f"{context} formatting mismatch: prompt is not a prefix of chosen conversation{sample_suffix}."
         )
 
-    if max_prompt_length is not None:
+    if not skip_validation:
+        cfg = get_length_config(length_config)
         validate_length_or_fail(
             prompt_text,
-            max_prompt_length,
+            cfg["max_prompt_tokens"],
             name=f"{context} prompt",
             tokenizer=tokenizer,
             sample_id=sample_id,
         )
-    if max_conversation_length is not None:
         validate_length_or_fail(
             chosen_text,
-            max_conversation_length,
+            cfg["max_conversation_tokens"],
             name=f"{context} chosen conversation",
             tokenizer=tokenizer,
             sample_id=sample_id,
@@ -337,10 +518,10 @@ def format_and_validate_preference_sample(
     rejected_text = None
     if rejected_messages is not None:
         rejected_text = _format_conversation(rejected_messages, tokenizer)
-        if max_conversation_length is not None:
+        if not skip_validation:
             validate_length_or_fail(
                 rejected_text,
-                max_conversation_length,
+                cfg["max_conversation_tokens"],
                 name=f"{context} rejected conversation",
                 tokenizer=tokenizer,
                 sample_id=sample_id,

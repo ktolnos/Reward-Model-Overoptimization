@@ -21,10 +21,10 @@ from trl.models import prepare_deepspeed
 from qrm_gemma_tokenizer import TokenizerWrapper
 from data_utils import (
     setup_tokenizer,
+    load_policy_and_tokenizer,
     get_generation_stop_token_ids,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_RESPONSE_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    get_length_config,
+    DATASET_LENGTH_CONFIGS,
 )
 
 tqdm.pandas()
@@ -146,6 +146,22 @@ class MyGRPOScriptArguments:
             "reward_uwo = mean_reward - lambda * std_reward"
         },
     )
+    uwo_use_variance: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "If True, UWO uses variance instead of std: "
+            "reward = mean - lambda * var(rewards). "
+            "Set True to match Coste et al. (2310.02743) paper formula."
+        },
+    )
+    length_config: Optional[str] = field(
+        default="default",
+        metadata={
+            "help": "Name of the length config from DATASET_LENGTH_CONFIGS. "
+            "Controls max_prompt_length, max_completion_length, vllm_max_model_length. "
+            "Use 'alpacafarm_paper' for the paper comparison (520/256/776)."
+        },
+    )
 
 
 if __name__ == "__main__":
@@ -155,13 +171,23 @@ if __name__ == "__main__":
     script_args, training_args, model_args, pet_config = (
         parser.parse_args_into_dataclasses()
     )
-    training_args.max_prompt_length = DEFAULT_MAX_PROMPT_TOKENS
+    # Apply length config from DATASET_LENGTH_CONFIGS.
+    length_cfg = get_length_config(script_args.length_config)
+    training_args.max_prompt_length = length_cfg["max_prompt_tokens"]
     if training_args.max_completion_length != 256:
-        raise ValueError("max_completion_length is overrieden. Consider changing DEFAULT_MAX_RESPONSE_TOKENS in data_utils.py")
-    training_args.max_completion_length = DEFAULT_MAX_RESPONSE_TOKENS
-    if training_args.vllm_max_model_length != None:
-        raise ValueError("vllm_max_model_length is overrieden. Consider changing DEFAULT_MAX_CONVERSATION_TOKENS in data_utils.py")
-    training_args.vllm_max_model_length = DEFAULT_MAX_CONVERSATION_TOKENS
+        raise ValueError(
+            f"max_completion_length is overridden on the command line. "
+            f"Use --length_config instead (active config '{script_args.length_config}' "
+            f"sets max_response_tokens={length_cfg['max_response_tokens']})."
+        )
+    training_args.max_completion_length = length_cfg["max_response_tokens"]
+    if training_args.vllm_max_model_length is not None:
+        raise ValueError(
+            f"vllm_max_model_length is overridden on the command line. "
+            f"Use --length_config instead (active config '{script_args.length_config}' "
+            f"sets max_conversation_tokens={length_cfg['max_conversation_tokens']})."
+        )
+    training_args.vllm_max_model_length = length_cfg["max_conversation_tokens"]
 
     if script_args.clip_reward_max is not None and (
         not script_args.rm_subtract_mean_reward_per_model
@@ -201,6 +227,8 @@ if __name__ == "__main__":
     # We always initialize with None to allow on-demand loading in build_reward_function
     reward_models = [None] * len(script_args.reward_model_paths)
 
+    # Pre-compute per-model reward statistics before loading the policy model (to keep GPU free).
+    # Load only the policy tokenizer first for dataset processing.
     policy_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
@@ -208,7 +236,6 @@ if __name__ == "__main__":
     setup_tokenizer(policy_tokenizer)
     policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
-    # Pre-compute per-model reward statistics before loading the policy model (to keep GPU free).
     precomputed_statistics = None
     if (script_args.rm_subtract_mean_reward_per_model):
         precomputed_statistics = precompute_reward_statistics(
@@ -219,16 +246,11 @@ if __name__ == "__main__":
             trust_remote_code=model_args.trust_remote_code,
         )
 
-    policy = AutoModelForCausalLM.from_pretrained(
+    policy, policy_tokenizer = load_policy_and_tokenizer(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
-        torch_dtype=torch.bfloat16,
     )
-    policy.resize_token_embeddings(len(policy_tokenizer))
-    policy.config.pad_token_id = policy_tokenizer.pad_token_id
-    if hasattr(policy, "generation_config"):
-        policy.generation_config.pad_token_id = policy_tokenizer.pad_token_id
-        policy.generation_config.eos_token_id = policy_stop_token_ids
+    policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
     ################
     # Dataset
@@ -239,6 +261,7 @@ if __name__ == "__main__":
         policy_tokenizer,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
+        length_config=script_args.length_config,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 

@@ -16,7 +16,7 @@ from transformers import (
 )
 from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
 from load_datasets import load_train_eval_dataset, build_dataset
-from data_utils import setup_tokenizer, DEFAULT_MAX_CONVERSATION_TOKENS
+from data_utils import setup_tokenizer, get_length_config, DATASET_LENGTH_CONFIGS
 from utils import (
     print_trainable_parameters,
     compute_metrics,
@@ -41,7 +41,9 @@ class ScriptArguments:
         default="cosine",
         metadata={"help": "The lr scheduler"},
     )
-    max_length: Optional[int] = field(default=DEFAULT_MAX_CONVERSATION_TOKENS)
+    length_config: str = field(metadata={
+        "help": f"Name of the length config from DATASET_LENGTH_CONFIGS. Available: {list(DATASET_LENGTH_CONFIGS.keys())}"
+    })
     gradient_checkpointing: Optional[bool] = field(default=False)
     bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
@@ -97,6 +99,9 @@ script_args = parser.parse_args_into_dataclasses()[0]
 torch.manual_seed(script_args.seed)
 np.random.seed(script_args.seed)
 
+# Resolve length config.
+_length_cfg = get_length_config(script_args.length_config)
+
 dataset_list = script_args.dataset
 if isinstance(dataset_list, str):
     dataset_list = [dataset_list]
@@ -105,10 +110,11 @@ if not dataset_list:
 
 model_name_split = script_args.base_model.split("/")[-1]
 dataset_name = dataset_list[0]
+_max_conv_tokens = _length_cfg["max_conversation_tokens"]
 if script_args.use_lora:
-    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{script_args.max_length}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{_max_conv_tokens}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 else:
-    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{script_args.max_length}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{_max_conv_tokens}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 
 device = Accelerator().local_process_index
 
@@ -142,7 +148,6 @@ training_args = TrainingArguments(
 
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False)
-tokenizer.max_length = script_args.max_length
 setup_tokenizer(tokenizer, model_name=script_args.base_model)
 
 # Load datasets
@@ -151,6 +156,7 @@ train_dataset, eval_dataset = load_train_eval_dataset(
     tokenizer,
     size=100 if script_args.debug else None,
     seed=script_args.seed,
+    length_config=script_args.length_config,
 )
 for i in range(1, len(dataset_list)):
     new_train_dataset = build_dataset(
@@ -158,6 +164,7 @@ for i in range(1, len(dataset_list)):
         tokenizer,
         split="train",
         size=100 if script_args.debug else None,
+        length_config=script_args.length_config,
     )
     train_dataset = concatenate_datasets([train_dataset, new_train_dataset])
 train_dataset = train_dataset.shuffle(seed=script_args.seed)
@@ -207,9 +214,7 @@ trainer_params = {
     "train_dataset": train_dataset,
     "eval_dataset": eval_dataset,
     "compute_metrics": compute_metrics,
-    "data_collator": RewardDataCollatorWithPadding(
-        tokenizer=tokenizer, max_length=script_args.max_length
-    ),
+    "data_collator": RewardDataCollatorWithPadding(tokenizer=tokenizer),
     "loss_type": script_args.loss_type,
     "weight_ratio": script_args.weight_ratio,
 }

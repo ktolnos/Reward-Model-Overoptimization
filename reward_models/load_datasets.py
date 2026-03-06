@@ -6,8 +6,7 @@ from datasets import load_dataset, concatenate_datasets
 from data_utils import (
     format_and_validate_preference_sample,
     tokenize_text_with_special_tokens,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    get_length_config,
 )
 
 
@@ -18,8 +17,8 @@ def build_dataset(
     split="train",
     size=None,
     model_name="",
-    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
-    max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+    *,
+    length_config,
 ):
     ds = load_dataset(data_path, split=split)
 
@@ -34,8 +33,7 @@ def build_dataset(
                 chosen_messages,
                 tokenizer,
                 rejected_messages=rejected_messages,
-                max_prompt_length=max_prompt_length,
-                max_conversation_length=max_conversation_length,
+                length_config=length_config,
                 context="RM",
             )
         )
@@ -87,10 +85,11 @@ def build_dataset(
 
 
 def load_train_eval_dataset(
-    data_path, tokenizer, size=None, model_name="", seed=42
+    data_path, tokenizer, size=None, model_name="", seed=42, *, length_config,
 ):
     dataset = build_dataset(
-        data_path, tokenizer, split="train", size=size, model_name=model_name
+        data_path, tokenizer, split="train", size=size, model_name=model_name,
+        length_config=length_config,
     )
     dataset_split = dataset.train_test_split(
         test_size=0.05, seed=seed, shuffle=True

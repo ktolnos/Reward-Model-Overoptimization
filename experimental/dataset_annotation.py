@@ -27,11 +27,8 @@ from data_utils import (
     tokenize_texts_with_special_tokens,
     get_generation_stop_token_ids,
     format_and_validate_preference_sample,
-    DEFAULT_MAX_PROMPT_TOKENS,
-    DEFAULT_MAX_CONVERSATION_TOKENS,
+    get_length_config,
 )
-
-_MAX_FORMAT_VALIDATION_TOKENS = 10**9
 
 
 def load_helpsteer2_dataset(split="train"):
@@ -82,8 +79,8 @@ def evaluate_with_reward_model(dataset, model, tokenizer, batch_size=8, max_leng
                 batch["chosen"][j],
                 tokenizer,
                 rejected_messages=batch["rejected"][j],
-                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
-                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                length_config="default",
+                skip_validation=True,
                 sample_id=i + j,
                 context="Annotation",
             )
@@ -157,8 +154,8 @@ def evaluate_with_reasoning_reward_model(dataset, model, tokenizer, batch_size=8
                 sample["chosen"],
                 tokenizer,
                 rejected_messages=sample["rejected"],
-                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
-                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                length_config="default",
+                skip_validation=True,
                 sample_id=i + j,
                 context="AnnotationReasoning",
             )
@@ -281,8 +278,8 @@ def generate_with_reference_policy(
                 item["chosen"],
                 tokenizer,
                 rejected_messages=item.get("rejected"),
-                max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
-                max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                length_config="default",
+                skip_validation=True,
                 sample_id=i + j,
                 context="ReferencePolicy",
             )
@@ -357,8 +354,8 @@ def evaluate_with_reference_reward_model(
                     _, full_text, _ = format_and_validate_preference_sample(
                         full_conv,
                         tokenizer,
-                        max_prompt_length=_MAX_FORMAT_VALIDATION_TOKENS,
-                        max_conversation_length=_MAX_FORMAT_VALIDATION_TOKENS,
+                        length_config="default",
+                        skip_validation=True,
                         sample_id=i + j,
                         context="ReferenceReward",
                     )
@@ -472,8 +469,8 @@ def load_annotated_dataset(input_path="data/helpsteer2_gold/train.json", split="
 def validate_dataset_length_or_fail(
     dataset,
     tokenizer,
-    max_prompt_length=DEFAULT_MAX_PROMPT_TOKENS,
-    max_conversation_length=DEFAULT_MAX_CONVERSATION_TOKENS,
+    *,
+    length_config,
 ):
     """Validate prompt and conversation token constraints and fail fast."""
     for idx, sample in enumerate(dataset):
@@ -481,8 +478,7 @@ def validate_dataset_length_or_fail(
             sample["chosen"],
             tokenizer,
             rejected_messages=sample.get("rejected"),
-            max_prompt_length=max_prompt_length,
-            max_conversation_length=max_conversation_length,
+            length_config=length_config,
             sample_id=idx,
             context="Annotation",
         )
@@ -511,7 +507,7 @@ def annotate_dataset(model_name,
         str: Path to the saved dataset
     """
     model, tokenizer = load_reward_model(model_name, reasoning, device="cuda" if torch.cuda.is_available() else "cpu")
-    validate_dataset_length_or_fail(dataset, tokenizer)
+    validate_dataset_length_or_fail(dataset, tokenizer, length_config="default")
     if reasoning:
         raise NotImplementedError(
             "Reasoning reward-model annotation is disabled for this pipeline. "
@@ -579,6 +575,7 @@ class ScriptArguments:
 if __name__ == "__main__":
     parser = HfArgumentParser(ScriptArguments)
     script_args = parser.parse_args_into_dataclasses()[0]
+    raise NotImplementedError("This script is not validated yet. See scripts/dataset_pipeline for the new pipeline")
 
     random.seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -609,7 +606,7 @@ if __name__ == "__main__":
         policy_model, policy_tokenizer = load_reward_model(
             script_args.reference_policy_name, reasoning=True, device=device
         )
-        validate_dataset_length_or_fail(dataset, policy_tokenizer)
+        validate_dataset_length_or_fail(dataset, policy_tokenizer, length_config="default")
 
         results = generate_with_reference_policy(
             dataset, policy_model, policy_tokenizer, script_args.batch_size,
@@ -631,7 +628,7 @@ if __name__ == "__main__":
         reward_model, reward_tokenizer = load_reward_model(
             script_args.reference_reward_model_name, reasoning=False, device=device
         )
-        validate_dataset_length_or_fail(dataset, reward_tokenizer)
+        validate_dataset_length_or_fail(dataset, reward_tokenizer, length_config="default")
 
         results = evaluate_with_reference_reward_model(
             dataset, reward_model, reward_tokenizer, script_args.batch_size,

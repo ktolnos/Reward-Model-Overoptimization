@@ -44,7 +44,7 @@ dataset_name=(
 base_model='Qwen/Qwen3-4B-Instruct-2507'
 seed=${1:-19}
 save_last_only=${2:-False}
-skip_optimizer=${3:-False}
+skip_optimizer=${3:-True}
 
 save_total_limit_arg=""
 if [ "$save_last_only" = "True" ] || [ "$save_last_only" = "true" ]; then
