@@ -11,6 +11,17 @@ Conventions:
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
 
+from pythia_tokenizer import (  # noqa: F401 — re-exported for backward compat
+    _PYTHIA_OA_V2_CHAT_TEMPLATE,
+    _PYTHIA_EXPECTED_SPECIAL_TOKENS,
+    _PYTHIA_OA_TOKENS_TO_ADD,
+    _has_pythia_oa_tokens,
+    _looks_like_pythia_model,
+    setup_pythia_chat_template,
+    setup_pythia_tokenizer,
+    patch_tokenizer_for_vllm,
+)
+
 # Dataset-specific length configurations for pipeline consistency.
 # Training scripts select a config via --length_config and assert the active
 # constants match the dataset being used.
@@ -36,53 +47,6 @@ def get_length_config(config_name):
             f"Available: {list(DATASET_LENGTH_CONFIGS.keys())}"
         )
     return DATASET_LENGTH_CONFIGS[config_name]
-
-
-# ---- Pythia / Open-Assistant v2 chat template ----
-
-_PYTHIA_OA_V2_CHAT_TEMPLATE = (
-    "{% for message in messages %}"
-    "{% if message['role'] == 'user' %}"
-    "<|prompter|>{{ message['content'] }}<|endoftext|>"
-    "{% elif message['role'] == 'assistant' %}"
-    "<|assistant|>{{ message['content'] }}<|endoftext|>"
-    "{% endif %}"
-    "{% endfor %}"
-    "{% if add_generation_prompt %}<|assistant|>{% endif %}"
-)
-
-_PYTHIA_EXPECTED_SPECIAL_TOKENS = ("<|prompter|>", "<|assistant|>", "<|endoftext|>")
-
-# Tokens added by the Open-Assistant SFT process, in their original order.
-# <|endoftext|> is already the native EOS token (id 0) in all Pythia models.
-# The order matters: it determines token IDs and must match published SFT
-# checkpoints (e.g. tlc4418/pythia_70m_sft).
-_PYTHIA_OA_TOKENS_TO_ADD = (
-    "<|system|>", "<|prefix_begin|>", "<|prefix_end|>",
-    "<|prompter|>", "<|assistant|>",
-)
-
-
-def setup_pythia_chat_template(tokenizer):
-    """Register the Open-Assistant v2 chat template on a Pythia tokenizer.
-
-    The SFT'd Pythia models from the paper added <|prompter|> and <|assistant|>
-    as special tokens.  This function verifies they exist and sets a Jinja2
-    chat template that replicates the paper's manual string formatting so that
-    ``apply_chat_template`` produces identical token IDs.
-
-    Called at load time -- does NOT save anything to disk.
-    """
-    vocab = tokenizer.get_vocab()
-    for tok in _PYTHIA_EXPECTED_SPECIAL_TOKENS:
-        if tok not in vocab:
-            raise ValueError(
-                f"Pythia tokenizer is missing expected special token '{tok}'. "
-                "Make sure you are loading from an SFT'd checkpoint that has "
-                "the Open-Assistant vocabulary additions (e.g. tlc4418/pythia_70m_sft)."
-            )
-    tokenizer.chat_template = _PYTHIA_OA_V2_CHAT_TEMPLATE
-    return tokenizer
 
 
 # ---- AlpacaFarm gold RM chat template (Alpaca instruction format) ----
@@ -134,25 +98,6 @@ def _looks_like_llama_model(tokenizer, model_name=None):
     return False
 
 
-def _has_pythia_oa_tokens(tokenizer):
-    """Check if the tokenizer has the Open-Assistant special tokens used by
-    the SFT'd Pythia models from Coste et al."""
-    vocab = tokenizer.get_vocab()
-    return all(tok in vocab for tok in _PYTHIA_EXPECTED_SPECIAL_TOKENS)
-
-
-def _looks_like_pythia_model(tokenizer, model_name=None):
-    """Best-effort detection for Pythia-family tokenizers/models."""
-    candidates = [
-        model_name,
-        getattr(tokenizer, "name_or_path", None),
-    ]
-    for candidate in candidates:
-        if candidate and "pythia" in str(candidate).lower():
-            return True
-    return False
-
-
 def setup_tokenizer(tokenizer, model_name=None):
     """Ensure consistent tokenizer configuration across all stages.
 
@@ -173,20 +118,10 @@ def setup_tokenizer(tokenizer, model_name=None):
         elif tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-    # Auto-detect Pythia models: add OA v2 tokens if missing, then set template.
+    # Auto-detect Pythia models: add OA v2 tokens if missing, then set template,
+    # and apply vLLM compatibility patches.
     if tokenizer.chat_template is None and _looks_like_pythia_model(tokenizer, model_name=model_name):
-        if not _has_pythia_oa_tokens(tokenizer):
-            vocab = tokenizer.get_vocab()
-            tokens_to_add = [t for t in _PYTHIA_OA_TOKENS_TO_ADD if t not in vocab]
-            if tokens_to_add:
-                tokenizer.add_special_tokens(
-                    {"additional_special_tokens": tokens_to_add}
-                )
-                print(
-                    f"Added {tokens_to_add} to Pythia tokenizer. "
-                    "Remember to resize model embeddings."
-                )
-        setup_pythia_chat_template(tokenizer)
+        setup_pythia_tokenizer(tokenizer, model_name=model_name)
 
     return tokenizer
 
