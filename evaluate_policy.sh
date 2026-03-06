@@ -9,7 +9,7 @@
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 source /home/eop/.bashrc
-echo ls /home/eop/
+echo "$(ls -a /home/eop/)"
 
 # Directory containing the checkpoints
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20260202_183444_1035193"
