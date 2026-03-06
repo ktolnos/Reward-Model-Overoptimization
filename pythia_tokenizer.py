@@ -2,6 +2,9 @@
 
 Extracted from data_utils.py so that the monkey-patching logic lives in one
 place and can be tested independently.
+
+Also includes ``patch_config_for_vllm`` to fix GPTNeoXConfig attribute renames
+between transformers versions (e.g. ``rotary_pct`` → ``partial_rotary_factor``).
 """
 
 # ---- Pythia / Open-Assistant v2 chat template ----
@@ -96,6 +99,46 @@ def patch_tokenizer_for_vllm(tokenizer):
         type(tokenizer).all_special_tokens_extended = _all_special_tokens_extended
 
     return tokenizer
+
+
+def patch_config_for_vllm():
+    """Fix GPTNeoXConfig attribute renames so older vLLM can load Pythia models.
+
+    Newer ``transformers`` renamed ``rotary_pct`` to ``partial_rotary_factor``
+    in ``GPTNeoXConfig``, but vLLM ≤0.10.x still reads ``config.rotary_pct``.
+
+    This patches the *class* so that any instance — including those created
+    internally by vLLM — gets the alias automatically.  Safe to call multiple
+    times (the patch is idempotent).
+    """
+    from transformers import GPTNeoXConfig
+
+    # Check on a fresh instance whether rotary_pct is already present.
+    # GPTNeoXConfig.__init__ accepts **kwargs, so we can probe safely.
+    probe = GPTNeoXConfig()
+    if hasattr(probe, "rotary_pct"):
+        return  # already has the attribute, nothing to do
+    del probe
+
+    # Wrap __getattr__ so that any access to ``rotary_pct`` falls back to
+    # ``partial_rotary_factor``.  __getattr__ is only called when normal
+    # attribute lookup fails, so this is safe and non-invasive.
+    _orig_getattr = getattr(GPTNeoXConfig, "__getattr__", None)
+
+    def _patched_getattr(self, name):
+        if name == "rotary_pct":
+            # Look up partial_rotary_factor via __dict__ to avoid recursion.
+            try:
+                return self.__dict__["partial_rotary_factor"]
+            except KeyError:
+                return 0.25
+        if _orig_getattr is not None:
+            return _orig_getattr(self, name)
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
+
+    GPTNeoXConfig.__getattr__ = _patched_getattr
 
 
 def setup_pythia_tokenizer(tokenizer, model_name=None):

@@ -20,6 +20,7 @@ from pythia_tokenizer import (  # noqa: F401 — re-exported for backward compat
     setup_pythia_chat_template,
     setup_pythia_tokenizer,
     patch_tokenizer_for_vllm,
+    patch_config_for_vllm,
 )
 
 # Dataset-specific length configurations for pipeline consistency.
@@ -119,9 +120,10 @@ def setup_tokenizer(tokenizer, model_name=None):
             tokenizer.pad_token = tokenizer.eos_token
 
     # Auto-detect Pythia models: add OA v2 tokens if missing, then set template,
-    # and apply vLLM compatibility patches.
+    # and apply vLLM compatibility patches (tokenizer + model config).
     if tokenizer.chat_template is None and _looks_like_pythia_model(tokenizer, model_name=model_name):
         setup_pythia_tokenizer(tokenizer, model_name=model_name)
+        patch_config_for_vllm()
 
     return tokenizer
 
