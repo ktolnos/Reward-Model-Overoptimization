@@ -41,7 +41,7 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
-base_model='Qwen/Qwen3-0.6B'
+base_model='Qwen/Qwen3-4B-Instruct-2507'
 seed=${1:-19}
 save_last_only=${2:-False}
 skip_optimizer=${3:-False}
@@ -69,7 +69,7 @@ fi
 export MASTER_PORT
 
 learning_rate=2e-5
-num_train_epochs=4
+num_train_epochs=8
 
 gradient_accumulation_steps=16
 per_device_train_batch_size=4
