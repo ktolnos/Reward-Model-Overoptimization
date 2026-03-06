@@ -63,6 +63,13 @@ echo "WandB Project: $WANDB_PROJECT"
 # Debug mode flag (uncomment to enable)
 #DEBUG_MODE="--debug"
 
+# Debug: check sqlite3 and library paths
+echo "Python: $(which python)"
+echo "Python version: $(python --version)"
+python -c "import _sqlite3; print('_sqlite3 file:', _sqlite3.__file__)" 2>&1
+ldd $(python -c "import _sqlite3; print(_sqlite3.__file__)" 2>/dev/null) 2>&1 | grep sqlite
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+
 # Run the evaluation script
 python evaluate_policy.py \
     --checkpoints_dir "$CHECKPOINTS_DIR" \

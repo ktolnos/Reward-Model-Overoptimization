@@ -23,6 +23,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --lora_r ${lora_r} --lora_alpha ${lora_alpha} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --learning_rate ${learning_rate} \
-    --dataset ${dataset_name} 
+    --eval_strategy steps --eval_steps 100 \
+    --dataset ${dataset_name}
 
 

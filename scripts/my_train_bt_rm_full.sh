@@ -87,6 +87,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --lr_scheduler_type "constant" \
     --dataset "${dataset_name[@]}" \
     --gradient_checkpointing False \
+    --eval_strategy steps --eval_steps 0.02 \
     --seed ${seed} \
     ${save_total_limit_arg} \
     ${save_only_model_arg} \

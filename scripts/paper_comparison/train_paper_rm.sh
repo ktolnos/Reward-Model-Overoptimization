@@ -69,6 +69,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --use_lora False \
     --report_to "wandb" \
     --save_strategy "epoch" \
+    --eval_strategy steps --eval_steps 0.02 \
     --bf16 True \
     || exit 1
 
