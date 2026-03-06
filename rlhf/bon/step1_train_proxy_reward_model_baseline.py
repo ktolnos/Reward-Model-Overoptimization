@@ -38,7 +38,7 @@ class ScriptArguments:
     # log
     log_dir: Optional[str] = field(default='./reward_models_train')
     wandb_name: Optional[str] = field(default="test")
-    debug: Optional[bool] = field(default=False, metadata={'help': 'if debug=True, only train with 100 samples'})
+    debug_dataset: Optional[bool] = field(default=False, metadata={'help': 'if True, only train with 100 samples'})
 
 
 parser = HfArgumentParser((ScriptArguments, RewardConfig))
@@ -64,7 +64,7 @@ tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False
 setup_tokenizer(tokenizer, model_name=script_args.base_model)
 
 # Load datasets
-train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, size=100 if script_args.debug else None, length_config="default")
+train_dataset, eval_dataset = load_train_eval_dataset(script_args.dataset, tokenizer, size=100 if script_args.debug_dataset else None, length_config="default")
 print('Training dataset size: {}, validation dataset size: {}'.format(len(train_dataset), len(eval_dataset)))
 
 

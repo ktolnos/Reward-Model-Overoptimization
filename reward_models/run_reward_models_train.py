@@ -46,8 +46,8 @@ class ScriptArguments:
     # log
     log_dir: Optional[str] = field(default="./reward_models_train")
     wandb_name: Optional[str] = field(default="test")
-    debug: Optional[bool] = field(
-        default=False, metadata={"help": "if debug=True, only train with 100 samples"}
+    debug_dataset: Optional[bool] = field(
+        default=False, metadata={"help": "if True, only train with 100 samples"}
     )
 
 
@@ -90,7 +90,7 @@ setup_tokenizer(tokenizer, model_name=script_args.base_model)
 train_dataset, eval_dataset = load_train_eval_dataset(
     dataset_list[0],
     tokenizer,
-    size=100 if script_args.debug else None,
+    size=100 if script_args.debug_dataset else None,
     seed=training_args.seed,
     length_config=script_args.length_config,
 )
@@ -99,7 +99,7 @@ for i in range(1, len(dataset_list)):
         dataset_list[i],
         tokenizer,
         split="train",
-        size=100 if script_args.debug else None,
+        size=100 if script_args.debug_dataset else None,
         length_config=script_args.length_config,
     )
     train_dataset = concatenate_datasets([train_dataset, new_train_dataset])
