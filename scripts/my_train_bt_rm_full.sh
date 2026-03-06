@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=8:00:00
+#SBATCH --time=48:00:00
 #SBATCH --qos=default
 
 REPO_ROOT=""
@@ -71,9 +71,9 @@ export MASTER_PORT
 learning_rate=2e-5
 num_train_epochs=8
 
-gradient_accumulation_steps=16
-per_device_train_batch_size=4
-per_device_eval_batch_size=4
+gradient_accumulation_steps=64
+per_device_train_batch_size=1
+per_device_eval_batch_size=1
 
 cd "${REPO_ROOT}/reward_models"
 CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${MASTER_PORT} run_reward_models_train.py \

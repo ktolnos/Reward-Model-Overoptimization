@@ -69,7 +69,7 @@ def build_dataset(
                 "rejected_ids": tokens_rejected["input_ids"][0],
             }
 
-    ds = ds.map(formatting_func, batched=False, keep_in_memory=True)
+    ds = ds.map(formatting_func, batched=False, keep_in_memory=True, num_proc=16)
     remove_columns = []
     for col in ds.column_names:
         if col not in ("chosen_ids", "rejected_ids", "label_chosen", "label_rejected", "margin"):
