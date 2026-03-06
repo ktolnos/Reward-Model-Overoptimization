@@ -66,7 +66,6 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --learning_rate 1e-5 \
     --per_device_train_batch_size 32 \
     --gradient_accumulation_steps 1 \
-    --loss_type "bt" \
     --use_lora False \
     --report_to "wandb" \
     --save_strategy "epoch" \

@@ -37,7 +37,9 @@
       "Bash(do sed -i 's/\\\\r$//' \"$f\")",
       "Bash(done)",
       "Bash(bash -n /home/eop/Reward-Model-Overoptimization/scripts/paper_comparison/evaluate_paper.sh)",
-      "Bash(pip install pytest)"
+      "Bash(pip install pytest)",
+      "Bash(pip show trl)",
+      "Bash(ls /home/eop/Reward-Model-Overoptimization/scripts/train_grm_*.sh /home/eop/Reward-Model-Overoptimization/scripts/rlhf/bon/step1_train_proxy_reward_model_grm.sh)"
     ]
   },
   "prefersReducedMotion": false

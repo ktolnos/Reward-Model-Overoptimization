@@ -58,25 +58,21 @@ def build_dataset(
             label_rejected = tokens_rejected["input_ids"][0].clone()
             label_rejected[: len(prompt_ids)] = -100
             return {
-                "input_ids_chosen": tokens_chosen["input_ids"][0],
-                "attention_mask_chosen": tokens_chosen["attention_mask"][0],
-                "input_ids_rejected": tokens_rejected["input_ids"][0],
-                "attention_mask_rejected": tokens_rejected["attention_mask"][0],
+                "chosen_ids": tokens_chosen["input_ids"][0],
+                "rejected_ids": tokens_rejected["input_ids"][0],
                 "label_chosen": label_chosen,
                 "label_rejected": label_rejected,
             }
         else:
             return {
-                "input_ids_chosen": tokens_chosen["input_ids"][0],
-                "attention_mask_chosen": tokens_chosen["attention_mask"][0],
-                "input_ids_rejected": tokens_rejected["input_ids"][0],
-                "attention_mask_rejected": tokens_rejected["attention_mask"][0],
+                "chosen_ids": tokens_chosen["input_ids"][0],
+                "rejected_ids": tokens_rejected["input_ids"][0],
             }
 
     ds = ds.map(formatting_func, batched=False, keep_in_memory=True)
     remove_columns = []
     for col in ds.column_names:
-        if "input" not in col and "attention" not in col and "label" not in col:
+        if col not in ("chosen_ids", "rejected_ids", "label_chosen", "label_rejected", "margin"):
             remove_columns.append(col)
     ds = ds.remove_columns(remove_columns)
 

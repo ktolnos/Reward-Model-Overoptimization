@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 from accelerate import Accelerator
-import evaluate
 import numpy as np
 import os
 import torch
@@ -12,40 +11,21 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     HfArgumentParser,
-    TrainingArguments,
 )
-from reward_trainer import SimpleRewardTrainer, RewardDataCollatorWithPadding
+from trl import RewardTrainer, RewardConfig
 from load_datasets import load_train_eval_dataset, build_dataset
 from data_utils import setup_tokenizer, get_length_config, DATASET_LENGTH_CONFIGS
 from utils import (
     print_trainable_parameters,
-    compute_metrics,
     freeze_trainable_parameters,
 )
 
 
 @dataclass
 class ScriptArguments:
-    # training args
-    per_device_train_batch_size: Optional[int] = field(default=1)
-    gradient_accumulation_steps: Optional[int] = field(default=16)
-    learning_rate: Optional[float] = field(default=1e-5)
-    num_train_epochs: Optional[int] = field(
-        default=5,
-        metadata={"help": "The number of training epochs for the reward model."},
-    )
-    optim: Optional[str] = field(
-        default="adamw_torch_fused", metadata={"help": "The optimizer to use."}
-    )
-    lr_scheduler_type: Optional[str] = field(
-        default="cosine",
-        metadata={"help": "The lr scheduler"},
-    )
-    length_config: str = field(metadata={
+    length_config: str = field(default="default", metadata={
         "help": f"Name of the length config from DATASET_LENGTH_CONFIGS. Available: {list(DATASET_LENGTH_CONFIGS.keys())}"
     })
-    gradient_checkpointing: Optional[bool] = field(default=False)
-    bf16: Optional[bool] = field(default=True)
     attn_implementation: Optional[str] = field(default="flash_attention_2")
     # data
     dataset: List[str] = field(
@@ -60,44 +40,21 @@ class ScriptArguments:
     lora_r: Optional[int] = field(default=32)
     lora_alpha: Optional[int] = field(default=64)
     lora_dropout: Optional[float] = field(default=0.05)
-    # eval
-    per_device_eval_batch_size: Optional[int] = field(default=1)
-    evaluation_strategy: Optional[str] = field(default="steps")
-    eval_steps: Optional[int] = field(default=0.02)
-    # model and loss
+    # model
     base_model: Optional[str] = field(default="google/gemma-2b-it")
-    loss_type: Optional[str] = field(
-        default="bt",
-        metadata={"help": "use 'bt', 'margin', 'labelsmooth', and 'pos_reg'."},
-    )
-    weight_ratio: Optional[float] = field(
-        default=0.1, metadata={"help": "the ratio for label smooth or posreg"}
-    )
     freeze_pretrained: Optional[bool] = field(default=False)
     # log
-    report_to: Optional[str] = field(
-        default="wandb", metadata={"help": "use 'none', 'wandb'. "}
-    )
     log_dir: Optional[str] = field(default="./reward_models_train")
-    wandb_name: Optional[str] = field(
-        default="test",
-    )
-    save_strategy: Optional[str] = field(default="epoch")
-    save_steps: Optional[int] = field(default=0.1)
+    wandb_name: Optional[str] = field(default="test")
     debug: Optional[bool] = field(
         default=False, metadata={"help": "if debug=True, only train with 100 samples"}
     )
-    seed: Optional[int] = field(
-        default=42, metadata={"help": "random seed for data shuffling"}
-    )
-    save_total_limit: Optional[int] = field(default=None)
-    save_only_model: Optional[bool] = field(default=False)
 
 
-parser = HfArgumentParser(ScriptArguments)
-script_args = parser.parse_args_into_dataclasses()[0]
-torch.manual_seed(script_args.seed)
-np.random.seed(script_args.seed)
+parser = HfArgumentParser((ScriptArguments, RewardConfig))
+script_args, training_args = parser.parse_args_into_dataclasses()
+torch.manual_seed(training_args.seed)
+np.random.seed(training_args.seed)
 
 # Resolve length config.
 _length_cfg = get_length_config(script_args.length_config)
@@ -112,39 +69,18 @@ model_name_split = script_args.base_model.split("/")[-1]
 dataset_name = dataset_list[0]
 _max_conv_tokens = _length_cfg["max_conversation_tokens"]
 if script_args.use_lora:
-    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{_max_conv_tokens}_lora{script_args.lora_r}_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{training_args.seed}_{model_name_split}_len{_max_conv_tokens}_lora{script_args.lora_r}_{training_args.learning_rate}_data{dataset_name.split('/')[-1]}"
 else:
-    output_name = f"{script_args.log_dir}/{script_args.seed}_{model_name_split}_len{_max_conv_tokens}_fulltrain_{script_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+    output_name = f"{script_args.log_dir}/{training_args.seed}_{model_name_split}_len{_max_conv_tokens}_fulltrain_{training_args.learning_rate}_data{dataset_name.split('/')[-1]}"
+
+# Set computed/hardcoded training args
+training_args.output_dir = os.path.join(output_name, "logs")
+training_args.run_name = script_args.wandb_name
+training_args.max_length = _max_conv_tokens
+training_args.remove_unused_columns = False
+training_args.ddp_find_unused_parameters = False
 
 device = Accelerator().local_process_index
-
-training_args = TrainingArguments(
-    output_dir=os.path.join(output_name, "logs"),
-    learning_rate=script_args.learning_rate,
-    per_device_train_batch_size=script_args.per_device_train_batch_size,
-    per_device_eval_batch_size=script_args.per_device_eval_batch_size,
-    num_train_epochs=script_args.num_train_epochs,
-    eval_strategy=script_args.evaluation_strategy,
-    eval_steps=script_args.eval_steps,
-    save_strategy=script_args.save_strategy,
-    save_steps=script_args.save_steps,
-    gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-    gradient_checkpointing=script_args.gradient_checkpointing,
-    bf16=script_args.bf16,
-    logging_strategy="steps",
-    logging_steps=0.025,
-    warmup_ratio=0,
-    optim=script_args.optim,
-    lr_scheduler_type=script_args.lr_scheduler_type,
-    run_name=script_args.wandb_name,
-    max_grad_norm=5.0,
-    report_to=script_args.report_to,
-    remove_unused_columns=False,
-    gradient_checkpointing_kwargs={"use_reentrant": False},
-    ddp_find_unused_parameters=False,
-    save_total_limit=script_args.save_total_limit,
-    save_only_model=script_args.save_only_model,
-)
 
 # Load the tokenizer.
 tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False)
@@ -155,7 +91,7 @@ train_dataset, eval_dataset = load_train_eval_dataset(
     dataset_list[0],
     tokenizer,
     size=100 if script_args.debug else None,
-    seed=script_args.seed,
+    seed=training_args.seed,
     length_config=script_args.length_config,
 )
 for i in range(1, len(dataset_list)):
@@ -167,7 +103,7 @@ for i in range(1, len(dataset_list)):
         length_config=script_args.length_config,
     )
     train_dataset = concatenate_datasets([train_dataset, new_train_dataset])
-train_dataset = train_dataset.shuffle(seed=script_args.seed)
+train_dataset = train_dataset.shuffle(seed=training_args.seed)
 print(
     "Training dataset size: {}, validation dataset size: {}".format(
         len(train_dataset), len(eval_dataset)
@@ -191,16 +127,14 @@ model = AutoModelForSequenceClassification.from_pretrained(
 )
 
 if script_args.freeze_pretrained:
-    # for frozon baseline
     mlp_layer = nn.Sequential(
         nn.Linear(model.config.hidden_size, 1024, dtype=torch.bfloat16),
         nn.ReLU(),
         nn.Linear(1024, 1, dtype=torch.bfloat16),
     )
     mlp_layer.to(device)
-    # Replace the classifier with the MLP
     freeze_trainable_parameters(model)
-    model.score = mlp_layer  # the score is trainable
+    model.score = mlp_layer
 
 model.resize_token_embeddings(len(tokenizer))
 model.config.pad_token_id = tokenizer.pad_token_id
@@ -210,13 +144,9 @@ print_trainable_parameters(model)
 trainer_params = {
     "model": model,
     "args": training_args,
-    "tokenizer": tokenizer,
+    "processing_class": tokenizer,
     "train_dataset": train_dataset,
     "eval_dataset": eval_dataset,
-    "compute_metrics": compute_metrics,
-    "data_collator": RewardDataCollatorWithPadding(tokenizer=tokenizer),
-    "loss_type": script_args.loss_type,
-    "weight_ratio": script_args.weight_ratio,
 }
 
 
@@ -230,7 +160,7 @@ if script_args.use_lora:
     )
     trainer_params["peft_config"] = peft_config
 
-trainer = SimpleRewardTrainer(**trainer_params)
+trainer = RewardTrainer(**trainer_params)
 print_trainable_parameters(trainer.model)
 
 
