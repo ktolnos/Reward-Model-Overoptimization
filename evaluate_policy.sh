@@ -71,6 +71,11 @@ python -c "import _sqlite3; print('_sqlite3 file:', _sqlite3.__file__)" 2>&1
 ldd $(python -c "import _sqlite3; print(_sqlite3.__file__)" 2>/dev/null) 2>&1 | grep sqlite
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 
+echo "LDD: $(ldd /nas/ucb/eop/.pyenv/versions/3.11.12/lib/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so)"
+
+# Force use of local sqlite3
+export LD_PRELOAD="$HOME/.local/lib/libsqlite3.so.0"
+
 # Run the evaluation script
 python evaluate_policy.py \
     --checkpoints_dir "$CHECKPOINTS_DIR" \
