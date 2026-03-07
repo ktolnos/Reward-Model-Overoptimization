@@ -74,7 +74,8 @@ echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 echo "LDD: $(ldd /nas/ucb/eop/.pyenv/versions/3.11.12/lib/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so)"
 
 # Force use of local sqlite3
-export LD_PRELOAD="$HOME/.local/lib/libsqlite3.so.0"
+echo "ls /nas/ucb/eop/.local/lib: $(ls /nas/ucb/eop/.local/lib/ 2>&1)"
+export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 
 # Run the evaluation script
 python evaluate_policy.py \
