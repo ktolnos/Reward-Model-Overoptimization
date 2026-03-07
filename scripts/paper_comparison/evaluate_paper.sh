@@ -37,6 +37,8 @@ GOLD_RM_NAME="alpaca_farm_models/reward-model-human"
 # Eval dataset: AlpacaFarm val split (2K prompts), converted to messages format
 DATASET_NAME="ktolnos/alpacafarm_paper_eval_prompts"
 
+export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
+
 # ---- Parse arguments ----
 while [[ "$#" -gt 0 ]]; do
     case $1 in

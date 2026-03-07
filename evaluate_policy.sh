@@ -61,20 +61,6 @@ echo "Dataset Name: $DATASET_NAME"
 echo "Output File: $OUTPUT_FILE"
 echo "WandB Project: $WANDB_PROJECT"
 
-# Debug mode flag (uncomment to enable)
-#DEBUG_MODE="--debug"
-
-# Debug: check sqlite3 and library paths
-echo "Python: $(which python)"
-echo "Python version: $(python --version)"
-python -c "import _sqlite3; print('_sqlite3 file:', _sqlite3.__file__)" 2>&1
-ldd $(python -c "import _sqlite3; print(_sqlite3.__file__)" 2>/dev/null) 2>&1 | grep sqlite
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-
-echo "LDD: $(ldd /nas/ucb/eop/.pyenv/versions/3.11.12/lib/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so)"
-
-# Force use of local sqlite3
-echo "ls /nas/ucb/eop/.local/lib: $(ls /nas/ucb/eop/.local/lib/ 2>&1)"
 export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 
 # Run the evaluation script
