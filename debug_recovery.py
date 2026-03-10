@@ -92,12 +92,13 @@ def main():
     from datasets import load_dataset
     ds = load_dataset("tlc4418/gold_labelled_gens", split="validation")
     row = ds[0]
-    expected_score = row["gold_score"]
+    # Dataset has "answers" (list of strings) and "gold_scores" (list of floats).
+    expected_score = row["gold_scores"][0]
 
     # Build the Alpaca-formatted text.
     instruction = row["instruction"]
     input_text = row.get("input", "")
-    output_text = row["output"]
+    output_text = row["answers"][0]
 
     has_input = bool(input_text and input_text.strip())
     if has_input:
