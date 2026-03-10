@@ -41,7 +41,8 @@
       "Bash(pip show trl)",
       "Bash(ls /home/eop/Reward-Model-Overoptimization/scripts/train_grm_*.sh /home/eop/Reward-Model-Overoptimization/scripts/rlhf/bon/step1_train_proxy_reward_model_grm.sh)",
       "WebSearch",
-      "Bash(ls /home/eop/Reward-Model-Overoptimization/venv/lib/python3.11/site-packages/alpaca_farm/utils*)"
+      "Bash(ls /home/eop/Reward-Model-Overoptimization/venv/lib/python3.11/site-packages/alpaca_farm/utils*)",
+      "Bash(gh api repos/tatsu-lab/stanford_alpaca/contents/weight_diff.py -q '.content')"
     ]
   },
   "prefersReducedMotion": false
