@@ -75,20 +75,34 @@ def load_reward_model(
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # AlpacaFarm gold RM path: uses custom RewardModel class.
-    # We use a vendored copy to avoid the full alpaca_farm package which is
-    # incompatible with modern transformers (broken imports in common.py).
+    # AlpacaFarm gold RM path: uses alpaca_farm.models.reward_model.RewardModel.
+    # Monkey-patch broken imports in alpaca_farm.common before importing.
     if _is_alpacafarm_rm(model_name):
-        from alpacafarm_reward_model import (
-            RewardModel,
-            recover_alpacafarm_reward_model,
-        )
+        import sys
         import os
+        import transformers.trainer as _trainer_mod
+
+        # alpaca_farm.common line 32 does:
+        #   from transformers.trainer import WEIGHTS_NAME, is_deepspeed_zero3_enabled
+        # Both were moved/removed in transformers >= 4.36.
+        # Patch them onto transformers.trainer BEFORE alpaca_farm.common is imported.
+        from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
+        if not hasattr(_trainer_mod, "is_deepspeed_zero3_enabled"):
+            _trainer_mod.is_deepspeed_zero3_enabled = is_deepspeed_zero3_enabled
+        if not hasattr(_trainer_mod, "WEIGHTS_NAME"):
+            _trainer_mod.WEIGHTS_NAME = "pytorch_model.bin"
+
+        # alpaca_farm.common also does: from transformers.deepspeed import ...
+        if "transformers.deepspeed" not in sys.modules:
+            from transformers.integrations import deepspeed as _ds_module
+            sys.modules["transformers.deepspeed"] = _ds_module
+
+        from alpaca_farm.models.reward_model import RewardModel
 
         # If model_name is a weight-diff hub name or doesn't exist locally,
         # recover it from the weight diff + base LLaMA-7B.
         if "wdiff" in model_name:
-            # Explicit wdiff hub name provided.
+            from alpacafarm_reward_model import recover_alpacafarm_reward_model
             local_dir = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "alpaca_farm_models",
@@ -98,8 +112,7 @@ def load_reward_model(
                 output_dir=local_dir, wdiff_name=model_name,
             )
         elif not os.path.isdir(model_name):
-            # model_name looks like a local path (e.g. "alpaca_farm_models/reward-model-human")
-            # but doesn't exist. Try to recover from the default wdiff.
+            from alpacafarm_reward_model import recover_alpacafarm_reward_model
             print(
                 f"AlpacaFarm model not found at '{model_name}', "
                 f"recovering from weight diff..."
