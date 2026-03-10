@@ -97,8 +97,15 @@ def load_reward_model(
             from transformers.integrations import deepspeed as _ds_module
             sys.modules["transformers.deepspeed"] = _ds_module
 
-        from alpaca_farm.models.reward_model import RewardModel
+        from alpaca_farm.models.reward_model import RewardModel, RewardModelOutput
         from alpacafarm_reward_model import recover_alpacafarm_reward_model
+
+        # Modern transformers requires ModelOutput subclasses to be dataclasses.
+        import dataclasses
+        if not dataclasses.is_dataclass(RewardModelOutput):
+            RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
+            import alpaca_farm.models.reward_model as _rm_mod
+            _rm_mod.RewardModelOutput = RewardModelOutput
 
         # Weight-diff checkpoints (e.g. tatsu-lab/alpaca-farm-reward-model-human-wdiff)
         # have a config that points to a Stanford-local path for the backbone.
