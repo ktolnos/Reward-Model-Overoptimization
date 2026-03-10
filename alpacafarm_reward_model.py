@@ -122,9 +122,29 @@ def recover_alpacafarm_reward_model(
     print(f"  Weight diff: {wdiff_name}")
     print(f"  Base model:  {base_model_name}")
 
-    # 1. Load the weight-diff reward model (weights = tuned - base).
-    diff_model = RewardModel.from_pretrained(wdiff_name, torch_dtype=torch.float32)
-    diff_state = diff_model.state_dict()
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file as load_safetensors
+    import json
+
+    # 1. Download the weight-diff files (without loading as a model, since its
+    #    config.backbone_model_name_or_path points to a Stanford-local path).
+    diff_dir = snapshot_download(wdiff_name)
+    diff_config_path = os.path.join(diff_dir, "config.json")
+    with open(diff_config_path) as f:
+        diff_config = json.load(f)
+
+    # Load diff state dict from safetensors or pytorch bin.
+    safetensors_file = os.path.join(diff_dir, "model.safetensors")
+    bin_file = os.path.join(diff_dir, "pytorch_model.bin")
+    if os.path.exists(safetensors_file):
+        diff_state = load_safetensors(safetensors_file)
+    elif os.path.exists(bin_file):
+        diff_state = torch.load(bin_file, map_location="cpu")
+    else:
+        raise FileNotFoundError(
+            f"No model weights found in {diff_dir}. "
+            f"Expected model.safetensors or pytorch_model.bin"
+        )
 
     # 2. Load the base LLaMA-7B model.
     base_model = transformers.LlamaForCausalLM.from_pretrained(
@@ -145,11 +165,15 @@ def recover_alpacafarm_reward_model(
             if diff_state[key].shape == base_state[base_key].shape:
                 diff_state[key].add_(base_state[base_key])
 
-    # 4. Load recovered weights back into the model and save.
-    diff_model.load_state_dict(diff_state)
+    # 4. Build a RewardModel with the correct config pointing to our base model,
+    #    load recovered weights, and save.
+    del base_model
+    config = RewardConfig(backbone_model_name_or_path=base_model_name)
+    model = RewardModel(config)
+    model.load_state_dict(diff_state, strict=False)
 
     output_path.mkdir(parents=True, exist_ok=True)
-    diff_model.save_pretrained(output_dir)
+    model.save_pretrained(output_dir)
 
     # Also save the tokenizer from the base model.
     tokenizer = transformers.AutoTokenizer.from_pretrained(base_model_name)
@@ -158,6 +182,6 @@ def recover_alpacafarm_reward_model(
     print(f"Recovered model saved to {output_dir}")
 
     # Free memory.
-    del diff_model, base_model, diff_state, base_state
+    del model, diff_state, base_state
 
     return output_dir
