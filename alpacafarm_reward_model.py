@@ -133,17 +133,24 @@ def recover_alpacafarm_reward_model(
     with open(diff_config_path) as f:
         diff_config = json.load(f)
 
-    # Load diff state dict from safetensors or pytorch bin.
-    safetensors_file = os.path.join(diff_dir, "model.safetensors")
-    bin_file = os.path.join(diff_dir, "pytorch_model.bin")
-    if os.path.exists(safetensors_file):
-        diff_state = load_safetensors(safetensors_file)
-    elif os.path.exists(bin_file):
-        diff_state = torch.load(bin_file, map_location="cpu")
+    # Load diff state dict from safetensors or pytorch bin (possibly sharded).
+    import glob
+    safetensors_files = sorted(glob.glob(os.path.join(diff_dir, "model*.safetensors")))
+    bin_files = sorted(glob.glob(os.path.join(diff_dir, "pytorch_model*.bin")))
+    # Filter out index files.
+    bin_files = [f for f in bin_files if "index" not in f]
+
+    diff_state = {}
+    if safetensors_files:
+        for sf in safetensors_files:
+            diff_state.update(load_safetensors(sf))
+    elif bin_files:
+        for bf in bin_files:
+            diff_state.update(torch.load(bf, map_location="cpu", weights_only=True))
     else:
         raise FileNotFoundError(
             f"No model weights found in {diff_dir}. "
-            f"Expected model.safetensors or pytorch_model.bin"
+            f"Expected model.safetensors or pytorch_model*.bin"
         )
 
     # 2. Load the base LLaMA-7B model.
