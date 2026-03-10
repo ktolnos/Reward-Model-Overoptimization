@@ -192,6 +192,15 @@ def recover_alpacafarm_reward_model(
     model.load_state_dict(diff_state, strict=False)
 
     output_path.mkdir(parents=True, exist_ok=True)
+
+    # Save the resized backbone so that future from_pretrained() calls
+    # create a model with the correct vocab size (32001 vs 32000).
+    backbone_dir = os.path.join(output_dir, "backbone")
+    model.backbone_model.save_pretrained(backbone_dir)
+
+    # Point config to the local backbone so __init__ loads the right size.
+    model.config.backbone_model_name_or_path = backbone_dir
+    model.config._name_or_path = backbone_dir
     model.save_pretrained(output_dir)
 
     # Save the tokenizer from the wdiff (has the extra pad token).

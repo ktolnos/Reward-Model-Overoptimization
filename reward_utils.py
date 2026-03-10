@@ -103,7 +103,7 @@ def load_reward_model(
         # Weight-diff checkpoints (e.g. tatsu-lab/alpaca-farm-reward-model-human-wdiff)
         # have a config that points to a Stanford-local path for the backbone.
         # We must recover full weights first, then load the recovered model.
-        recovered_dir = os.path.join("alpaca_farm_models", os.path.basename(model_name))
+        recovered_dir = os.path.join("/nas/ucb/eop/cache", os.path.basename(model_name))
         model_name = recover_alpacafarm_reward_model(
             output_dir=recovered_dir,
             wdiff_name=model_name,
