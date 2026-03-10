@@ -53,7 +53,6 @@ from trl import (
     ModelConfig,
     GRPOConfig,
     GRPOTrainer,
-    AutoModelForCausalLMWithValueHead,
     get_kbit_device_map,
     get_peft_config,
 )
