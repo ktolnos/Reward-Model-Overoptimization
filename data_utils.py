@@ -53,15 +53,19 @@ def get_length_config(config_name):
 # ---- AlpacaFarm gold RM chat template (Alpaca instruction format) ----
 
 _ALPACAFARM_GOLD_CHAT_TEMPLATE = (
-    "{% set ns = namespace(instruction='', input='') %}"
+    # Preamble comes from the system message (set by convert_paper_dataset.py).
+    # Falls back to the no-input preamble when no system message is present.
+    "{% set ns = namespace(preamble='', user='') %}"
     "{% for message in messages %}"
-    "{% if message['role'] == 'user' %}"
-    "{% set ns.instruction = message['content'] %}"
-    "{% endif %}"
+    "{% if message['role'] == 'system' %}{% set ns.preamble = message['content'] %}{% endif %}"
+    "{% if message['role'] == 'user' %}{% set ns.user = message['content'] %}{% endif %}"
     "{% endfor %}"
-    "Below is an instruction that describes a task. "
-    "Write a response that appropriately completes the request.\n\n"
-    "### Instruction:\n{{ ns.instruction }}\n\n"
+    "{% if not ns.preamble %}"
+    "{% set ns.preamble = 'Below is an instruction that describes a task. "
+    "Write a response that appropriately completes the request.' %}"
+    "{% endif %}"
+    "{{ ns.preamble }}\n\n"
+    "### Instruction:\n{{ ns.user }}\n\n"
     "### Response:\n"
     "{% for message in messages %}"
     "{% if message['role'] == 'assistant' %}{{ message['content'] }}{% endif %}"

@@ -392,6 +392,51 @@ class TestAlpacaFarmChatTemplateText:
 
         assert full_ids[: len(prompt_ids)] == prompt_ids
 
+    def test_with_input_system_message(self, alpacafarm_tokenizer):
+        """When a system message carries the with-input preamble, the template
+        should render it and place user content (with ### Input:) correctly."""
+        preamble = (
+            "Below is an instruction that describes a task, paired with an input "
+            "that provides further context. "
+            "Write a response that appropriately completes the request."
+        )
+        user_content = "Construct a creative story.\n\n### Input:\nA magic bow and arrow"
+        msgs = [
+            {"role": "system", "content": preamble},
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": "Once upon a time..."},
+        ]
+        text = alpacafarm_tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=False
+        )
+        expected = (
+            preamble + "\n\n"
+            "### Instruction:\nConstruct a creative story.\n\n"
+            "### Input:\nA magic bow and arrow\n\n"
+            "### Response:\nOnce upon a time..."
+        )
+        assert text == expected
+
+    def test_with_input_prompt_is_prefix(self, alpacafarm_tokenizer):
+        preamble = (
+            "Below is an instruction that describes a task, paired with an input "
+            "that provides further context. "
+            "Write a response that appropriately completes the request."
+        )
+        user_content = "Summarize this.\n\n### Input:\nLong article text here."
+        msgs = [
+            {"role": "system", "content": preamble},
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": "Summary."},
+        ]
+        prompt = alpacafarm_tokenizer.apply_chat_template(
+            msgs[:-1], tokenize=False, add_generation_prompt=True
+        )
+        full = alpacafarm_tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=False
+        )
+        assert full.startswith(prompt)
+
     def test_setup_function_sets_template(self):
         tok = AutoTokenizer.from_pretrained(PYTHIA_SFT_MODEL)
         setup_alpacafarm_gold_chat_template(tok)

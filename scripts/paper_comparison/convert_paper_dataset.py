@@ -27,11 +27,39 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def _combine_instruction_input(instruction: str, input_text: str) -> str:
-    """Combine instruction and input fields into a single user message."""
-    if input_text and input_text.strip():
-        return f"{instruction}\n{input_text}"
-    return instruction
+_PREAMBLE_NO_INPUT = (
+    "Below is an instruction that describes a task. "
+    "Write a response that appropriately completes the request."
+)
+_PREAMBLE_WITH_INPUT = (
+    "Below is an instruction that describes a task, paired with an input "
+    "that provides further context. "
+    "Write a response that appropriately completes the request."
+)
+
+
+def _build_prompt_messages(instruction: str, input_text: str) -> list[dict]:
+    """Build the prompt portion of a conversation (system + user messages).
+
+    The Alpaca preamble is stored in a system message so that:
+    - The AlpacaFarm gold RM template can render it directly.
+    - Other RM templates render it natively via their own system handling.
+    - The Pythia generation template can safely ignore it (Pythia was not
+      trained on Alpaca preambles).
+
+    When *input_text* is present it is appended to the user message after an
+    ``### Input:`` marker so that the AlpacaFarm template produces the
+    canonical Alpaca format with a separate ``### Input:`` section.
+    """
+    has_input = bool(input_text and input_text.strip())
+    preamble = _PREAMBLE_WITH_INPUT if has_input else _PREAMBLE_NO_INPUT
+    user_content = (
+        f"{instruction}\n\n### Input:\n{input_text}" if has_input else instruction
+    )
+    return [
+        {"role": "system", "content": preamble},
+        {"role": "user", "content": user_content},
+    ]
 
 
 def convert_preference_dataset(hf_token: str | None = None) -> DatasetDict:
@@ -49,10 +77,9 @@ def convert_preference_dataset(hf_token: str | None = None) -> DatasetDict:
     print(f"  Loaded {len(ds)} rows")
 
     def convert_pref(example, idx):
-        user_content = _combine_instruction_input(
+        prompt_msgs = _build_prompt_messages(
             example["instruction"], example.get("input", "")
         )
-        user_msg = {"role": "user", "content": user_content}
 
         # The tlc4418 dataset stores responses as a list in "answers" and uses
         # 0-indexed preference (0 → first answer preferred, 1 → second preferred).
@@ -64,8 +91,8 @@ def convert_preference_dataset(hf_token: str | None = None) -> DatasetDict:
         rejected_response = answers[1 - pref]
 
         return {
-            "chosen": [user_msg, {"role": "assistant", "content": chosen_response}],
-            "rejected": [user_msg, {"role": "assistant", "content": rejected_response}],
+            "chosen": prompt_msgs + [{"role": "assistant", "content": chosen_response}],
+            "rejected": prompt_msgs + [{"role": "assistant", "content": rejected_response}],
         }
 
     converted = ds.map(
@@ -95,22 +122,20 @@ def convert_alpacafarm_split(
     print(f"  Loaded {len(ds)} rows")
 
     def convert_sft(example):
-        user_content = _combine_instruction_input(
+        prompt_msgs = _build_prompt_messages(
             example["instruction"], example.get("input", "")
         )
-        user_msg = {"role": "user", "content": user_content}
         assistant_msg = {"role": "assistant", "content": example.get("output", "")}
-        return {"chosen": [user_msg, assistant_msg]}
+        return {"chosen": prompt_msgs + [assistant_msg]}
 
     def convert_prompt_only(example):
-        user_content = _combine_instruction_input(
+        prompt_msgs = _build_prompt_messages(
             example["instruction"], example.get("input", "")
         )
-        user_msg = {"role": "user", "content": user_content}
         # Include a dummy assistant message so the format matches expectations.
         # GRPO only uses the prompt portion (chosen[:-1]).
         assistant_msg = {"role": "assistant", "content": ""}
-        return {"chosen": [user_msg, assistant_msg]}
+        return {"chosen": prompt_msgs + [assistant_msg]}
 
     convert_fn = convert_prompt_only if is_prompt_only else convert_sft
     return ds.map(convert_fn, remove_columns=ds.column_names, num_proc=8)
