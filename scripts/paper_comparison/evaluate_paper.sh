@@ -9,7 +9,7 @@
 #SBATCH --job-name=paper_eval
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32gb
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=12:00:00
 #SBATCH --qos=high
 
