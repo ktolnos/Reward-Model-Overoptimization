@@ -174,16 +174,28 @@ def recover_alpacafarm_reward_model(
 
     # 4. Build a RewardModel with the correct config pointing to our base model,
     #    load recovered weights, and save.
+    # The wdiff was fine-tuned with an extra pad token (32001 vocab vs 32000),
+    # so we need to resize embeddings to match.
     del base_model
     config = RewardConfig(backbone_model_name_or_path=base_model_name)
     model = RewardModel(config)
+
+    # Detect vocab size from diff weights and resize if needed.
+    embed_key = "backbone_model.model.embed_tokens.weight"
+    if embed_key in diff_state:
+        diff_vocab_size = diff_state[embed_key].shape[0]
+        current_vocab_size = model.backbone_model.model.embed_tokens.weight.shape[0]
+        if diff_vocab_size != current_vocab_size:
+            print(f"Resizing embeddings: {current_vocab_size} -> {diff_vocab_size}")
+            model.backbone_model.resize_token_embeddings(diff_vocab_size)
+
     model.load_state_dict(diff_state, strict=False)
 
     output_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_dir)
 
-    # Also save the tokenizer from the base model.
-    tokenizer = transformers.AutoTokenizer.from_pretrained(base_model_name)
+    # Save the tokenizer from the wdiff (has the extra pad token).
+    tokenizer = transformers.AutoTokenizer.from_pretrained(diff_dir)
     tokenizer.save_pretrained(output_dir)
 
     print(f"Recovered model saved to {output_dir}")

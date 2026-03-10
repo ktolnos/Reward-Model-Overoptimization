@@ -98,26 +98,16 @@ def load_reward_model(
             sys.modules["transformers.deepspeed"] = _ds_module
 
         from alpaca_farm.models.reward_model import RewardModel
+        from alpacafarm_reward_model import recover_alpacafarm_reward_model
 
-        # If model_name is a weight-diff hub name or doesn't exist locally,
-        # recover it from the weight diff + base LLaMA-7B.
-        if "wdiff" in model_name:
-            from alpacafarm_reward_model import recover_alpacafarm_reward_model
-            local_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "alpaca_farm_models",
-                model_name.split("/")[-1].replace("-wdiff", ""),
-            )
-            model_name = recover_alpacafarm_reward_model(
-                output_dir=local_dir, wdiff_name=model_name,
-            )
-        elif not os.path.isdir(model_name):
-            from alpacafarm_reward_model import recover_alpacafarm_reward_model
-            print(
-                f"AlpacaFarm model not found at '{model_name}', "
-                f"recovering from weight diff..."
-            )
-            model_name = recover_alpacafarm_reward_model(output_dir=model_name)
+        # Weight-diff checkpoints (e.g. tatsu-lab/alpaca-farm-reward-model-human-wdiff)
+        # have a config that points to a Stanford-local path for the backbone.
+        # We must recover full weights first, then load the recovered model.
+        recovered_dir = os.path.join("alpaca_farm_models", os.path.basename(model_name))
+        model_name = recover_alpacafarm_reward_model(
+            output_dir=recovered_dir,
+            wdiff_name=model_name,
+        )
 
         print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
 
