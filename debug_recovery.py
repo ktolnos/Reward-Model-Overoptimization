@@ -56,13 +56,13 @@ def main():
 
     cache_dir = "/nas/ucb/eop/cache/alpaca-farm-reward-model-human-wdiff"
 
-    # Step 1: Delete stale cache.
-    if os.path.exists(cache_dir):
-        print(f"Deleting stale cache at {cache_dir}")
-        shutil.rmtree(cache_dir)
-        print("  Deleted.")
-    else:
-        print(f"No existing cache at {cache_dir}")
+    # # Step 1: Delete stale cache.
+    # if os.path.exists(cache_dir):
+    #     print(f"Deleting stale cache at {cache_dir}")
+    #     shutil.rmtree(cache_dir)
+    #     print("  Deleted.")
+    # else:
+    #     print(f"No existing cache at {cache_dir}")
 
     # Step 2: Re-run recovery from scratch.
     print("\n=== Running fresh recovery ===")
@@ -90,7 +90,7 @@ def main():
     # Step 4: Test on a known example from tlc4418/gold_labelled_gens.
     print("\n=== Testing on known example ===")
     from datasets import load_dataset
-    ds = load_dataset("tlc4418/gold_labelled_gens", split="train")
+    ds = load_dataset("tlc4418/gold_labelled_gens", split="validation")
     row = ds[0]
     expected_score = row["gold_score"]
 
