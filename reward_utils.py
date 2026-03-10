@@ -120,6 +120,7 @@ def load_reward_model(
 
         model = RewardModel.from_pretrained(
             model_name,
+            flash_attn=True,
             torch_dtype=torch.bfloat16,
         )
         if use_device_map:
