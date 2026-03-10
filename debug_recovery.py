@@ -4,21 +4,19 @@
 Run on the cluster:
     python debug_recovery.py
 
-This script:
-1. Deletes any stale cached recovery.
-2. Re-runs the two-step recovery (sft_wdiff + base → sft, then rm_wdiff + sft → rm).
-3. Tests the recovered model on a known example from tlc4418/gold_labelled_gens.
+This script does the two-step recovery in-memory (no save/load) and tests
+directly, plus verifies checksums from model_sum.txt.
 """
 
 import os
 import sys
-import shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import torch
+import tqdm
 import transformers
 
 
@@ -36,93 +34,162 @@ def patch_alpaca_farm_imports():
         sys.modules["transformers.deepspeed"] = _ds_module
 
 
+def load_wdiff_state_dict(hub_name):
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file as load_safetensors
+    import glob
+
+    diff_dir = snapshot_download(hub_name)
+    safetensors_files = sorted(glob.glob(os.path.join(diff_dir, "model*.safetensors")))
+    bin_files = sorted(glob.glob(os.path.join(diff_dir, "pytorch_model*.bin")))
+    bin_files = [f for f in bin_files if "index" not in f]
+
+    state = {}
+    if safetensors_files:
+        for sf in safetensors_files:
+            state.update(load_safetensors(sf))
+    elif bin_files:
+        for bf in bin_files:
+            state.update(torch.load(bf, map_location="cpu", weights_only=True))
+    else:
+        raise FileNotFoundError(f"No model weights in {diff_dir}")
+
+    # Read checksum if available.
+    sum_file = os.path.join(diff_dir, "model_sum.txt")
+    target_sum = None
+    if os.path.exists(sum_file):
+        with open(sum_file) as f:
+            target_sum = float(f.read().strip())
+
+    return state, diff_dir, target_sum
+
+
+def compute_state_sum(state_dict):
+    return sum(v.float().sum().item() for v in state_dict.values())
+
+
+def apply_wdiff(diff_state, base_state, key_prefix=""):
+    added = 0
+    skipped_shape = 0
+    skipped_missing = 0
+    for key in diff_state:
+        base_key = key
+        if key_prefix and key.startswith(key_prefix):
+            base_key = key[len(key_prefix):]
+        if base_key in base_state:
+            if diff_state[key].shape == base_state[base_key].shape:
+                diff_state[key].add_(base_state[base_key])
+                added += 1
+            else:
+                skipped_shape += 1
+        else:
+            skipped_missing += 1
+    return added, skipped_shape, skipped_missing
+
+
+def build_alpaca_text(instruction, input_text, output_text):
+    has_input = bool(input_text and input_text.strip())
+    if has_input:
+        preamble = (
+            "Below is an instruction that describes a task, paired with an input "
+            "that provides further context. "
+            "Write a response that appropriately completes the request."
+        )
+        return (
+            f"{preamble}\n\n"
+            f"### Instruction:\n{instruction}\n\n"
+            f"### Input:\n{input_text}\n\n"
+            f"### Response:\n{output_text}"
+        )
+    else:
+        preamble = (
+            "Below is an instruction that describes a task. "
+            "Write a response that appropriately completes the request."
+        )
+        return (
+            f"{preamble}\n\n"
+            f"### Instruction:\n{instruction}\n\n"
+            f"### Response:\n{output_text}"
+        )
+
+
 def main():
     patch_alpaca_farm_imports()
 
-    from alpacafarm_reward_model import (
-        recover_alpacafarm_reward_model,
-        WDIFF_HUB_NAME,
-        DEFAULT_LLAMA_7B,
-    )
+    from alpacafarm_reward_model import RewardModel, RewardConfig, RewardModelOutput
     import dataclasses
-    from alpaca_farm.models.reward_model import (
-        RewardModel as PkgRewardModel,
-        RewardModelOutput as PkgRewardModelOutput,
-    )
-    if not dataclasses.is_dataclass(PkgRewardModelOutput):
-        PkgRewardModelOutput = dataclasses.dataclass(PkgRewardModelOutput)
-        import alpaca_farm.models.reward_model as _rm_mod
-        _rm_mod.RewardModelOutput = PkgRewardModelOutput
+    if not dataclasses.is_dataclass(RewardModelOutput):
+        import alpacafarm_reward_model as _mod
+        _mod.RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
 
-    cache_dir = "/nas/ucb/eop/cache/alpaca-farm-reward-model-human-wdiff"
+    SFT_WDIFF = "tatsu-lab/alpaca-farm-sft10k-wdiff"
+    RM_WDIFF = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
+    BASE_LLAMA = "huggyllama/llama-7b"
 
-    # Step 1: Delete stale cache.
-    if os.path.exists(cache_dir):
-        print(f"Deleting stale cache at {cache_dir}")
-        shutil.rmtree(cache_dir)
-        print("  Deleted.")
-    else:
-        print(f"No existing cache at {cache_dir}")
+    # ── Step 1: Recover SFT ──────────────────────────────────────────────
+    print("=== Step 1: Recovering SFT model ===")
+    sft_diff, sft_dir, sft_target_sum = load_wdiff_state_dict(SFT_WDIFF)
+    print(f"  SFT wdiff: {len(sft_diff)} keys, target_sum={sft_target_sum}")
 
-    # Step 2: Re-run two-step recovery from scratch.
-    print("\n=== Running fresh two-step recovery ===")
-    recovered_dir = recover_alpacafarm_reward_model(
-        output_dir=cache_dir,
-        wdiff_name=WDIFF_HUB_NAME,
-        base_model_name=DEFAULT_LLAMA_7B,
-    )
-    print(f"Recovery complete. Model at: {recovered_dir}")
+    base_model = transformers.LlamaForCausalLM.from_pretrained(BASE_LLAMA, torch_dtype=torch.float32)
+    base_state = base_model.state_dict()
+    print(f"  Base model: {len(base_state)} keys")
 
-    # Step 3: Load the recovered model (same way as reward_utils.py does).
-    print("\n=== Loading recovered model ===")
-    model = PkgRewardModel.from_pretrained(
-        recovered_dir,
-        flash_attn=True,
-        torch_dtype=torch.bfloat16,
-    )
-    model = model.to("cuda")
+    added, sk_shape, sk_miss = apply_wdiff(sft_diff, base_state, key_prefix="")
+    print(f"  SFT recovery: {added} added, {sk_shape} shape-skipped, {sk_miss} missing")
+
+    sft_sum = compute_state_sum(sft_diff)
+    print(f"  SFT recovered sum: {sft_sum:.4f}")
+    if sft_target_sum is not None:
+        print(f"  SFT target sum:    {sft_target_sum:.4f}")
+        print(f"  SFT sum match:     {abs(sft_sum - sft_target_sum) < 1e-2}")
+    del base_state, base_model
+
+    # ── Step 2: Recover RM ───────────────────────────────────────────────
+    print("\n=== Step 2: Recovering RM ===")
+    rm_diff, rm_dir, rm_target_sum = load_wdiff_state_dict(RM_WDIFF)
+    print(f"  RM wdiff: {len(rm_diff)} keys, target_sum={rm_target_sum}")
+
+    added, sk_shape, sk_miss = apply_wdiff(rm_diff, sft_diff, key_prefix="backbone_model.")
+    print(f"  RM recovery: {added} added, {sk_shape} shape-skipped, {sk_miss} missing")
+
+    rm_sum = compute_state_sum(rm_diff)
+    print(f"  RM recovered sum: {rm_sum:.4f}")
+    if rm_target_sum is not None:
+        print(f"  RM target sum:    {rm_target_sum:.4f}")
+        print(f"  RM sum match:     {abs(rm_sum - rm_target_sum) < 1e-2}")
+    del sft_diff
+
+    # ── Step 3: Build in-memory model and test ───────────────────────────
+    print("\n=== Step 3: Building in-memory model ===")
+    config = RewardConfig(backbone_model_name_or_path=BASE_LLAMA)
+    model = RewardModel(config)
+
+    embed_key = "backbone_model.model.embed_tokens.weight"
+    if embed_key in rm_diff:
+        diff_vocab = rm_diff[embed_key].shape[0]
+        curr_vocab = model.backbone_model.model.embed_tokens.weight.shape[0]
+        if diff_vocab != curr_vocab:
+            print(f"  Resizing embeddings: {curr_vocab} -> {diff_vocab}")
+            model.backbone_model.resize_token_embeddings(diff_vocab)
+
+    model.load_state_dict(rm_diff, strict=False)
+    model = model.to(dtype=torch.bfloat16, device="cuda")
     model.eval()
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(recovered_dir)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(rm_dir)
 
-    # Step 4: Test on known examples from tlc4418/gold_labelled_gens.
-    print("\n=== Testing on known examples ===")
+    # ── Step 4: Test on known examples ───────────────────────────────────
+    print("\n=== Step 4: Testing on known examples ===")
     from datasets import load_dataset
     ds = load_dataset("tlc4418/gold_labelled_gens", split="validation")
 
-    # Test on first 5 examples.
-    n_test = min(5, len(ds))
+    n_test = min(10, len(ds))
     total_diff = 0.0
     for i in range(n_test):
         row = ds[i]
         expected_score = row["gold_scores"][0]
-        instruction = row["instruction"]
-        input_text = row.get("input", "")
-        output_text = row["answers"][0]
-
-        has_input = bool(input_text and input_text.strip())
-        if has_input:
-            preamble = (
-                "Below is an instruction that describes a task, paired with an input "
-                "that provides further context. "
-                "Write a response that appropriately completes the request."
-            )
-            text = (
-                f"{preamble}\n\n"
-                f"### Instruction:\n{instruction}\n\n"
-                f"### Input:\n{input_text}\n\n"
-                f"### Response:\n{output_text}"
-            )
-        else:
-            preamble = (
-                "Below is an instruction that describes a task. "
-                "Write a response that appropriately completes the request."
-            )
-            text = (
-                f"{preamble}\n\n"
-                f"### Instruction:\n{instruction}\n\n"
-                f"### Response:\n{output_text}"
-            )
+        text = build_alpaca_text(row["instruction"], row.get("input", ""), row["answers"][0])
 
         inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=776)
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
@@ -138,9 +205,11 @@ def main():
     avg_diff = total_diff / n_test
     print(f"\nAverage absolute difference: {avg_diff:.4f}")
     if avg_diff < 0.5:
-        print("SUCCESS: Recovery looks correct!")
+        print("SUCCESS!")
     else:
-        print("FAILURE: Scores still don't match expected values.")
+        print("FAILURE: Scores don't match.")
+        print("\nIf SFT sum doesn't match target, the base model (huggyllama/llama-7b) may be wrong.")
+        print("Try: baffo32/decapoda-research-llama-7B-hf or another LLaMA-7B source.")
 
 
 if __name__ == "__main__":
