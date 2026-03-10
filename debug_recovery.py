@@ -47,12 +47,16 @@ def main():
         WDIFF_HUB_NAME,
         DEFAULT_LLAMA_7B,
     )
-    from alpaca_farm.models.reward_model import RewardModelOutput as PkgRewardModelOutput
     import dataclasses
+    # Patch both the package and vendored RewardModelOutput as dataclasses.
+    from alpaca_farm.models.reward_model import RewardModelOutput as PkgRewardModelOutput
     if not dataclasses.is_dataclass(PkgRewardModelOutput):
         PkgRewardModelOutput = dataclasses.dataclass(PkgRewardModelOutput)
         import alpaca_farm.models.reward_model as _rm_mod
         _rm_mod.RewardModelOutput = PkgRewardModelOutput
+    if not dataclasses.is_dataclass(RewardModelOutput):
+        import alpacafarm_reward_model as _vendored_mod
+        _vendored_mod.RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
 
     cache_dir = "/nas/ucb/eop/cache/alpaca-farm-reward-model-human-wdiff"
 
@@ -199,6 +203,8 @@ def main():
                     print(f"  Shape mismatch: {key} diff={tuple(diff_state[key].shape)} base={tuple(base_state[base_key].shape)}")
             else:
                 skipped_missing += 1
+                if skipped_missing <= 40:
+                    print(f"  Missing in base: {key} (base_key={base_key})")
 
         print(f"  Keys: {added} recovered, {skipped_shape} skipped (shape), {skipped_missing} skipped (missing in base)")
 
@@ -221,8 +227,45 @@ def main():
         with torch.inference_mode():
             output2 = direct_model(**inputs)
         score2 = output2.rewards.item()
-        print(f"  Direct recovery score: {score2:.4f}")
-        print(f"  Expected:              {expected_score:.4f}")
+        print(f"  Direct recovery (diff+base) score: {score2:.4f}")
+        print(f"  Expected:                          {expected_score:.4f}")
+
+        # Test 2: What if the checkpoint already has FULL weights (not diffs)?
+        # Load diff again WITHOUT adding base weights.
+        print("\n--- Testing raw diff weights (no base added) ---")
+        raw_diff_state = {}
+        if safetensors_files:
+            for sf in safetensors_files:
+                raw_diff_state.update(load_safetensors(sf))
+        elif bin_files:
+            for bf in bin_files:
+                raw_diff_state.update(torch.load(bf, map_location="cpu", weights_only=True))
+
+        config3 = RewardConfig(backbone_model_name_or_path=DEFAULT_LLAMA_7B)
+        raw_model = RewardModel(config3)
+        embed_key = "backbone_model.model.embed_tokens.weight"
+        if embed_key in raw_diff_state:
+            diff_vocab = raw_diff_state[embed_key].shape[0]
+            curr_vocab = raw_model.backbone_model.model.embed_tokens.weight.shape[0]
+            if diff_vocab != curr_vocab:
+                raw_model.backbone_model.resize_token_embeddings(diff_vocab)
+        raw_model.load_state_dict(raw_diff_state, strict=False)
+        raw_model = raw_model.to(dtype=torch.bfloat16, device="cuda")
+        raw_model.eval()
+
+        with torch.inference_mode():
+            output3 = raw_model(**inputs)
+        score3 = output3.rewards.item()
+        print(f"  Raw diff (no base) score: {score3:.4f}")
+        print(f"  Expected:                 {expected_score:.4f}")
+        print()
+        if abs(score3 - expected_score) < 0.5:
+            print("  >>> The checkpoint has FULL weights, not diffs!")
+            print("  >>> Fix: skip adding base weights in recover_alpacafarm_reward_model()")
+        elif abs(score2 - expected_score) < 0.5:
+            print("  >>> Recovery (diff+base) is correct.")
+        else:
+            print("  >>> Neither approach matches. Possible wrong base model or other issue.")
 
 
 if __name__ == "__main__":
