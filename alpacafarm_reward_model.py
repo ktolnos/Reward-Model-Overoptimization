@@ -87,8 +87,59 @@ class RewardModel(transformers.PreTrainedModel):
 # HuggingFace Hub name for the reward-model-human weight diff.
 WDIFF_HUB_NAME = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
 
+# The reward model's backbone is the AlpacaFarm SFT model (not raw LLaMA-7B).
+# This is also distributed as a weight diff on top of base LLaMA-7B.
+SFT_WDIFF_HUB_NAME = "tatsu-lab/alpaca-farm-sft10k-wdiff"
+
 # Default base LLaMA-7B model on HuggingFace.
 DEFAULT_LLAMA_7B = "huggyllama/llama-7b"
+
+
+def _load_wdiff_state_dict(hub_name: str) -> dict:
+    """Download a weight-diff checkpoint and return its state dict."""
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file as load_safetensors
+    import glob
+
+    diff_dir = snapshot_download(hub_name)
+
+    safetensors_files = sorted(glob.glob(os.path.join(diff_dir, "model*.safetensors")))
+    bin_files = sorted(glob.glob(os.path.join(diff_dir, "pytorch_model*.bin")))
+    bin_files = [f for f in bin_files if "index" not in f]
+
+    state = {}
+    if safetensors_files:
+        for sf in safetensors_files:
+            state.update(load_safetensors(sf))
+    elif bin_files:
+        for bf in bin_files:
+            state.update(torch.load(bf, map_location="cpu", weights_only=True))
+    else:
+        raise FileNotFoundError(
+            f"No model weights found in {diff_dir}. "
+            f"Expected model.safetensors or pytorch_model*.bin"
+        )
+    return state, diff_dir
+
+
+def _apply_wdiff(diff_state: dict, base_state: dict, key_prefix: str = "") -> int:
+    """Add base weights to diff weights in-place. Returns count of recovered keys.
+
+    For each key in diff_state, strips ``key_prefix`` to find the matching
+    base key.  Skips keys with shape mismatches (e.g. resized embeddings,
+    where the diff already stores full weights) and keys absent from base.
+    """
+    added = 0
+    for key in tqdm.tqdm(diff_state, desc="Recovering weights"):
+        base_key = key
+        if key_prefix and key.startswith(key_prefix):
+            base_key = key[len(key_prefix):]
+
+        if base_key in base_state:
+            if diff_state[key].shape == base_state[base_key].shape:
+                diff_state[key].add_(base_state[base_key])
+                added += 1
+    return added
 
 
 def recover_alpacafarm_reward_model(
@@ -96,18 +147,18 @@ def recover_alpacafarm_reward_model(
     wdiff_name: str = WDIFF_HUB_NAME,
     base_model_name: str = DEFAULT_LLAMA_7B,
 ) -> str:
-    """Recover full AlpacaFarm reward model weights from a weight-diff checkpoint.
+    """Recover full AlpacaFarm reward model weights from weight-diff checkpoints.
 
-    tatsu-lab distributes AlpacaFarm models as weight diffs on top of LLaMA-7B
-    for licensing reasons. This function:
-      1. Downloads the weight-diff RewardModel from HuggingFace.
-      2. Downloads the base LLaMA-7B model.
-      3. Adds base weights to the diff: ``recovered = diff + base``.
-      4. Saves the recovered model to ``output_dir``.
+    The reward model's backbone is the AlpacaFarm SFT model, which is itself
+    distributed as a weight diff on top of base LLaMA-7B.  Recovery is therefore
+    a two-step chain:
+
+      1. ``sft = sft_wdiff + base_llama``
+      2. ``reward = reward_wdiff + sft``
 
     Args:
         output_dir: Where to save the recovered full model.
-        wdiff_name: HF Hub name for the weight-diff checkpoint.
+        wdiff_name: HF Hub name for the reward-model weight-diff checkpoint.
         base_model_name: HF Hub name for the base LLaMA-7B model.
 
     Returns:
@@ -118,78 +169,49 @@ def recover_alpacafarm_reward_model(
         print(f"Recovered model already exists at {output_dir}, skipping recovery.")
         return output_dir
 
-    print(f"Recovering AlpacaFarm reward model weights...")
-    print(f"  Weight diff: {wdiff_name}")
-    print(f"  Base model:  {base_model_name}")
+    print(f"Recovering AlpacaFarm reward model weights (two-step)...")
+    print(f"  Step 1: SFT wdiff ({SFT_WDIFF_HUB_NAME}) + base ({base_model_name})")
+    print(f"  Step 2: RM  wdiff ({wdiff_name}) + recovered SFT")
 
-    from huggingface_hub import snapshot_download
-    from safetensors.torch import load_file as load_safetensors
-    import json
+    # ── Step 1: Recover the SFT model ────────────────────────────────────
+    print("\n--- Step 1: Recovering SFT model ---")
+    sft_diff_state, _ = _load_wdiff_state_dict(SFT_WDIFF_HUB_NAME)
 
-    # 1. Download the weight-diff files (without loading as a model, since its
-    #    config.backbone_model_name_or_path points to a Stanford-local path).
-    diff_dir = snapshot_download(wdiff_name)
-    diff_config_path = os.path.join(diff_dir, "config.json")
-    with open(diff_config_path) as f:
-        diff_config = json.load(f)
-
-    # Load diff state dict from safetensors or pytorch bin (possibly sharded).
-    import glob
-    safetensors_files = sorted(glob.glob(os.path.join(diff_dir, "model*.safetensors")))
-    bin_files = sorted(glob.glob(os.path.join(diff_dir, "pytorch_model*.bin")))
-    # Filter out index files.
-    bin_files = [f for f in bin_files if "index" not in f]
-
-    diff_state = {}
-    if safetensors_files:
-        for sf in safetensors_files:
-            diff_state.update(load_safetensors(sf))
-    elif bin_files:
-        for bf in bin_files:
-            diff_state.update(torch.load(bf, map_location="cpu", weights_only=True))
-    else:
-        raise FileNotFoundError(
-            f"No model weights found in {diff_dir}. "
-            f"Expected model.safetensors or pytorch_model*.bin"
-        )
-
-    # 2. Load the base LLaMA-7B model.
     base_model = transformers.LlamaForCausalLM.from_pretrained(
         base_model_name, torch_dtype=torch.float32,
     )
     base_state = base_model.state_dict()
 
-    # 3. Add base weights to diff weights.
-    # The reward model nests the LLaMA backbone under "backbone_model.",
-    # so base keys need the prefix to match.
-    for key in tqdm.tqdm(diff_state, desc="Recovering weights"):
-        base_key = key
-        # Strip "backbone_model." prefix to find the corresponding base key.
-        if key.startswith("backbone_model."):
-            base_key = key[len("backbone_model."):]
+    # SFT wdiff keys are plain LlamaForCausalLM keys (no prefix).
+    n = _apply_wdiff(sft_diff_state, base_state, key_prefix="")
+    print(f"  SFT: {n} keys recovered with base weights")
+    del base_state, base_model
 
-        if base_key in base_state:
-            if diff_state[key].shape == base_state[base_key].shape:
-                diff_state[key].add_(base_state[base_key])
+    # ── Step 2: Recover the reward model ─────────────────────────────────
+    print("\n--- Step 2: Recovering reward model ---")
+    rm_diff_state, rm_diff_dir = _load_wdiff_state_dict(wdiff_name)
 
-    # 4. Build a RewardModel with the correct config pointing to our base model,
-    #    load recovered weights, and save.
-    # The wdiff was fine-tuned with an extra pad token (32001 vocab vs 32000),
-    # so we need to resize embeddings to match.
-    del base_model
+    # The RM wdiff keys are prefixed with "backbone_model." relative to the
+    # SFT model.  Strip that prefix to match against sft_diff_state keys.
+    n = _apply_wdiff(rm_diff_state, sft_diff_state, key_prefix="backbone_model.")
+    print(f"  RM: {n} keys recovered with SFT weights")
+    del sft_diff_state
+
+    # ── Step 3: Build a RewardModel, load recovered weights, save ────────
+    # The SFT model has vocab 32001 (base 32000 + pad token), so we need a
+    # backbone with the right size.  We load a fresh base and resize.
     config = RewardConfig(backbone_model_name_or_path=base_model_name)
     model = RewardModel(config)
 
-    # Detect vocab size from diff weights and resize if needed.
     embed_key = "backbone_model.model.embed_tokens.weight"
-    if embed_key in diff_state:
-        diff_vocab_size = diff_state[embed_key].shape[0]
+    if embed_key in rm_diff_state:
+        diff_vocab_size = rm_diff_state[embed_key].shape[0]
         current_vocab_size = model.backbone_model.model.embed_tokens.weight.shape[0]
         if diff_vocab_size != current_vocab_size:
             print(f"Resizing embeddings: {current_vocab_size} -> {diff_vocab_size}")
             model.backbone_model.resize_token_embeddings(diff_vocab_size)
 
-    model.load_state_dict(diff_state, strict=False)
+    model.load_state_dict(rm_diff_state, strict=False)
 
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -204,12 +226,10 @@ def recover_alpacafarm_reward_model(
     model.save_pretrained(output_dir)
 
     # Save the tokenizer from the wdiff (has the extra pad token).
-    tokenizer = transformers.AutoTokenizer.from_pretrained(diff_dir)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(rm_diff_dir)
     tokenizer.save_pretrained(output_dir)
 
     print(f"Recovered model saved to {output_dir}")
 
-    # Free memory.
-    del model, diff_state, base_state
-
+    del model, rm_diff_state
     return output_dir
