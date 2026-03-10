@@ -49,6 +49,13 @@ def _is_alpacafarm_rm(model_name):
     return "alpaca_farm" in model_name or "alpaca-farm" in model_name
 
 
+# Map legacy/local AlpacaFarm model names to their HuggingFace weight-diff repos.
+_ALPACAFARM_NAME_MAP = {
+    "alpaca_farm_models/reward-model-human": "tatsu-lab/alpaca-farm-reward-model-human-wdiff",
+    "alpaca_farm_models/reward-model-sim": "tatsu-lab/alpaca-farm-reward-model-sim-wdiff",
+}
+
+
 def load_reward_model(
     model_name,
     reasoning,
@@ -107,13 +114,16 @@ def load_reward_model(
             import alpaca_farm.models.reward_model as _rm_mod
             _rm_mod.RewardModelOutput = RewardModelOutput
 
+        # Map legacy local names to HF weight-diff repo names.
+        wdiff_name = _ALPACAFARM_NAME_MAP.get(model_name, model_name)
+
         # Weight-diff checkpoints (e.g. tatsu-lab/alpaca-farm-reward-model-human-wdiff)
         # have a config that points to a Stanford-local path for the backbone.
         # We must recover full weights first, then load the recovered model.
-        recovered_dir = os.path.join("/nas/ucb/eop/cache", os.path.basename(model_name))
+        recovered_dir = os.path.join("/nas/ucb/eop/cache", os.path.basename(wdiff_name))
         model_name = recover_alpacafarm_reward_model(
             output_dir=recovered_dir,
-            wdiff_name=model_name,
+            wdiff_name=wdiff_name,
         )
 
         print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
