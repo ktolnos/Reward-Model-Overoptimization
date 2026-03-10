@@ -124,7 +124,7 @@ def main():
 
     SFT_WDIFF = "tatsu-lab/alpaca-farm-sft10k-wdiff"
     RM_WDIFF = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
-    BASE_LLAMA = "huggyllama/llama-7b"
+    BASE_LLAMA = "baffo32/decapoda-research-llama-7B-hf"
 
     # ── Step 1: Recover SFT ──────────────────────────────────────────────
     print("=== Step 1: Recovering SFT model ===")
