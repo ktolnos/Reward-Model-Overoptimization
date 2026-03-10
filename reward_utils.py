@@ -75,16 +75,12 @@ def load_reward_model(
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # AlpacaFarm gold RM path: uses custom RewardModel class from alpaca_farm.
+    # AlpacaFarm gold RM path: uses custom RewardModel class.
+    # We use a vendored copy to avoid the full alpaca_farm package which is
+    # incompatible with modern transformers (broken imports in common.py).
     if _is_alpacafarm_rm(model_name):
         print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
-        try:
-            from alpaca_farm.models.reward_model import RewardModel
-        except ImportError as exc:
-            raise ImportError(
-                "alpaca_farm package is required for the AlpacaFarm gold RM. "
-                "Install with: pip install git+https://github.com/tlc4418/alpaca_farm.git"
-            ) from exc
+        from alpacafarm_reward_model import RewardModel
 
         if tokenizer is None:
             tokenizer = AutoTokenizer.from_pretrained(
