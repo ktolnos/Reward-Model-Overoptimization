@@ -40,7 +40,8 @@
       "Bash(pip install pytest)",
       "Bash(pip show trl)",
       "Bash(ls /home/eop/Reward-Model-Overoptimization/scripts/train_grm_*.sh /home/eop/Reward-Model-Overoptimization/scripts/rlhf/bon/step1_train_proxy_reward_model_grm.sh)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ls /home/eop/Reward-Model-Overoptimization/venv/lib/python3.11/site-packages/alpaca_farm/utils*)"
     ]
   },
   "prefersReducedMotion": false

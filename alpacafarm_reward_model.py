@@ -8,11 +8,19 @@ Only the minimal RewardModel, RewardConfig, and RewardModelOutput classes are
 kept, plus the two helper functions they depend on (``make_generative_lm`` and
 ``get_transformer_hidden_size``).
 
+Also includes ``recover_alpacafarm_reward_model`` which reconstructs full
+weights from a HuggingFace weight-diff checkpoint + base LLaMA-7B weights,
+since tatsu-lab distributes models as weight diffs for LLaMA licensing reasons.
+
 Original source: https://github.com/tlc4418/alpaca_farm
 License: Apache 2.0
 """
 
+import os
+from pathlib import Path
+
 import torch
+import tqdm
 import transformers
 from torch import Tensor, nn
 from transformers.utils.generic import ModelOutput
@@ -72,3 +80,84 @@ class RewardModel(transformers.PreTrainedModel):
         last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
         rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
+
+
+# -- Weight-diff recovery ---------------------------------------------------
+
+# HuggingFace Hub name for the reward-model-human weight diff.
+WDIFF_HUB_NAME = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
+
+# Default base LLaMA-7B model on HuggingFace.
+DEFAULT_LLAMA_7B = "huggyllama/llama-7b"
+
+
+def recover_alpacafarm_reward_model(
+    output_dir: str,
+    wdiff_name: str = WDIFF_HUB_NAME,
+    base_model_name: str = DEFAULT_LLAMA_7B,
+) -> str:
+    """Recover full AlpacaFarm reward model weights from a weight-diff checkpoint.
+
+    tatsu-lab distributes AlpacaFarm models as weight diffs on top of LLaMA-7B
+    for licensing reasons. This function:
+      1. Downloads the weight-diff RewardModel from HuggingFace.
+      2. Downloads the base LLaMA-7B model.
+      3. Adds base weights to the diff: ``recovered = diff + base``.
+      4. Saves the recovered model to ``output_dir``.
+
+    Args:
+        output_dir: Where to save the recovered full model.
+        wdiff_name: HF Hub name for the weight-diff checkpoint.
+        base_model_name: HF Hub name for the base LLaMA-7B model.
+
+    Returns:
+        The ``output_dir`` path (for convenience).
+    """
+    output_path = Path(output_dir)
+    if output_path.exists() and (output_path / "config.json").exists():
+        print(f"Recovered model already exists at {output_dir}, skipping recovery.")
+        return output_dir
+
+    print(f"Recovering AlpacaFarm reward model weights...")
+    print(f"  Weight diff: {wdiff_name}")
+    print(f"  Base model:  {base_model_name}")
+
+    # 1. Load the weight-diff reward model (weights = tuned - base).
+    diff_model = RewardModel.from_pretrained(wdiff_name, torch_dtype=torch.float32)
+    diff_state = diff_model.state_dict()
+
+    # 2. Load the base LLaMA-7B model.
+    base_model = transformers.LlamaForCausalLM.from_pretrained(
+        base_model_name, torch_dtype=torch.float32,
+    )
+    base_state = base_model.state_dict()
+
+    # 3. Add base weights to diff weights.
+    # The reward model nests the LLaMA backbone under "backbone_model.",
+    # so base keys need the prefix to match.
+    for key in tqdm.tqdm(diff_state, desc="Recovering weights"):
+        base_key = key
+        # Strip "backbone_model." prefix to find the corresponding base key.
+        if key.startswith("backbone_model."):
+            base_key = key[len("backbone_model."):]
+
+        if base_key in base_state:
+            if diff_state[key].shape == base_state[base_key].shape:
+                diff_state[key].add_(base_state[base_key])
+
+    # 4. Load recovered weights back into the model and save.
+    diff_model.load_state_dict(diff_state)
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    diff_model.save_pretrained(output_dir)
+
+    # Also save the tokenizer from the base model.
+    tokenizer = transformers.AutoTokenizer.from_pretrained(base_model_name)
+    tokenizer.save_pretrained(output_dir)
+
+    print(f"Recovered model saved to {output_dir}")
+
+    # Free memory.
+    del diff_model, base_model, diff_state, base_state
+
+    return output_dir
