@@ -3,7 +3,10 @@ import torch.nn as nn
 import os
 from collections import OrderedDict
 from transformers import AutoModelForCausalLM
-from trl import PreTrainedModelWrapper
+try:
+    from trl import PreTrainedModelWrapper
+except ImportError:
+    from trl.experimental.ppo import PreTrainedModelWrapper
 from peft import PeftModel, PeftConfig
 from safetensors import safe_open
 from reward_utils import extract_reward_tensors_from_model_output
