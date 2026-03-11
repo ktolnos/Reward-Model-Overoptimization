@@ -436,26 +436,12 @@ def update_vllm_weights(llm, model_path, device="cpu"):
             "Reinitialize vLLM per checkpoint for multi-GPU runs."
         )
 
-    # vLLM >= 0.8 (V1 engine): workers live in separate processes, so we
-    # use collective_rpc.  We pass the path (not tensors) to avoid
-    # serialization issues with the IPC message queue.
+    # vLLM >= 0.8 (V1 engine): workers live in separate processes.
+    # Use a string method name via collective_rpc (the LLM must have been
+    # created with worker_extension_cls="vllm_weight_loader.WeightLoaderExtension").
     # Fall back to the legacy direct-attribute path for older vLLM / V0.
     if hasattr(llm, "collective_rpc"):
-        def _load_weights_from_path(self, path):
-            from transformers import AutoModelForCausalLM
-            import torch as _torch
-            hf_model = AutoModelForCausalLM.from_pretrained(
-                path, torch_dtype=_torch.bfloat16, device_map="cpu",
-                trust_remote_code=True,
-            )
-            weights = [(n, p.data) for n, p in hf_model.named_parameters()]
-            self.model_runner.model.load_weights(weights)
-            del hf_model
-            import gc as _gc
-            _gc.collect()
-            _torch.cuda.empty_cache()
-
-        llm.collective_rpc(_load_weights_from_path, args=(model_path,))
+        llm.collective_rpc("load_weights_from_path", args=(model_path,))
     else:
         hf_model = AutoModelForCausalLM.from_pretrained(
             model_path, torch_dtype=torch.bfloat16, device_map=device,
@@ -811,6 +797,7 @@ def main():
             gpu_memory_utilization=args.gpu_memory_utilization,
             max_model_len=args.max_length + args.max_new_tokens,
             trust_remote_code=True,
+            worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
         )
 
         try:
@@ -936,6 +923,7 @@ def main():
             gpu_memory_utilization=args.gpu_memory_utilization,
             max_model_len=args.max_length + args.max_new_tokens,
             trust_remote_code=True,
+            worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
         )
 
         try:
