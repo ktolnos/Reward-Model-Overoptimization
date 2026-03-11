@@ -436,30 +436,37 @@ def update_vllm_weights(llm, model_path, device="cpu"):
             "Reinitialize vLLM per checkpoint for multi-GPU runs."
         )
 
-    # Load HF model to CPU to avoid OOM
-    # We use the same configuration/architecture/tokenizer, just different weights
-    hf_model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=torch.bfloat16, device_map=device, trust_remote_code=True
-    )
-
-    params_to_load = []
-    for name, param in hf_model.named_parameters():
-        params_to_load.append((name, param.data))
-
     # vLLM >= 0.8 (V1 engine): workers live in separate processes, so we
-    # must use collective_rpc to push weights.  Fall back to the legacy
-    # direct-attribute path for older vLLM / V0 engine.
+    # use collective_rpc.  We pass the path (not tensors) to avoid
+    # serialization issues with the IPC message queue.
+    # Fall back to the legacy direct-attribute path for older vLLM / V0.
     if hasattr(llm, "collective_rpc"):
-        def _load_weights(self, weights):
+        def _load_weights_from_path(self, path):
+            from transformers import AutoModelForCausalLM
+            import torch as _torch
+            hf_model = AutoModelForCausalLM.from_pretrained(
+                path, torch_dtype=_torch.bfloat16, device_map="cpu",
+                trust_remote_code=True,
+            )
+            weights = [(n, p.data) for n, p in hf_model.named_parameters()]
             self.model_runner.model.load_weights(weights)
-        llm.collective_rpc(_load_weights, args=(params_to_load,))
+            del hf_model
+            import gc as _gc
+            _gc.collect()
+            _torch.cuda.empty_cache()
+
+        llm.collective_rpc(_load_weights_from_path, args=(model_path,))
     else:
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            model_path, torch_dtype=torch.bfloat16, device_map=device,
+            trust_remote_code=True,
+        )
+        params_to_load = [(n, p.data) for n, p in hf_model.named_parameters()]
         llm_model = llm.llm_engine.model_executor.driver_worker.model_runner.model
         llm_model.load_weights(params_to_load)
-
-    del hf_model
-    gc.collect()
-    torch.cuda.empty_cache()
+        del hf_model
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def get_llm_judge_verdicts(
