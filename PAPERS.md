@@ -901,3 +901,545 @@ Which experiment covers which papers' numbers for direct comparison:
 
 **Recommendation**: Start with **Experiment B (AlpacaFarm)** — it has zero API cost, the cleanest gold-RM comparison format, and covers the most directly relevant prior work on RM ensembles. Then add **Experiment A (Anthropic-HH)** for the broader 2025 paper coverage if the story needs strengthening.
 
+
+---
+
+# Full RLHF Pipeline Releases: Open-Source Models with Base → SFT → RM → Aligned Policy
+
+Last updated: 2026-03-11.
+
+This section catalogs projects that have publicly released **all or most** of the four core RLHF pipeline artifacts (base model, SFT model, reward model, aligned policy model). Organized by completeness and relevance to reward hacking research. Each entry includes HuggingFace model links, dataset links, evaluation details, and cross-references to the papers in the main file above.
+
+---
+
+## Pipeline A: cleanrl / TRL — TL;DR Summarization (Pythia, 1B–6.9B) ⭐ Best small-scale reproducibility
+
+**Paper**: Huang et al., "The N+ Implementation Details of RLHF with PPO: A Case Study on TL;DR Summarization" (COLM 2024)
+**Link**: https://arxiv.org/abs/2403.17031
+**Code**: https://github.com/vwxyzjn/lm-human-preference-details
+
+### Released artifacts
+
+| Artifact | 1B | 2.8B | 6.9B |
+|---|---|---|---|
+| **Base** | [`EleutherAI/pythia-1b-deduped`](https://huggingface.co/EleutherAI/pythia-1b-deduped) | [`EleutherAI/pythia-2.8b-deduped`](https://huggingface.co/EleutherAI/pythia-2.8b-deduped) | [`EleutherAI/pythia-6.9b-deduped`](https://huggingface.co/EleutherAI/pythia-6.9b-deduped) |
+| **SFT** | [`cleanrl/EleutherAI_pythia-1b-deduped__sft__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-1b-deduped__sft__tldr) | [`cleanrl/EleutherAI_pythia-2.8b-deduped__sft__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-2.8b-deduped__sft__tldr) | [`cleanrl/EleutherAI_pythia-6.9b-deduped__sft__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-6.9b-deduped__sft__tldr) |
+| **RM** | [`cleanrl/EleutherAI_pythia-1b-deduped__reward__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-1b-deduped__reward__tldr) | [`cleanrl/EleutherAI_pythia-2.8b-deduped__reward__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-2.8b-deduped__reward__tldr) | [`cleanrl/EleutherAI_pythia-6.9b-deduped__reward__tldr`](https://huggingface.co/cleanrl/EleutherAI_pythia-6.9b-deduped__reward__tldr) |
+| **PPO** | `vwxyzjn/EleutherAI_pythia-1b-deduped__ppo__tldr` | `vwxyzjn/EleutherAI_pythia-2.8b-deduped__ppo__tldr` | `vwxyzjn/EleutherAI_pythia-6.9b-deduped__ppo__tldr` |
+| **RLOO** | `vwxyzjn/rloo_tldr` (1B variant) | — | — |
+
+Additional collections: [`vwxyzjn/async-rlhf-paper-checkpoints`](https://huggingface.co/collections/vwxyzjn/async-rlhf-paper-checkpoints-67a3680cd4c4914f44132ba0) (async RLHF variants).
+
+### Dataset
+- **SFT + Preference**: [`openai/summarize_from_feedback`](https://huggingface.co/datasets/openai/summarize_from_feedback) (~93k comparison pairs, ~117k SFT demonstrations)
+
+### Evaluation
+- **Gold RM / judge**: The 6.9B reward model (`cleanrl/EleutherAI_pythia-6.9b-deduped__reward__tldr`) serves as the de facto gold RM when training policies at 1B and 2.8B scale. No external LLM-as-judge.
+- **Reported metrics**: Win rate of generated summaries vs. human reference summaries, scored by the gold RM. KL-reward Pareto curves.
+- **Key reported numbers**: PPO 1B achieves significantly higher gold RM scores than SFT 1B; 6.9B PPO is strongest. Exact final scalars are primarily in figures/wandb logs rather than a consolidated table in the paper.
+
+### Cross-reference to main file
+- **Experiment C (TL;DR)** uses this pipeline directly. The 6.9B RM is the proposed gold RM for Experiment C.
+- Papers #3 EPPO, #11 WARM, #12 InfoRM, #14 AdvPO all run on TL;DR and can be compared against this pipeline's baselines.
+
+---
+
+## Pipeline B: Coste et al. — Reward Model Ensembles (Pythia, 70M–1.4B) ⭐ Best for reward hacking research
+
+**Paper**: Coste et al., "Reward Model Ensembles Help Mitigate Overoptimization" (ICLR 2024)
+**Link**: https://openreview.net/forum?id=Vuw5St1x4r
+**Code**: https://github.com/tlc4418/llm_optimization
+
+**Cross-reference**: This is **Paper #10** in the main file above.
+
+### Released artifacts
+
+| Artifact | HuggingFace / Location |
+|---|---|
+| **Base (policy)** | [`EleutherAI/pythia-1.4b-deduped`](https://huggingface.co/EleutherAI/pythia-1.4b-deduped) |
+| **Base (RM backbones)** | [`EleutherAI/pythia-14m`](https://huggingface.co/EleutherAI/pythia-14m), [`EleutherAI/pythia-70m-deduped`](https://huggingface.co/EleutherAI/pythia-70m-deduped), [`EleutherAI/pythia-1.4b-deduped`](https://huggingface.co/EleutherAI/pythia-1.4b-deduped) |
+| **SFT (1.4B)** | [`tlc4418/pythia_1.4b_sft_policy`](https://huggingface.co/tlc4418/pythia_1.4b_sft_policy) |
+| **SFT (70M)** | [`tlc4418/pythia_70m_sft`](https://huggingface.co/tlc4418/pythia_70m_sft) |
+| **Proxy RMs** | Trained via code at `github.com/tlc4418/llm_optimization` at 7M, 44M, 1.3B scales |
+| **Gold RM** | [`tatsu-lab/alpaca-farm-reward-model-human-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-reward-model-human-wdiff) (7B, weight diff — requires LLaMA-7B base) |
+| **Aligned policy** | Trained via code (PPO + BoN); no pre-trained checkpoint released, but code is fully reproducible |
+| **Preference data** | [`tlc4418/1.4b-policy_preference_data_gold_labelled`](https://huggingface.co/datasets/tlc4418/1.4b-policy_preference_data_gold_labelled) |
+
+### Dataset
+- **SFT + RL**: [`tatsu-lab/alpaca_farm`](https://huggingface.co/datasets/tatsu-lab/alpaca_farm) (10k SFT, ~20k preference, ~20k unlabeled for RL)
+- **Preference labels**: Generated by the 7B gold RM on sampled policy outputs. Main proxy RM training size: 46k prompts.
+
+### Evaluation
+- **Gold RM**: AlpacaFarm human-preference RM (7B). Gold RM score vs. KL divergence is the primary metric.
+- **Reported metrics**: Win rate of ensemble-optimized policies vs. single-RM-optimized policies (Table 6/7 in paper).
+- **Key reported numbers** (copied from Paper #10 in main file):
+  - UWO PPO win rate: `60.2 ± 3.4` (44M RMs, 0% noise), `63.0 ± 3.1` (25% noise) — best in table
+  - WCO PPO: `59.4 ± 3.3` (0% noise), `62.2 ± 2.9` (25% noise)
+  - Mean PPO: `58.1 ± 3.3` (0% noise), `60.2 ± 3.5` (25% noise)
+  - Scale transfer (UWO): BoN `73.8 ± 0.8` (1.3B RMs)
+
+### Cross-reference to main file
+- **Paper #10** in the main file. **Experiment B (AlpacaFarm)** is designed to directly compare against these numbers.
+- Shares exact setup (AlpacaFarm + Pythia + 7B gold RM) with Paper #1 (Iterated RLHF) and Paper #5 (Inference-Time Reward Hacking).
+- The Coste et al. codebase is the **closest open reproduction** of Gao et al.'s overoptimization scaling laws (Paper not in main file; used closed OpenAI models).
+
+---
+
+## Pipeline C: AlpacaFarm (Stanford) — Full Simulation Framework (LLaMA-7B)
+
+**Paper**: Dubois et al., "AlpacaFarm: A Simulation Framework for Methods that Learn from Human Feedback" (NeurIPS 2023)
+**Link**: https://arxiv.org/abs/2305.14387
+**Code**: https://github.com/tatsu-lab/alpaca_farm
+
+### Released artifacts (all as weight diffs requiring LLaMA-7B)
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT (10k)** | [`tatsu-lab/alpaca-farm-sft10k-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-sft10k-wdiff) |
+| **RM (human pref)** | [`tatsu-lab/alpaca-farm-reward-model-human-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-reward-model-human-wdiff) |
+| **RM (sim GPT-4)** | [`tatsu-lab/alpaca-farm-reward-model-sim-gpt4-20k-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-reward-model-sim-gpt4-20k-wdiff) |
+| **PPO (sim)** | [`tatsu-lab/alpaca-farm-ppo-sim-gpt4-20k-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-ppo-sim-gpt4-20k-wdiff) |
+| **PPO (human)** | [`tatsu-lab/alpaca-farm-ppo-human-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-ppo-human-wdiff) |
+| **Expert Iter (sim)** | [`tatsu-lab/alpaca-farm-expiter-sim-gpt4-20k-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-expiter-sim-gpt4-20k-wdiff) |
+| **Expert Iter (human)** | [`tatsu-lab/alpaca-farm-expiter-human-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-expiter-human-wdiff) |
+| **FeedME (sim)** | [`tatsu-lab/alpaca-farm-feedme-sim-gpt4-20k-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-feedme-sim-gpt4-20k-wdiff) |
+| **FeedME (human)** | [`tatsu-lab/alpaca-farm-feedme-human-wdiff`](https://huggingface.co/tatsu-lab/alpaca-farm-feedme-human-wdiff) |
+
+### Dataset
+- [`tatsu-lab/alpaca_farm`](https://huggingface.co/datasets/tatsu-lab/alpaca_farm): Contains `alpaca_farm_evaluation` (805 prompts), `alpaca_gpt4_preference` (19.5k), `alpaca_human_preference` (9.7k), `alpaca_instructions` (52k), `alpaca_noisy_multi_preference` (9.7k)
+
+### Evaluation
+- **Gold RM / judge**: The human-preference RM (7B) is the gold standard for simulation experiments. Additionally, AlpacaEval automated annotators (GPT-4-based) are used for the final leaderboard.
+- **Reported leaderboard** (win rate vs. Davinci-001 reference, 805 eval prompts):
+  - `gpt35_turbo_instruct`: `81.71`
+  - `alpaca-farm-ppo-sim-gpt4-20k`: `44.10`
+  - `alpaca-farm-ppo-human`: `41.24`
+  - `alpaca-7b` (SFT base): `26.46`
+  - `text_davinci_001`: `15.17`
+
+### Cross-reference to main file
+- The AlpacaFarm gold RM is used as the gold judge in Papers #1, #5, #10, and #12 (simulation setting).
+- **Experiment B** depends entirely on this infrastructure.
+- Dual-variant design (human RM + simulated RM) is uniquely valuable for studying how feedback quality affects RLHF outcomes.
+
+---
+
+## Pipeline D: PKU-Alignment / Beaver — Safe RLHF (LLaMA-7B) ⭐ Most comprehensive single release
+
+**Paper**: Dai et al., "Safe RLHF: Safe Reinforcement Learning from Human Feedback" (ICLR 2024 Spotlight)
+**Link**: https://arxiv.org/abs/2310.12773
+**Code**: https://github.com/PKU-Alignment/safe-rlhf
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT base** | [`PKU-Alignment/alpaca-7b-reproduced`](https://huggingface.co/PKU-Alignment/alpaca-7b-reproduced) |
+| **Reward Model v1** | [`PKU-Alignment/beaver-7b-v1.0-reward`](https://huggingface.co/PKU-Alignment/beaver-7b-v1.0-reward) |
+| **Cost Model v1** | [`PKU-Alignment/beaver-7b-v1.0-cost`](https://huggingface.co/PKU-Alignment/beaver-7b-v1.0-cost) |
+| **Aligned v1** | [`PKU-Alignment/beaver-7b-v1.0`](https://huggingface.co/PKU-Alignment/beaver-7b-v1.0) |
+| **Reward Model v2** | [`PKU-Alignment/beaver-7b-v2.0-reward`](https://huggingface.co/PKU-Alignment/beaver-7b-v2.0-reward) |
+| **Cost Model v2** | [`PKU-Alignment/beaver-7b-v2.0-cost`](https://huggingface.co/PKU-Alignment/beaver-7b-v2.0-cost) |
+| **Aligned v2** | [`PKU-Alignment/beaver-7b-v2.0`](https://huggingface.co/PKU-Alignment/beaver-7b-v2.0) |
+| **Reward Model v3** | [`PKU-Alignment/beaver-7b-v3.0-reward`](https://huggingface.co/PKU-Alignment/beaver-7b-v3.0-reward) |
+| **Cost Model v3** | [`PKU-Alignment/beaver-7b-v3.0-cost`](https://huggingface.co/PKU-Alignment/beaver-7b-v3.0-cost) |
+| **Aligned v3** | [`PKU-Alignment/beaver-7b-v3.0`](https://huggingface.co/PKU-Alignment/beaver-7b-v3.0) |
+| **Unified Reward** | [`PKU-Alignment/beaver-7b-unified-reward`](https://huggingface.co/PKU-Alignment/beaver-7b-unified-reward) |
+| **Unified Cost** | [`PKU-Alignment/beaver-7b-unified-cost`](https://huggingface.co/PKU-Alignment/beaver-7b-unified-cost) |
+
+### Dataset
+- [`PKU-Alignment/PKU-SafeRLHF`](https://huggingface.co/datasets/PKU-Alignment/PKU-SafeRLHF): ~330k expert comparison pairs (safety + helpfulness annotations), 10k multi-round data
+- Paper: https://arxiv.org/abs/2307.04657
+
+### Evaluation
+- **Gold RM / judge**: The v3 reward model and v3 cost model serve as implicit gold standards for earlier iterations. The paper primarily evaluates safety constraint satisfaction (cost < threshold) alongside helpfulness (reward).
+- **Reported metrics**: Safety violation rate, helpfulness reward score, constrained optimization Pareto curves. The iterative improvement from v1→v2→v3 is the central result.
+- **No LLM-as-judge** in the primary evaluation pipeline; the paper uses automatic safety classifiers and the reward/cost model scores themselves.
+
+### Cross-reference to main file
+- Paper #4 (Rethinking RM Eval) includes `Beaver` reward models as baselines in the RewardBench evaluation (specifically `oasst-rm` / `Beaver` in their RM comparison table).
+- The `PKU-SafeRLHF` dataset is used as part of the RLHFlow preference mix in Paper #18 (RRM): `26,874` pairs.
+- The cost-model paradigm (separate safety signal) is conceptually related to Paper #7 (ARA) which audits for safety-specific reward hacking.
+
+---
+
+## Pipeline E: OpenRLHF — Llama-3-8B Pipeline
+
+**Paper**: Hu et al., "OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework"
+**Link**: https://arxiv.org/abs/2405.11143
+**Code**: https://github.com/OpenRLHF/OpenRLHF
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **Base** | [`meta-llama/Meta-Llama-3-8B`](https://huggingface.co/meta-llama/Meta-Llama-3-8B) |
+| **SFT** | [`OpenRLHF/Llama-3-8b-sft-mixture`](https://huggingface.co/OpenRLHF/Llama-3-8b-sft-mixture) |
+| **RM (mixture)** | [`OpenRLHF/Llama-3-8b-rm-mixture`](https://huggingface.co/OpenRLHF/Llama-3-8b-rm-mixture) |
+| **RM (700k)** | [`OpenRLHF/Llama-3-8b-rm-700k`](https://huggingface.co/OpenRLHF/Llama-3-8b-rm-700k) |
+| **PPO** | [`OpenRLHF/Llama-3-8b-rlhf-100k`](https://huggingface.co/OpenRLHF/Llama-3-8b-rlhf-100k) |
+
+### Evaluation
+- **Reported metrics**: Chat-Arena-Hard score. PPO model achieves `20.5` vs SFT `5.6` on Chat-Arena-Hard.
+- **Supported algorithms**: PPO, GRPO, REINFORCE++, DAPO, Dr. GRPO.
+
+### Cross-reference to main file
+- Uses the same Llama-3-8B base as Paper #3 (EPPO) — direct architecture match for Experiment A comparisons.
+- The 700k RM training mix overlaps with Paper #18 (RRM) which also uses the RLHFlow preference mix.
+
+---
+
+## Pipeline F: RLHFlow — Online Iterative DPO (Llama-3-8B)
+
+**Paper**: Dong et al., "RLHF Workflow: From Reward Modeling to Online RLHF" (TMLR 2024)
+**Link**: https://arxiv.org/abs/2405.07863
+**Code (RM training)**: https://github.com/RLHFlow/RLHF-Reward-Modeling
+**Code (Online RLHF)**: https://github.com/RLHFlow/Online-RLHF
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **Base** | [`meta-llama/Meta-Llama-3-8B`](https://huggingface.co/meta-llama/Meta-Llama-3-8B) |
+| **SFT v1** | [`RLHFlow/LLaMA3-SFT`](https://huggingface.co/RLHFlow/LLaMA3-SFT) |
+| **SFT v2** | [`RLHFlow/LLaMA3-SFT-v2`](https://huggingface.co/RLHFlow/LLaMA3-SFT-v2) |
+| **RM (ArmoRM 8B)** | [`RLHFlow/ArmoRM-Llama3-8B-v0.1`](https://huggingface.co/RLHFlow/ArmoRM-Llama3-8B-v0.1) |
+| **RM (Decision-Tree 27B)** | [`RLHFlow/Decision-Tree-Reward-Gemma-2-27B`](https://huggingface.co/RLHFlow/Decision-Tree-Reward-Gemma-2-27B) |
+| **Aligned (iter. DPO)** | [`RLHFlow/LLaMA3-iterative-DPO-final`](https://huggingface.co/RLHFlow/LLaMA3-iterative-DPO-final) |
+
+### Dataset
+- ArmoRM trained on a mix of preference data; the codebase supports Bradley-Terry, pairwise, process, and decision-tree RM training.
+
+### Evaluation
+- **ArmoRM-8B**: Achieved **#1 on RewardBench** at time of release via multi-objective reward decomposition with MoE gating. Provides interpretable per-dimension scores (helpfulness, safety, verbosity, etc.).
+- **Decision-Tree-27B**: Achieved **95.4% on RewardBench** — current SOTA among open RMs at time of release.
+- **Policy**: LLaMA3-iterative-DPO-final reported strong AlpacaEval 2.0 and MT-Bench results (exact numbers in the paper's leaderboard).
+
+### Cross-reference to main file
+- ArmoRM is included as a baseline RM in Paper #4 (Rethinking RM Eval) and is evaluated on RewardBench in Papers #4, #17 (GRM).
+- The RLHFlow preference mix (700k pairs) is the training data for Paper #18 (RRM) reward models.
+- ODIN (anti-length-hacking) is integrated into the RLHFlow codebase, connecting to Papers #3, #7, #8 that study reward hacking mitigation.
+
+---
+
+## Pipeline G: Allen AI / Tülu 2.5 and 3 — Systematic Ablation (7B–70B)
+
+**Paper (Tülu 2.5)**: Ivison et al., "Unpacking DPO and PPO: Disentangling Best Practices for Learning from Preferences" (NeurIPS 2024)
+**Paper (Tülu 3)**: Lambert et al., "Tülu 3: Pushing Frontiers in Open Language Model Post-Training"
+**Link (Tülu 3)**: https://arxiv.org/abs/2411.15124
+**Code**: https://github.com/allenai/open-instruct (Apache 2.0)
+
+### Released artifacts (selected — 44+ models total for Tülu 2.5 alone)
+
+| Artifact | HuggingFace |
+|---|---|
+| **RM (Tülu 2.5, HH-RLHF)** | [`allenai/tulu-v2.5-13b-hh-rlhf-60k-rm`](https://huggingface.co/allenai/tulu-v2.5-13b-hh-rlhf-60k-rm) |
+| **PPO (Tülu 2.5, HH-RLHF)** | [`allenai/tulu-v2.5-ppo-13b-hh-rlhf-60k`](https://huggingface.co/allenai/tulu-v2.5-ppo-13b-hh-rlhf-60k) |
+| **RM (Tülu 3, 8B)** | [`allenai/Llama-3.1-Tulu-3-8B-RM`](https://huggingface.co/allenai/Llama-3.1-Tulu-3-8B-RM) |
+| **DPO (Tülu 3, 8B)** | [`allenai/Llama-3.1-Tulu-3-8B-DPO`](https://huggingface.co/allenai/Llama-3.1-Tulu-3-8B-DPO) |
+| **RewardBench 2 RMs (70 ckpts)** | e.g. [`allenai/Llama-3.1-Tulu-3-8B-DPO-RM-RB2`](https://huggingface.co/allenai/Llama-3.1-Tulu-3-8B-DPO-RM-RB2) (see `allenai/` namespace) |
+
+### Evaluation
+- **Tülu 2.5**: Systematic comparison of PPO vs DPO across **14 different preference datasets**. Reports gold RM scores, MT-Bench, AlpacaEval 2.0. This is the most comprehensive open ablation study of alignment algorithms.
+- **Tülu 3**: Reports IFEval, GSM8K, MATH, AlpacaEval 2.0, MT-Bench across 8B, 70B, 405B scales.
+- **RewardBench 2**: 70 reward model checkpoints trained with varying configurations to correlate benchmark scores with downstream PPO performance — the **largest single collection** of diverse RMs with controlled variation.
+
+### Cross-reference to main file
+- Tülu 2.5's HH-RLHF experiments use the same dataset as Papers #3, #7, #8, #12, #14 — directly comparable to **Experiment A**.
+- The Tülu 2.5 PPO vs DPO ablation across 14 datasets provides context for interpreting our GRPO results.
+- RewardBench 2's 70 RM checkpoints are highly relevant to Paper #4 (Rethinking RM Eval) which studies RM quality vs. downstream policy performance.
+
+---
+
+## Pipeline H: Eisenstein et al. — Reward Ensemble Diversity (T5, 220M–3B) ⭐ Reward hacking focus
+
+**Paper**: Eisenstein et al., "Helping or Herding? Reward Model Ensembles Mitigate but do not Eliminate Reward Hacking" (2023)
+**Link**: https://arxiv.org/abs/2312.09244
+**Code**: https://github.com/google-deepmind/reward-ensembles
+
+### Released artifacts
+
+| Artifact | Location |
+|---|---|
+| **15 pretraining ckpts** | `github.com/google-deepmind/reward-ensembles` — 5 random seeds × 3 T5 scales (base ~220M, large ~770M, xl ~3B) |
+| **Reward models** | Trained from the released pretraining checkpoints; code provided for full reproduction |
+
+### Evaluation
+- **Gold judge**: Internal human preference evaluation; the paper studies whether reward hacking persists even with diverse ensembles.
+- **Key finding**: Reward hacking persists with ensembles. Pretraining seed diversity and fine-tuning seed diversity produce different ensemble behaviors.
+- **Reported metrics**: Proxy reward vs. gold reward curves across optimization budget. Results are primarily figure-based.
+
+### Cross-reference to main file
+- Directly relevant to Paper #10 (Coste et al.) which also studies RM ensembles on Pythia models.
+- The finding that ensembles are insufficient to fully prevent hacking motivates the more sophisticated methods in Papers #1, #3, #7, #12, #16.
+- T5-based setup is distinct from the GPT-NeoX/Pythia/Llama ecosystem used by most other papers in this file.
+
+---
+
+## Pipeline I: OpenAssistant / LAION — Community-Driven (Pythia, 1.4B–12B)
+
+**Project**: OpenAssistant (LAION)
+**Code**: https://github.com/LAION-AI/Open-Assistant (now archived)
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **RM (6.9B)** | [`OpenAssistant/oasst-rm-2-pythia-6.9b-epoch-1`](https://huggingface.co/OpenAssistant/oasst-rm-2-pythia-6.9b-epoch-1) |
+| **RM (1.4B)** | [`OpenAssistant/oasst-rm-2.1-pythia-1.4b-epoch-2.5`](https://huggingface.co/OpenAssistant/oasst-rm-2.1-pythia-1.4b-epoch-2.5) |
+| **RM (DeBERTa)** | [`OpenAssistant/reward-model-deberta-v3-large-v2`](https://huggingface.co/OpenAssistant/reward-model-deberta-v3-large-v2) |
+| **PPO (12B)** | [`andreaskoepf/oasst-rl-1-pythia-12b`](https://huggingface.co/andreaskoepf/oasst-rl-1-pythia-12b) |
+| **SFT models** | Various under `OpenAssistant/` namespace (Pythia and LLaMA based) |
+
+### Dataset
+- [`OpenAssistant/oasst1`](https://huggingface.co/datasets/OpenAssistant/oasst1): ~161k human-generated assistant messages in 35 languages
+
+### Evaluation
+- **No systematic gold RM evaluation reported** — the project was community-driven rather than paper-driven. Models were evaluated via community testing and informal benchmarks.
+
+### Cross-reference to main file
+- The `oasst-rm` models appear as baselines in Paper #4 (Rethinking RM Eval) RewardBench comparisons.
+- The Pythia-6.9B RM provides an independent reward signal that could be used as an alternative gold RM for Experiment B/C if the AlpacaFarm 7B RM is not suitable.
+
+---
+
+## Pipeline J: MOSS-RLHF (Fudan) — Secrets of RLHF (LLaMA-7B)
+
+**Paper**: Zheng et al., "Secrets of RLHF in Large Language Models Part I: PPO" (NeurIPS 2023 Workshop Best Paper)
+**Link**: https://arxiv.org/abs/2307.04964
+**Code**: https://github.com/OpenLMLab/MOSS-RLHF
+
+### Released artifacts (weight diffs, both English and Chinese)
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT** | `fnlp/moss-rlhf-sft-model-7B-en` |
+| **RM** | `fnlp/moss-rlhf-reward-model-7B-en` |
+| **Policy** | `fnlp/moss-rlhf-policy-model-7B-en` |
+| **Chinese variants** | `fnlp/moss-rlhf-{sft,reward,policy}-model-7B-zh` |
+
+### Evaluation
+- **Reported metrics**: The paper focuses on implementation details and failure modes of PPO rather than benchmark comparisons. Reports reward curves during training and qualitative output comparisons.
+- **No standard benchmark table** (MT-Bench, AlpacaEval, etc.) in the main paper.
+
+### Cross-reference to main file
+- Not directly referenced in the main file's papers, but the implementation insights are relevant to understanding PPO instability issues discussed in Papers #3, #9, #15.
+
+---
+
+## Pipeline K: Starling-7B (Berkeley NEST) — RLAIF Pipeline
+
+**Paper**: Zhu et al., "Starling-7B: Increasing LLM Helpfulness & Harmlessness with RLAIF"
+**Link**: https://starling.cs.berkeley.edu/
+**Code**: Uses OpenChat + APA (advantage-weighted policy averaging)
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT base** | [`openchat/openchat_3.5`](https://huggingface.co/openchat/openchat_3.5) (Mistral-7B based) |
+| **RM (7B)** | [`berkeley-nest/Starling-RM-7B-alpha`](https://huggingface.co/berkeley-nest/Starling-RM-7B-alpha) |
+| **RM (34B)** | [`Nexusflow/Starling-RM-34B`](https://huggingface.co/Nexusflow/Starling-RM-34B) |
+| **Aligned (alpha)** | [`berkeley-nest/Starling-LM-7B-alpha`](https://huggingface.co/berkeley-nest/Starling-LM-7B-alpha) |
+| **Aligned (beta)** | [`berkeley-nest/Starling-LM-7B-beta`](https://huggingface.co/berkeley-nest/Starling-LM-7B-beta) |
+
+### Dataset
+- Nectar dataset: 3.8M pairwise GPT-4 comparisons across diverse instruction sources.
+
+### Evaluation
+- **Reported benchmarks**: MT-Bench `8.09` (alpha), AlpacaEval 2.0 metrics. Starling-RM-7B-alpha was competitive on RewardBench at time of release.
+- **RLAIF-based** — preferences come from GPT-4 comparisons rather than human annotations.
+
+### Cross-reference to main file
+- Not directly referenced in the main file's papers, but the Starling RM models are used as baselines in some RewardBench evaluations referenced by Papers #4, #17, #18.
+
+---
+
+## Pipeline L: InternLM2 — Multi-Scale Reward Models (1.8B–20B)
+
+**Paper**: Cai et al., "InternLM2 Technical Report"
+**Link**: https://arxiv.org/abs/2403.17297
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **RM (1.8B)** | [`internlm/internlm2-1_8b-reward`](https://huggingface.co/internlm/internlm2-1_8b-reward) |
+| **RM (7B)** | [`internlm/internlm2-7b-reward`](https://huggingface.co/internlm/internlm2-7b-reward) |
+| **RM (20B)** | [`internlm/internlm2-20b-reward`](https://huggingface.co/internlm/internlm2-20b-reward) |
+| **Chat (1.8B)** | [`internlm/internlm2-chat-1_8b`](https://huggingface.co/internlm/internlm2-chat-1_8b) |
+| **Chat (7B)** | [`internlm/internlm2-chat-7b`](https://huggingface.co/internlm/internlm2-chat-7b) |
+| **Chat (20B)** | [`internlm/internlm2-chat-20b`](https://huggingface.co/internlm/internlm2-chat-20b) |
+
+### Dataset
+- RMs trained on 2.4M preference samples (internal curation).
+
+### Evaluation
+- **Reported**: RewardBench scores across three scales. The 7B RM is used as a baseline in Paper #4 (Rethinking RM Eval) where it scores `46.0/20.8` BoN and `29.4` PPO on MetaMATH.
+- The multi-scale release (1.8B/7B/20B) is uniquely valuable for studying how RM scale affects overoptimization.
+
+### Cross-reference to main file
+- `internlm2-7b-reward` appears as an evaluated RM in Paper #4 (Rethinking RM Eval) Table `main_bon_results`.
+
+---
+
+## Pipeline M: UltraRM / OpenBMB — Feedback with Critique (LLaMA-13B)
+
+**Paper**: Cui et al., "UltraFeedback: Boosting Language Models with Scaled AI Feedback"
+**Link**: https://arxiv.org/abs/2310.01377
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT** | [`openbmb/UltraLM-13b`](https://huggingface.co/openbmb/UltraLM-13b) |
+| **RM** | [`openbmb/UltraRM-13b`](https://huggingface.co/openbmb/UltraRM-13b) |
+| **Critique Model** | [`openbmb/UltraCM-13b`](https://huggingface.co/openbmb/UltraCM-13b) |
+| **Aligned (BoN)** | [`openbmb/UltraLM-13b-v2.0`](https://huggingface.co/openbmb/UltraLM-13b-v2.0) |
+
+### Dataset
+- [`openbmb/UltraFeedback`](https://huggingface.co/datasets/openbmb/UltraFeedback): ~64k instructions, 256k model responses from 17 LLMs, scored by GPT-4 on instruction-following, truthfulness, honesty, helpfulness.
+
+### Evaluation
+- **Reported benchmarks**: AlpacaEval win rates, MT-Bench scores. UltraRM-13b was competitive at time of release.
+- **UltraFeedback is foundational** — it underpins Zephyr, Tülu, Notus, and many other DPO projects.
+
+### Cross-reference to main file
+- UltraFeedback is the primary preference dataset for Paper #2 (BSPO) and part of the mix for Paper #18 (RRM: `340,025` pairs).
+- Paper #13 (RPO) uses UltraFeedback for the Zephyr-beta pipeline.
+
+---
+
+## Pipeline N: HuggingFace Zephyr / Alignment Handbook — DPO Pipeline (Mistral-7B)
+
+**Paper**: Tunstall et al., "Zephyr: Direct Distillation of LM Alignment" (EMNLP 2024 Industry)
+**Link**: https://arxiv.org/abs/2310.16944
+**Code**: https://github.com/huggingface/alignment-handbook
+
+### Released artifacts
+
+| Artifact | HuggingFace |
+|---|---|
+| **Base** | [`mistralai/Mistral-7B-v0.1`](https://huggingface.co/mistralai/Mistral-7B-v0.1) |
+| **SFT** | [`alignment-handbook/zephyr-7b-sft-full`](https://huggingface.co/alignment-handbook/zephyr-7b-sft-full) |
+| **DPO (beta)** | [`HuggingFaceH4/zephyr-7b-beta`](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta) |
+| **DPO (full)** | [`alignment-handbook/zephyr-7b-dpo-full`](https://huggingface.co/alignment-handbook/zephyr-7b-dpo-full) |
+| **Gemma variant** | [`HuggingFaceH4/zephyr-7b-gemma-v0.1`](https://huggingface.co/HuggingFaceH4/zephyr-7b-gemma-v0.1) |
+
+**Note**: No explicit reward model — DPO bypasses RM training by design. This is a 3-of-4 pipeline.
+
+### Evaluation
+- **Reported**: MT-Bench `7.34` (beta), AlpacaEval `13.20` (LC). The Zephyr pipeline became a standard DPO baseline.
+
+### Cross-reference to main file
+- Paper #13 (RPO) uses `zephyr-7b-beta` as the base pipeline and reports RPO improvements over DPO on this exact setup.
+- The alignment-handbook provides fully reproducible recipes that have been extended to Gemma and other architectures.
+
+---
+
+## Pipeline O: Stack-LLaMA (HuggingFace TRL Tutorial) — Educational Pipeline (LLaMA-7B LoRA)
+
+**Paper**: Blog post: "StackLLaMA: A hands-on guide to train LLaMA with RLHF"
+**Link**: https://huggingface.co/blog/stackllama
+**Code**: Part of TRL library examples
+
+### Released artifacts (all as LoRA adapters)
+
+| Artifact | HuggingFace |
+|---|---|
+| **SFT adapter** | [`trl-lib/llama-7b-se-sft-peft`](https://huggingface.co/trl-lib/llama-7b-se-sft-peft) |
+| **RM adapter** | [`trl-lib/llama-7b-se-rm-peft`](https://huggingface.co/trl-lib/llama-7b-se-rm-peft) |
+| **PPO adapter** | [`trl-lib/llama-7b-se-rl-peft`](https://huggingface.co/trl-lib/llama-7b-se-rl-peft) |
+
+### Dataset
+- StackExchange Q&A data with voting-based preference labels.
+
+### Evaluation
+- **Primarily educational** — no formal benchmark table. Demonstrates the full RLHF pipeline with LoRA.
+
+---
+
+# Standalone Reward Models (No Full Pipeline)
+
+These are notable publicly released RMs that do **not** come with a full pipeline but are used as gold/eval RMs in the papers above or would be useful as external evaluators for our experiments.
+
+| Model | HuggingFace | Size | Used as gold/eval in |
+|---|---|---|---|
+| `Skywork-Reward-Llama-3.1-8B-v0.2` | [`Skywork/Skywork-Reward-Llama-3.1-8B-v0.2`](https://huggingface.co/Skywork/Skywork-Reward-Llama-3.1-8B-v0.2) | 8B | Our pipeline (Experiment A gold RM) |
+| `Skywork-Reward-Gemma-2-27B-v0.2` | [`Skywork/Skywork-Reward-Gemma-2-27B-v0.2`](https://huggingface.co/Skywork/Skywork-Reward-Gemma-2-27B-v0.2) | 27B | Paper #16 (Adv-RM) attack target |
+| `Llama-3.1-Nemotron-70B-Reward` | [`nvidia/Llama-3.1-Nemotron-70B-Reward`](https://huggingface.co/nvidia/Llama-3.1-Nemotron-70B-Reward) | 70B | Paper #16 gold RM + attack target |
+| `Skywork-o1-Open-PRM-Qwen2.5-7B` | [`Skywork/Skywork-o1-Open-PRM-Qwen2.5-7B`](https://huggingface.co/Skywork/Skywork-o1-Open-PRM-Qwen2.5-7B) | 7B | Paper #4 gold RM for math overoptimization |
+| `Qwen2.5-Math-RM-72B` | [`Qwen/Qwen2.5-Math-RM-72B`](https://huggingface.co/Qwen/Qwen2.5-Math-RM-72B) | 72B | Math-specialized RM |
+| `reward-model-Mistral-7B-instruct-Unified-Feedback` | (search `weqweasdas` namespace) | 7B | Paper #17 (GRM) gold RM for BoN/PPO |
+| `PairRM (DeBERTa)` | [`llm-blender/PairRM`](https://huggingface.co/llm-blender/PairRM) | 0.4B | Efficient pairwise RM for BoN |
+| `hh_rlhf_rm_open_llama_3b` | [`weqweasdas/hh_rlhf_rm_open_llama_3b`](https://huggingface.co/weqweasdas/hh_rlhf_rm_open_llama_3b) | 3B | HH-RLHF trained, 75.5% accuracy |
+| `Eurus-RM-7b` | [`openbmb/Eurus-RM-7b`](https://huggingface.co/openbmb/Eurus-RM-7b) | 7B | Paper #4 RM comparison table |
+| `GRM-Llama3-8B-sftreg` | (GRM paper models) | 8B | Paper #17 (GRM) — own paper |
+| `nvidia/Qwen-3-Nemotron-32B-Reward` | [`nvidia/Qwen-3-Nemotron-32B-Reward`](https://huggingface.co/nvidia/Qwen-3-Nemotron-32B-Reward) | 32B | Latest NVIDIA RM |
+
+---
+
+# Key Datasets for RLHF Pipeline Training
+
+| Dataset | HuggingFace | Size | Used in papers |
+|---|---|---|---|
+| AlpacaFarm | [`tatsu-lab/alpaca_farm`](https://huggingface.co/datasets/tatsu-lab/alpaca_farm) | 91.6k rows (multiple splits) | #1, #2(app), #3(eval), #5, #10, #12 |
+| Anthropic-HH | [`Anthropic/hh-rlhf`](https://huggingface.co/datasets/Anthropic/hh-rlhf) | ~170k conversations | #3, #7, #8, #12, #14, #18(mix) |
+| Reddit TL;DR | [`openai/summarize_from_feedback`](https://huggingface.co/datasets/openai/summarize_from_feedback) | ~93k comparison pairs | #3, #11, #12, #14, Pipeline A |
+| UltraFeedback | [`openbmb/UltraFeedback`](https://huggingface.co/datasets/openbmb/UltraFeedback) | 64k instructions, 256k responses | #2, #13, #18(mix) |
+| PKU-SafeRLHF | [`PKU-Alignment/PKU-SafeRLHF`](https://huggingface.co/datasets/PKU-Alignment/PKU-SafeRLHF) | ~330k pairs | Pipeline D, #18(mix) |
+| HelpSteer2 | [`nvidia/HelpSteer2`](https://huggingface.co/datasets/nvidia/HelpSteer2) | ~10k | #16 |
+| SHP (Stanford Human Preferences) | [`stanfordnlp/SHP`](https://huggingface.co/datasets/stanfordnlp/SHP) | ~385k | #8(eval), #18(mix) |
+| OpenAssistant (oasst1) | [`OpenAssistant/oasst1`](https://huggingface.co/datasets/OpenAssistant/oasst1) | ~161k messages | Pipeline I |
+| Unified-Feedback | (see GRM paper) | 400k | #17 |
+| RLHFlow 700k Mix | (composite: HH+SHP+HelpSteer+SafeRLHF+UltraFeedback+UltraInteract+Capybara+Orca) | ~796k | #18 |
+
+---
+
+# Pipeline Completeness Summary (Updated with Evaluations)
+
+| Pipeline | Org | Sizes | Base | SFT | RM | Aligned | Gold RM / Judge | Key Eval Metric | Overopt Focus? |
+|---|---|---|---|---|---|---|---|---|---|
+| **A: cleanrl/TRL TL;DR** | HF/Mila | 1B–6.9B | ✅ | ✅ | ✅ | ✅ (PPO/RLOO) | 6.9B RM (self) | Win rate vs human summaries | Discusses it |
+| **B: Coste et al.** | Mila/UCL | 70M–1.4B | ✅ | ✅ | Code | Code | AlpacaFarm Human 7B | Gold RM vs KL + win rate | **Yes ⭐** |
+| **C: AlpacaFarm** | Stanford | 7B | ✅* | ✅ | ✅ (human+sim) | ✅ (PPO+ExpIter) | AlpacaFarm Human 7B + AlpacaEval | Win rate vs Davinci-001 | Simulation framework |
+| **D: Beaver/Safe-RLHF** | PKU | 7B | ✅ | ✅ | ✅ (+Cost, 3 versions) | ✅ (v1–v3) | Internal RM/Cost scores | Safety violation rate + reward | Safety focus |
+| **E: OpenRLHF** | Community | 8B | ✅ | ✅ | ✅ | ✅ (PPO) | — | Chat-Arena-Hard `20.5` | No |
+| **F: RLHFlow** | UIUC/HKUST | 8B | ✅ | ✅ | ✅ (ArmoRM) | ✅ (iter. DPO) | RewardBench #1 (ArmoRM) | RewardBench + AlpacaEval | ODIN integrated |
+| **G: Tülu 2.5/3** | Allen AI | 7B–70B | ✅ | ✅ | ✅ | ✅ (PPO+DPO) | RewardBench 2 (70 ckpts) | MT-Bench + AlpacaEval + IFEval | 44+ ablations |
+| **H: Eisenstein et al.** | DeepMind | 220M–3B | ✅ | — | 15 ckpts | — | Human pref (internal) | Proxy vs gold reward curves | **Yes ⭐** |
+| **I: OpenAssistant** | LAION | 1.4B–12B | ✅ | ✅ | ✅ (4 models) | ✅ (PPO 12B) | None formal | Community testing | No |
+| **J: MOSS-RLHF** | Fudan | 7B | ✅* | ✅ | ✅ | ✅ | None formal | Reward curves (training) | No |
+| **K: Starling-7B** | Berkeley | 7B | ✅ | ✅ | ✅ (7B+34B) | ✅ (APA) | RewardBench | MT-Bench `8.09` | No |
+| **L: InternLM2** | Shanghai AI Lab | 1.8B–20B | ✅ | ✅ | ✅ (3 sizes) | ✅ | RewardBench | RewardBench scores | No |
+| **M: UltraRM** | OpenBMB | 13B | ✅ | ✅ | ✅ (+CritiqueM) | ✅ (BoN) | — | AlpacaEval + MT-Bench | No |
+| **N: Zephyr** | HuggingFace | 7B | ✅ | ✅ | **—** (DPO) | ✅ | — | MT-Bench `7.34`, AlpacaEval | No |
+| **O: Stack-LLaMA** | HuggingFace | 7B (LoRA) | ✅ | ✅ | ✅ | ✅ | None formal | Educational | No |
+
+*Weight diffs requiring original LLaMA-1.
+
+---
+
+# Mapping: Which Pipeline Artifacts Match Which Papers
+
+This table maps the pipeline releases above to the 18 papers in the main file, showing which released artifacts can serve as baselines, gold RMs, or direct comparison points.
+
+| Paper | Matching Pipeline(s) | What matches | Notes |
+|---|---|---|---|
+| **#1 Iterated RLHF** | **B** (Coste), **C** (AlpacaFarm) | Same gold RM (AlpacaFarm 7B), same data, Pythia policy | Policy size differs (410M vs 1.4B) |
+| **#2 BSPO** | **M** (UltraRM) for dataset | UltraFeedback dataset overlap | Different policy (Alpaca-7B vs UltraLM-13b) |
+| **#3 EPPO** | **A** (TL;DR), **E** (OpenRLHF) | Same Llama-3-8B base; same Anthropic-HH and TL;DR datasets | OpenRLHF provides the SFT/RM/PPO checkpoint suite |
+| **#4 Rethinking RM Eval** | **F** (RLHFlow), **L** (InternLM2) | ArmoRM and internlm2-7b-reward are in their RM comparison table | Math-focused; uses different evaluation paradigm |
+| **#5 Inference-Time RH** | **B** (Coste) | Same AlpacaFarm setup, same proxy RM sizes | BoN/BoP vs PPO (different optimization method) |
+| **#7 ARA** | — | Llama-2-7B + Anthropic-HH (no exact pipeline match released) | Could use Tülu 2.5 HH-RLHF artifacts as approximate match |
+| **#8 CausalRM** | — | Qwen2.5-7B + Anthropic-HH (no pipeline with this exact combo) | |
+| **#9 Constrained RLHF** | — | GPT-2 + DailyDialog (unique setup, no pipeline match) | |
+| **#10 Coste et al.** | **B** (IS this paper) | Exact match — this is the pipeline | |
+| **#11 WARM** | **A** (TL;DR) for dataset | TL;DR dataset overlap | PaLM models are proprietary; not reproducible |
+| **#12 InfoRM** | **B** (AlpacaFarm sim), **A** (TL;DR real) | AlpacaFarm simulation + Anthropic-HH + TL;DR overlap | Multiple eval settings match multiple pipelines |
+| **#13 RPO** | **N** (Zephyr) | Exact match — RPO builds on zephyr-7b-beta pipeline | |
+| **#14 AdvPO** | **A** (TL;DR) | Llama-7B + Anthropic-HH + TL;DR | Gold RM is Vicuna-13B (not in any pipeline) |
+| **#15 Accuracy Paradox** | — | T5 + QA-FEEDBACK (unique setup) | |
+| **#16 Adv-RM** | **E** (OpenRLHF) for base model | Llama-3.1-8B-Instruct overlap | Gold RM is Nemotron-70B (standalone) |
+| **#17 GRM** | — | Gemma-2B/Mistral-7B + Unified-Feedback (unique setup) | GRM models are their own artifacts |
+| **#18 RRM** | **F** (RLHFlow) for RM training data | Same RLHFlow 700k preference mix | Gemma-2-9B-it base (not in pipelines) |
