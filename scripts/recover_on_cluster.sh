@@ -66,6 +66,17 @@ else
     echo "Already converted at $LLAMA_HF_DIR"
 fi
 
+# Ensure tokenizer is present (conversion script doesn't save it)
+if [ ! -f "$LLAMA_HF_DIR/tokenizer.model" ]; then
+    echo "  Copying tokenizer to converted model dir..."
+    python -c "
+import transformers
+tok = transformers.LlamaTokenizer.from_pretrained('$LLAMA_STRUCT')
+tok.save_pretrained('$LLAMA_HF_DIR')
+print('  Tokenizer saved.')
+"
+fi
+
 python -c "
 import json
 cfg = json.load(open('$LLAMA_HF_DIR/config.json'))
