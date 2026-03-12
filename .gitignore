@@ -4,3 +4,4 @@ save_reward_models
 rm_eval/eval_*
 __pycache__
 evaluation_dataset_*.json
+convert_venv

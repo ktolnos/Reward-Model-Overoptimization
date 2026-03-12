@@ -42,8 +42,8 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
 # base_model='Qwen/Qwen3-4B-Instruct-2507'
-# base_model='Qwen/Qwen3-4B-Base'
-base_model='Qwen/Qwen3-4B'
+base_model='Qwen/Qwen3-4B-Base'
+# base_model='Qwen/Qwen3-4B'
 # base_model='Qwen/Qwen3-4B-Instruct-2507'
 seed=${1:-19}
 save_last_only=${2:-False}
@@ -61,7 +61,7 @@ fi
 
 echo "Running with seed: $seed, save_last_only: $save_last_only, skip_optimizer: $skip_optimizer"
 
-wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3_gold_10k"
+wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3v2_annotated"
 log_dir="${REPO_ROOT}/save_reward_models"
 
 PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
