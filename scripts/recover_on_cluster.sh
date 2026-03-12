@@ -3,14 +3,11 @@
 # Recovers AlpacaFarm reward-model-human using the original tatsu-lab script.
 set -e
 
-WORK_DIR="/nas/ucb/eop/Reward-Model-Overoptimization"
 NAS_DIR="/nas/ucb/eop"
 MODELS_DIR="$NAS_DIR/cache/alpaca_farm_models"
 RAW_LLAMA_DIR="$NAS_DIR/cache/llama-7b-raw"
 LLAMA_HF_DIR="$NAS_DIR/cache/llama-7b-hf-f32"
 VENV_DIR="$NAS_DIR/recover_venv"
-
-cd "$WORK_DIR"
 
 # ── 0. Create a clean venv with transformers 4.29.2 ────────────────
 echo "=== Step 0: Setting up venv with transformers 4.29.2 ==="
