@@ -49,6 +49,9 @@ class ScriptArguments:
     debug_dataset: Optional[bool] = field(
         default=False, metadata={"help": "if True, only train with 100 samples"}
     )
+    skip_validation: Optional[bool] = field(
+        default=True, metadata={"help": "if True, skip length validation"}
+    )
 
 
 parser = HfArgumentParser((ScriptArguments, RewardConfig))
@@ -93,6 +96,7 @@ train_dataset, eval_dataset = load_train_eval_dataset(
     size=100 if script_args.debug_dataset else None,
     seed=training_args.seed,
     length_config=script_args.length_config,
+    skip_validation=script_args.skip_validation,
 )
 for i in range(1, len(dataset_list)):
     new_train_dataset = build_dataset(
