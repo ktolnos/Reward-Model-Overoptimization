@@ -41,7 +41,10 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_2"
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
-base_model='Qwen/Qwen3-4B-Instruct-2507'
+# base_model='Qwen/Qwen3-4B-Instruct-2507'
+base_model='Qwen/Qwen3-4B-Base'
+# base_model='Qwen/Qwen3-4B'
+# base_model='Qwen/Qwen3-4B-Instruct-2507'
 seed=${1:-19}
 save_last_only=${2:-False}
 skip_optimizer=${3:-True}
@@ -71,6 +74,10 @@ export MASTER_PORT
 learning_rate=2e-5
 num_train_epochs=8
 
+evals_per_epoch=4
+save_steps=$(echo "scale=10; 1 / $num_train_epochs" | bc)
+eval_steps=$(echo "scale=10; 1 / ($num_train_epochs * $evals_per_epoch)" | bc)
+
 gradient_accumulation_steps=64
 per_device_train_batch_size=1
 per_device_eval_batch_size=1
@@ -87,7 +94,8 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --lr_scheduler_type "constant" \
     --dataset "${dataset_name[@]}" \
     --gradient_checkpointing False \
-    --eval_strategy steps --eval_steps 0.02 \
+    --save_strategy steps --save_steps ${save_steps} \
+    --eval_strategy steps --eval_steps ${eval_steps} \
     --seed ${seed} \
     ${save_total_limit_arg} \
     ${save_only_model_arg} \
