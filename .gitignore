@@ -5,3 +5,4 @@ rm_eval/eval_*
 __pycache__
 evaluation_dataset_*.json
 convert_venv
+llama-7b-hf

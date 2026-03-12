@@ -46,7 +46,13 @@
       "WebFetch(domain:docs.vllm.ai)",
       "WebFetch(domain:blog.vllm.ai)",
       "WebFetch(domain:vllm.ai)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Read(//mnt/c/Users/opryz/Downloads/LLaMA/**)",
+      "Bash(source venv/bin/activate)",
+      "Bash(python3.11 -m venv convert_venv)",
+      "Bash(source convert_venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(huggingface-cli whoami:*)"
     ]
   },
   "prefersReducedMotion": false

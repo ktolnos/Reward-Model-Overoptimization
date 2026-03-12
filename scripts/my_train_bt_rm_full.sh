@@ -3,9 +3,11 @@
 #SBATCH --job-name=train_rm
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
-#SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=48:00:00
 #SBATCH --qos=default
+#SBATCH --nodes=1
+#SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
+#SBATCH --gres=gpu:1
 
 REPO_ROOT=""
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
@@ -42,9 +44,9 @@ dataset_name=(
 #  "/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/Qwen3-8B-Embedding-Adv-RM-step_3"
 )
 # base_model='Qwen/Qwen3-4B-Instruct-2507'
-base_model='Qwen/Qwen3-4B-Base'
+# base_model='Qwen/Qwen3-4B-Base'
 # base_model='Qwen/Qwen3-4B'
-# base_model='Qwen/Qwen3-4B-Instruct-2507'
+base_model='Qwen/Qwen3-8B'
 seed=${1:-19}
 save_last_only=${2:-False}
 skip_optimizer=${3:-True}
@@ -93,7 +95,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --mai
     --learning_rate ${learning_rate} \
     --lr_scheduler_type "constant" \
     --dataset "${dataset_name[@]}" \
-    --gradient_checkpointing False \
+    --gradient_checkpointing True \
     --save_strategy steps --save_steps ${save_steps} \
     --eval_strategy steps --eval_steps ${eval_steps} \
     --seed ${seed} \

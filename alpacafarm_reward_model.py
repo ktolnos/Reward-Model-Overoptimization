@@ -97,8 +97,9 @@ class RewardModel(transformers.PreTrainedModel):
 # HuggingFace Hub name for the reward-model-human weight diff.
 WDIFF_HUB_NAME = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
 
-# Default base LLaMA-7B model on HuggingFace.
-DEFAULT_LLAMA_7B = "huggyllama/llama-7b"
+# Default base LLaMA-7B model — must be Meta's original weights converted with
+# transformers>=4.29.2 (community uploads like huggyllama/llama-7b won't work).
+DEFAULT_LLAMA_7B = "ktolnos/llama-7b-hf-converted"
 
 
 def _stable_resize_token_embeddings(model, target_size):
