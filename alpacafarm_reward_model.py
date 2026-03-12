@@ -105,7 +105,10 @@ DEFAULT_LLAMA_7B = "ktolnos/llama-7b-hf-converted"
 def _stable_resize_token_embeddings(model, target_size):
     """Resize embeddings, initializing new tokens as mean of existing (alpaca_farm convention)."""
     num_new = target_size - model.get_input_embeddings().weight.size(0)
-    model.resize_token_embeddings(target_size)
+    try:
+        model.resize_token_embeddings(target_size, mean_resizing=False)
+    except TypeError:
+        model.resize_token_embeddings(target_size)
     if num_new > 0:
         with torch.inference_mode():
             for emb in (model.get_input_embeddings(), model.get_output_embeddings()):
