@@ -64,9 +64,20 @@ class RewardModelOutput(ModelOutput):
 class RewardModel(transformers.PreTrainedModel):
     config_class = RewardConfig
 
+    # Default LLaMA-7B architecture (used when backbone_model_name_or_path is unavailable)
+    _LLAMA_7B_DEFAULTS = dict(
+        hidden_size=4096, intermediate_size=11008, num_attention_heads=32,
+        num_hidden_layers=32, vocab_size=32001, max_position_embeddings=2048,
+    )
+
     def __init__(self, config: RewardConfig, **kwargs):
         super().__init__(config)
-        self.backbone_model = _make_generative_lm(config.backbone_model_name_or_path, **kwargs)
+        backbone_path = config.backbone_model_name_or_path
+        if backbone_path and (os.path.isdir(backbone_path) or "/" not in backbone_path):
+            self.backbone_model = _make_generative_lm(backbone_path, **kwargs)
+        else:
+            llama_cfg = transformers.LlamaConfig(**self._LLAMA_7B_DEFAULTS)
+            self.backbone_model = transformers.LlamaForCausalLM(llama_cfg)
         hidden_size = _get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
@@ -80,6 +91,55 @@ class RewardModel(transformers.PreTrainedModel):
         last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
         rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
+        """Load a pre-trained RewardModel with proper weight loading.
+
+        The inherited ``PreTrainedModel.from_pretrained`` silently fails to load
+        weights in newer transformers (>= 5.x) due to meta-parameter copy no-ops.
+        This override manually loads the state dict after construction.
+        """
+        import glob
+
+        torch_dtype = kwargs.pop("torch_dtype", None)
+
+        if not os.path.isdir(pretrained_model_name_or_path):
+            from huggingface_hub import snapshot_download
+            model_dir = snapshot_download(pretrained_model_name_or_path)
+        else:
+            model_dir = pretrained_model_name_or_path
+
+        config = RewardConfig.from_pretrained(model_dir)
+        model = cls(config, *model_args, **kwargs)
+
+        # Load weights from checkpoint files
+        bin_files = sorted(glob.glob(os.path.join(model_dir, "pytorch_model*.bin")))
+        bin_files = [f for f in bin_files if "index" not in f]
+
+        if not bin_files:
+            try:
+                from safetensors.torch import load_file
+                sf_files = sorted(glob.glob(os.path.join(model_dir, "model*.safetensors")))
+                state_dict = {}
+                for sf in sf_files:
+                    state_dict.update(load_file(sf))
+            except ImportError:
+                raise FileNotFoundError(f"No pytorch_model*.bin files and safetensors not available in {model_dir}")
+        else:
+            state_dict = {}
+            for wf in bin_files:
+                state_dict.update(torch.load(wf, map_location="cpu", weights_only=True))
+
+        if not state_dict:
+            raise FileNotFoundError(f"No model weights found in {model_dir}")
+
+        model.load_state_dict(state_dict, strict=False)
+
+        if torch_dtype is not None:
+            model = model.to(dtype=torch_dtype)
+
+        return model
 
 
 # -- Weight-diff recovery ---------------------------------------------------

@@ -3,7 +3,7 @@
 import torch
 from reward_utils import load_reward_model
 
-MODEL_NAME = "tatsu-lab/alpaca-farm-reward-model-human-wdiff"
+MODEL_NAME = "ktolnos/alpaca-farm-reward-model-human"
 
 print("=== Loading AlpacaFarm gold RM ===")
 model, tokenizer = load_reward_model(

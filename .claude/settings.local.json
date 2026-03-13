@@ -52,7 +52,15 @@
       "Bash(python3.11 -m venv convert_venv)",
       "Bash(source convert_venv/bin/activate)",
       "Bash(pip install:*)",
-      "Bash(huggingface-cli whoami:*)"
+      "Bash(huggingface-cli whoami:*)",
+      "Read(//tmp/convert_venv/bin/**)",
+      "Bash(source /tmp/convert_venv/bin/activate)",
+      "Bash(source /home/eop/Reward-Model-Overoptimization/convert_venv/bin/activate)",
+      "Bash(source /home/eop/Reward-Model-Overoptimization/venv/bin/activate)",
+      "Bash(gh api:*)",
+      "Bash(pip list:*)",
+      "Bash(git clone:*)",
+      "Bash(chmod +x /home/eop/Reward-Model-Overoptimization/scripts/recover_on_cluster.sh)"
     ]
   },
   "prefersReducedMotion": false

@@ -112,34 +112,21 @@ def load_reward_model(
             from transformers.integrations import deepspeed as _ds_module
             sys.modules["transformers.deepspeed"] = _ds_module
 
-        from alpaca_farm.models.reward_model import RewardModel, RewardModelOutput
-        from alpacafarm_reward_model import recover_alpacafarm_reward_model
+        from alpacafarm_reward_model import RewardModel
 
-        # Modern transformers requires ModelOutput subclasses to be dataclasses.
-        import dataclasses
-        if not dataclasses.is_dataclass(RewardModelOutput):
-            RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
-            import alpaca_farm.models.reward_model as _rm_mod
-            _rm_mod.RewardModelOutput = RewardModelOutput
+        ALPACAFARM_HF_REPO = "ktolnos/alpaca-farm-reward-model-human"
 
-        # Use pre-recovered model from the original alpaca_farm recovery script.
-        # See scripts/recover_on_cluster.sh for how these were produced.
-        ALPACA_FARM_MODELS = "/nas/ucb/eop/cache/alpaca_farm_models"
-        recovered_dir = os.path.join(ALPACA_FARM_MODELS, "reward-model-human")
-        model_name = recovered_dir
-
-        print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
+        print(f"Loading AlpacaFarm gold RM from {ALPACAFARM_HF_REPO} on {device}")
 
         if tokenizer is None:
             tokenizer = AutoTokenizer.from_pretrained(
-                model_name, trust_remote_code=trust_remote_code,
+                ALPACAFARM_HF_REPO, trust_remote_code=trust_remote_code,
             )
-        setup_tokenizer(tokenizer, model_name=model_name)
+        setup_tokenizer(tokenizer, model_name=ALPACAFARM_HF_REPO)
         setup_alpacafarm_gold_chat_template(tokenizer)
 
         model = RewardModel.from_pretrained(
-            model_name,
-            flash_attn=True,
+            ALPACAFARM_HF_REPO,
             torch_dtype=torch.bfloat16,
         )
         if use_device_map:
