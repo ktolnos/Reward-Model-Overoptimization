@@ -19,6 +19,7 @@ def build_dataset(
     model_name="",
     *,
     length_config,
+    skip_validation=False,
 ):
     ds = load_dataset(data_path, split=split)
 
@@ -35,6 +36,7 @@ def build_dataset(
                 rejected_messages=rejected_messages,
                 length_config=length_config,
                 context="RM",
+                skip_validation=skip_validation,
             )
         )
         prompt_ids = tokenize_text_with_special_tokens(
@@ -81,11 +83,12 @@ def build_dataset(
 
 
 def load_train_eval_dataset(
-    data_path, tokenizer, size=None, model_name="", seed=42, *, length_config,
+    data_path, tokenizer, size=None, model_name="", seed=42, *, length_config, skip_validation=False,
 ):
     dataset = build_dataset(
         data_path, tokenizer, split="train", size=size, model_name=model_name,
         length_config=length_config,
+        skip_validation=skip_validation,
     )
     dataset_split = dataset.train_test_split(
         test_size=0.05, seed=seed, shuffle=True
