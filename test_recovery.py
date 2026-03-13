@@ -65,11 +65,24 @@ def main():
     print(f"SFT backbone: {SFT_DIR}")
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(RECOVERED_DIR)
-    model = RewardModel.from_pretrained(
-        RECOVERED_DIR,
-        flash_attn=False,
-        torch_dtype=torch.float32,
-    )
+    # from_pretrained silently fails to load weights in newer transformers
+    # (the "copying from non-meta parameter" warnings = no-op).
+    # Instead: build the model, then manually load the state dict.
+    from alpaca_farm.models.reward_model import RewardConfig
+    import glob, os
+    config = RewardConfig.from_pretrained(RECOVERED_DIR)
+    model = RewardModel(config, flash_attn=False, torch_dtype=torch.float32)
+
+    # Load saved weights manually
+    weight_files = sorted(glob.glob(os.path.join(RECOVERED_DIR, "pytorch_model*.bin")))
+    state_dict = {}
+    for wf in weight_files:
+        state_dict.update(torch.load(wf, map_location="cpu", weights_only=True))
+    model.load_state_dict(state_dict, strict=False)
+
+    print(f"reward_head.weight sum: {model.reward_head.weight.sum().item()}")
+    print(f"reward_head.bias: {model.reward_head.bias.item()}")
+
     model.eval()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
