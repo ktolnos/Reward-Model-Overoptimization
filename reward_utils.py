@@ -122,17 +122,11 @@ def load_reward_model(
             import alpaca_farm.models.reward_model as _rm_mod
             _rm_mod.RewardModelOutput = RewardModelOutput
 
-        # Map legacy local names to HF weight-diff repo names.
-        wdiff_name = _ALPACAFARM_NAME_MAP.get(model_name, model_name)
-
-        # Weight-diff checkpoints (e.g. tatsu-lab/alpaca-farm-reward-model-human-wdiff)
-        # have a config that points to a Stanford-local path for the backbone.
-        # We must recover full weights first, then load the recovered model.
-        recovered_dir = os.path.join("/nas/ucb/eop/cache", os.path.basename(wdiff_name))
-        model_name = recover_alpacafarm_reward_model(
-            output_dir=recovered_dir,
-            wdiff_name=wdiff_name,
-        )
+        # Use pre-recovered model from the original alpaca_farm recovery script.
+        # See scripts/recover_on_cluster.sh for how these were produced.
+        ALPACA_FARM_MODELS = "/nas/ucb/eop/cache/alpaca_farm_models"
+        recovered_dir = os.path.join(ALPACA_FARM_MODELS, "reward-model-human")
+        model_name = recovered_dir
 
         print(f"Loading AlpacaFarm gold RM from {model_name} on {device}")
 
