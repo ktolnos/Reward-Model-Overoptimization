@@ -86,7 +86,7 @@ per_device_train_batch_size=1
 per_device_eval_batch_size=1
 
 cd "${REPO_ROOT}/reward_models"
-CUDA_VISIBLE_DEVICES=${devices} accelerate launch --num_processes ${n_gpu} --main_process_port ${MASTER_PORT} run_reward_models_train.py \
+CUDA_VISIBLE_DEVICES=${devices} accelerate launch --mixed_precision bf16 --num_processes ${n_gpu} --main_process_port ${MASTER_PORT} run_reward_models_train.py \
     --base_model ${base_model}  --wandb_name ${wandb_name}   --log_dir ${log_dir} \
     --num_train_epochs ${num_train_epochs} \
     --use_lora False \
