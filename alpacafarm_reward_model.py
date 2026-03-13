@@ -17,6 +17,7 @@ License: Apache 2.0
 """
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -57,6 +58,7 @@ class RewardConfig(transformers.PretrainedConfig):
         self._name_or_path = backbone_model_name_or_path
 
 
+@dataclass
 class RewardModelOutput(ModelOutput):
     rewards: Tensor = None
 
