@@ -1,29 +1,20 @@
 """Test the AlpacaFarm reward model recovered via scripts/recover_on_cluster.sh.
 
+Compares correct Alpaca template vs tlc4418's buggy template across multiple
+data points from tlc4418/gold_labelled_gens.
+
 Run on a cluster node with a GPU:
     srun --mem=32G --gres=gpu:1 python test_recovery.py
 """
 
 import sys
 import torch
+import math
 
 # ── Config ────────────────────────────────────────────────────────────────
 RECOVERED_DIR = "/nas/ucb/eop/cache/alpaca_farm_models/reward-model-human"
 SFT_DIR = "/nas/ucb/eop/cache/alpaca_farm_models/sft10k"
-
-# Known-good test case from tlc4418/gold_labelled_gens dataset (row 0)
-EXPECTED_SCORE = 0.8320  # gold_scores[0] for row 0
-TEST_INSTRUCTION = "What are the names of some famous combative animals that have been involved in sports or entertainment?"
-TEST_INPUT = ""
-TEST_OUTPUT = (
-    "Some famous animals involved in sports or entertainment include:\n\n"
-    "1. Seabiscuit - A famous racehorse known for his underdog story during the Great Depression era.\n"
-    "2. Secretariat - Considered one of the greatest racehorses of all time, winning the Triple Crown in 1973.\n"
-    "3. Balto - A Siberian Husky sled dog who played a crucial role in the 1925 serum run to Nome, Alaska.\n"
-    "4. Rin Tin Tin - A German Shepherd dog rescued from a World War I battlefield who went on to become an international star in motion pictures.\n"
-    "5. Punxsutawney Phil - A groundhog who is the subject of the U.S. holiday tradition of Groundhog Day, held on February 2nd.\n"
-    "6. Togo - Another Siberian Husky sled dog who played a key role in the 1925 serum run to Nome, Alaska, alongside Balto."
-)
+NUM_SAMPLES = 20
 
 
 def format_alpaca_correct(instruction, input_text, output_text):
@@ -42,9 +33,7 @@ def format_alpaca_correct(instruction, input_text, output_text):
 
 
 def format_alpaca_tlc4418_bug(instruction, input_text, output_text):
-    """Reproduces the bug in tlc4418's _parse_entry where start_prompt is truncated
-    because Python doesn't do implicit string concatenation across lines without
-    parentheses. The actual start_prompt is just the first line."""
+    """Reproduces the bug in tlc4418's _parse_entry where start_prompt is truncated."""
     start_prompt = "Below is an instruction that describes a task, paired with an "
     return f"{start_prompt}{output_text}"
 
@@ -61,7 +50,7 @@ def main():
     if not hasattr(_trainer_mod, "WEIGHTS_NAME"):
         _trainer_mod.WEIGHTS_NAME = "pytorch_model.bin"
 
-    from alpaca_farm.models.reward_model import RewardModel, RewardModelOutput
+    from alpaca_farm.models.reward_model import RewardModel, RewardModelOutput, RewardConfig
     import dataclasses
     if not dataclasses.is_dataclass(RewardModelOutput):
         RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
@@ -69,52 +58,94 @@ def main():
         _rm_mod.RewardModelOutput = RewardModelOutput
 
     import transformers
-
-    print(f"Loading model from {RECOVERED_DIR}")
-    print(f"SFT backbone: {SFT_DIR}")
-
-    tokenizer = transformers.AutoTokenizer.from_pretrained(RECOVERED_DIR)
-    # from_pretrained silently fails to load weights in newer transformers
-    # (the "copying from non-meta parameter" warnings = no-op).
-    # Instead: build the model, then manually load the state dict.
-    from alpaca_farm.models.reward_model import RewardConfig
     import glob, os
+    from datasets import load_dataset
+
+    # ── Load model ────────────────────────────────────────────────────────
+    print(f"Loading model from {RECOVERED_DIR}")
+    tokenizer = transformers.AutoTokenizer.from_pretrained(RECOVERED_DIR)
     config = RewardConfig.from_pretrained(RECOVERED_DIR)
     model = RewardModel(config, flash_attn=False, torch_dtype=torch.float32)
 
-    # Load saved weights manually
     weight_files = sorted(glob.glob(os.path.join(RECOVERED_DIR, "pytorch_model*.bin")))
     state_dict = {}
     for wf in weight_files:
         state_dict.update(torch.load(wf, map_location="cpu", weights_only=True))
     model.load_state_dict(state_dict, strict=False)
-
-    print(f"reward_head.weight sum: {model.reward_head.weight.sum().item()}")
-    print(f"reward_head.bias: {model.reward_head.bias.item()}")
-
     model.eval()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
 
-    # Score with both templates
-    for name, fmt_fn in [("correct", format_alpaca_correct), ("tlc4418_bug", format_alpaca_tlc4418_bug)]:
-        text = fmt_fn(TEST_INSTRUCTION, TEST_INPUT, TEST_OUTPUT)
-        print(f"\n--- Template: {name} ---")
-        print(f"Prompt (first 120 chars): {text[:120]!r}")
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048).to(device)
+    # ── Load dataset ──────────────────────────────────────────────────────
+    print(f"Loading tlc4418/gold_labelled_gens dataset...")
+    ds = load_dataset("tlc4418/gold_labelled_gens", split="validation")
 
-        with torch.no_grad():
-            output = model(**inputs)
-        score = output.rewards.item()
+    correct_scores = []
+    bug_scores = []
+    expected_scores = []
 
-        print(f"Model score:    {score:.4f}")
-        print(f"Expected score: {EXPECTED_SCORE:.4f}")
-        print(f"Difference:     {abs(score - EXPECTED_SCORE):.4f}")
-        if abs(score - EXPECTED_SCORE) < 0.1:
-            print(">>> SUCCESS - scores match! <<<")
-        else:
-            print(">>> MISMATCH <<<")
+    print(f"\n{'idx':>3}  {'expected':>8}  {'correct':>8}  {'buggy':>8}  {'bug_diff':>8}  {'cor_diff':>8}  instruction (truncated)")
+    print("-" * 100)
+
+    for i in range(min(NUM_SAMPLES, len(ds))):
+        row = ds[i]
+        instruction = row["instruction"]
+        input_text = row.get("input", "")
+        answer = row["answers"][0]
+        expected = row["gold_scores"][0]
+
+        # Score with both templates
+        scores = {}
+        for name, fmt_fn in [("correct", format_alpaca_correct), ("bug", format_alpaca_tlc4418_bug)]:
+            text = fmt_fn(instruction, input_text, answer)
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048).to(device)
+            with torch.no_grad():
+                output = model(**inputs)
+            scores[name] = output.rewards.item()
+
+        correct_scores.append(scores["correct"])
+        bug_scores.append(scores["bug"])
+        expected_scores.append(expected)
+
+        bug_diff = scores["bug"] - expected
+        cor_diff = scores["correct"] - expected
+        instr_short = instruction[:40]
+        print(f"{i:3d}  {expected:8.4f}  {scores['correct']:8.4f}  {scores['bug']:8.4f}  {bug_diff:+8.4f}  {cor_diff:+8.4f}  {instr_short}")
+
+    # ── Summary stats ─────────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print("SUMMARY")
+    print(f"{'='*60}")
+
+    bug_diffs = [b - e for b, e in zip(bug_scores, expected_scores)]
+    cor_diffs = [c - e for c, e in zip(correct_scores, expected_scores)]
+
+    bug_mae = sum(abs(d) for d in bug_diffs) / len(bug_diffs)
+    cor_mae = sum(abs(d) for d in cor_diffs) / len(cor_diffs)
+    bug_rmse = math.sqrt(sum(d**2 for d in bug_diffs) / len(bug_diffs))
+    cor_rmse = math.sqrt(sum(d**2 for d in cor_diffs) / len(cor_diffs))
+
+    bug_mean = sum(bug_scores) / len(bug_scores)
+    cor_mean = sum(correct_scores) / len(correct_scores)
+    exp_mean = sum(expected_scores) / len(expected_scores)
+
+    print(f"                     {'Buggy tmpl':>12}  {'Correct tmpl':>12}  {'Expected':>12}")
+    print(f"  Mean score:        {bug_mean:12.4f}  {cor_mean:12.4f}  {exp_mean:12.4f}")
+    print(f"  MAE vs expected:   {bug_mae:12.4f}  {cor_mae:12.4f}")
+    print(f"  RMSE vs expected:  {bug_rmse:12.4f}  {cor_rmse:12.4f}")
+
+    # Correlation
+    def pearson_r(xs, ys):
+        n = len(xs)
+        mx, my = sum(xs)/n, sum(ys)/n
+        cov = sum((x-mx)*(y-my) for x, y in zip(xs, ys))
+        sx = math.sqrt(sum((x-mx)**2 for x in xs))
+        sy = math.sqrt(sum((y-my)**2 for y in ys))
+        return cov / (sx * sy) if sx > 0 and sy > 0 else 0
+
+    print(f"  Pearson r (bug):   {pearson_r(bug_scores, expected_scores):12.4f}")
+    print(f"  Pearson r (correct):{pearson_r(correct_scores, expected_scores):11.4f}")
 
 
 if __name__ == "__main__":
