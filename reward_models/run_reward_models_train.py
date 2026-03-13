@@ -140,6 +140,7 @@ if script_args.freeze_pretrained:
     freeze_trainable_parameters(model)
     model.score = mlp_layer
 
+model.config.num_labels = 1
 model.resize_token_embeddings(len(tokenizer))
 model.config.pad_token_id = tokenizer.pad_token_id
 print_trainable_parameters(model)
