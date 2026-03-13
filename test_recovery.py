@@ -1,4 +1,4 @@
-"""Test the AlpacaFarm reward model recovered via scripts/recover_on_cluster.sh.
+"""Test the AlpacaFarm reward model loaded from HuggingFace in bf16.
 
 Compares correct Alpaca template vs tlc4418's buggy template across multiple
 data points from tlc4418/gold_labelled_gens.
@@ -7,13 +7,12 @@ Run on a cluster node with a GPU:
     srun --mem=32G --gres=gpu:1 python test_recovery.py
 """
 
-import sys
 import torch
 import math
 
-# ── Config ────────────────────────────────────────────────────────────────
-RECOVERED_DIR = "/nas/ucb/eop/cache/alpaca_farm_models/reward-model-human"
-SFT_DIR = "/nas/ucb/eop/cache/alpaca_farm_models/sft10k"
+from alpacafarm_reward_model import RewardModel
+
+HF_REPO = "ktolnos/alpaca-farm-reward-model-human"
 NUM_SAMPLES = 20
 
 
@@ -39,43 +38,22 @@ def format_alpaca_tlc4418_bug(instruction, input_text, output_text):
 
 
 def main():
-    # Patch deepspeed import for modern transformers
-    import transformers.trainer as _trainer_mod
-    if "transformers.deepspeed" not in sys.modules:
-        from transformers.integrations import deepspeed as _ds_module
-        sys.modules["transformers.deepspeed"] = _ds_module
-    from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
-    if not hasattr(_trainer_mod, "is_deepspeed_zero3_enabled"):
-        _trainer_mod.is_deepspeed_zero3_enabled = is_deepspeed_zero3_enabled
-    if not hasattr(_trainer_mod, "WEIGHTS_NAME"):
-        _trainer_mod.WEIGHTS_NAME = "pytorch_model.bin"
-
-    from alpaca_farm.models.reward_model import RewardModel, RewardModelOutput, RewardConfig
-    import dataclasses
-    if not dataclasses.is_dataclass(RewardModelOutput):
-        RewardModelOutput = dataclasses.dataclass(RewardModelOutput)
-        import alpaca_farm.models.reward_model as _rm_mod
-        _rm_mod.RewardModelOutput = RewardModelOutput
-
     import transformers
-    import glob, os
     from datasets import load_dataset
 
-    # ── Load model ────────────────────────────────────────────────────────
-    print(f"Loading model from {RECOVERED_DIR}")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(RECOVERED_DIR)
-    config = RewardConfig.from_pretrained(RECOVERED_DIR)
-    model = RewardModel(config, flash_attn=False, torch_dtype=torch.float32)
-
-    weight_files = sorted(glob.glob(os.path.join(RECOVERED_DIR, "pytorch_model*.bin")))
-    state_dict = {}
-    for wf in weight_files:
-        state_dict.update(torch.load(wf, map_location="cpu", weights_only=True))
-    model.load_state_dict(state_dict, strict=False)
+    # ── Load model from HF in bf16 ────────────────────────────────────────
+    print(f"Loading model from {HF_REPO} in bf16")
+    tokenizer = transformers.AutoTokenizer.from_pretrained(HF_REPO)
+    model = RewardModel.from_pretrained(HF_REPO, torch_dtype=torch.bfloat16)
     model.eval()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
+
+    # Sanity check: reward_head bias should NOT be zero (proves weights loaded)
+    bias_val = model.reward_head.bias.item()
+    print(f"reward_head.bias = {bias_val}")
+    assert bias_val != 0.0, "reward_head.bias is 0.0 — weights were NOT loaded!"
 
     # ── Load dataset ──────────────────────────────────────────────────────
     print(f"Loading tlc4418/gold_labelled_gens dataset...")
