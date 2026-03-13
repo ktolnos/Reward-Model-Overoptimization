@@ -26,7 +26,8 @@ TEST_OUTPUT = (
 )
 
 
-def format_alpaca(instruction, input_text, output_text):
+def format_alpaca_correct(instruction, input_text, output_text):
+    """Correct Alpaca prompt template."""
     if input_text:
         return (
             f"Below is an instruction that describes a task, paired with an input that provides "
@@ -38,6 +39,14 @@ def format_alpaca(instruction, input_text, output_text):
         f"Write a response that appropriately completes the request.\n\n"
         f"### Instruction:\n{instruction}\n\n### Response:\n{output_text}"
     )
+
+
+def format_alpaca_tlc4418_bug(instruction, input_text, output_text):
+    """Reproduces the bug in tlc4418's _parse_entry where start_prompt is truncated
+    because Python doesn't do implicit string concatenation across lines without
+    parentheses. The actual start_prompt is just the first line."""
+    start_prompt = "Below is an instruction that describes a task, paired with an "
+    return f"{start_prompt}{output_text}"
 
 
 def main():
@@ -88,24 +97,24 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
 
-    # Score the test example
-    text = format_alpaca(TEST_INSTRUCTION, TEST_INPUT, TEST_OUTPUT)
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048).to(device)
+    # Score with both templates
+    for name, fmt_fn in [("correct", format_alpaca_correct), ("tlc4418_bug", format_alpaca_tlc4418_bug)]:
+        text = fmt_fn(TEST_INSTRUCTION, TEST_INPUT, TEST_OUTPUT)
+        print(f"\n--- Template: {name} ---")
+        print(f"Prompt (first 120 chars): {text[:120]!r}")
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048).to(device)
 
-    with torch.no_grad():
-        output = model(**inputs)
-    score = output.rewards.item()
+        with torch.no_grad():
+            output = model(**inputs)
+        score = output.rewards.item()
 
-    print(f"\n{'='*60}")
-    print(f"RESULTS")
-    print(f"{'='*60}")
-    print(f"Model score:    {score:.4f}")
-    print(f"Expected score: {EXPECTED_SCORE:.4f}")
-    print(f"Difference:     {abs(score - EXPECTED_SCORE):.4f}")
-    if abs(score - EXPECTED_SCORE) < 0.1:
-        print(">>> SUCCESS - scores match! <<<")
-    else:
-        print(">>> MISMATCH - scores don't match <<<")
+        print(f"Model score:    {score:.4f}")
+        print(f"Expected score: {EXPECTED_SCORE:.4f}")
+        print(f"Difference:     {abs(score - EXPECTED_SCORE):.4f}")
+        if abs(score - EXPECTED_SCORE) < 0.1:
+            print(">>> SUCCESS - scores match! <<<")
+        else:
+            print(">>> MISMATCH <<<")
 
 
 if __name__ == "__main__":
