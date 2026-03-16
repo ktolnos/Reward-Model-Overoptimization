@@ -60,7 +60,9 @@
       "Bash(gh api:*)",
       "Bash(pip list:*)",
       "Bash(git clone:*)",
-      "Bash(chmod +x /home/eop/Reward-Model-Overoptimization/scripts/recover_on_cluster.sh)"
+      "Bash(chmod +x /home/eop/Reward-Model-Overoptimization/scripts/recover_on_cluster.sh)",
+      "Read(//home/eop/**)",
+      "Bash(env)"
     ]
   },
   "prefersReducedMotion": false

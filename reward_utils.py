@@ -64,6 +64,27 @@ _ALPACAFARM_NAME_MAP = {
 }
 
 
+def _patch_grm_device_mismatch(model):
+    """Fix GRM models whose v_head lands on a different device than the base model.
+
+    The upstream GRM-Gemma model.py computes last_index from attention_mask
+    (on the base-model device) but indexes v_head output (on v_head's device).
+    When device_map places v_head on CPU this causes a RuntimeError.
+    Moving v_head to the base-model device avoids the mismatch entirely.
+    """
+    if not hasattr(model, "v_head"):
+        return
+    # Determine where the base model lives.
+    try:
+        base_device = next(model.pretrained_model.parameters()).device
+    except (AttributeError, StopIteration):
+        return
+    v_head_device = next(model.v_head.parameters()).device
+    if v_head_device != base_device:
+        print(f"Moving v_head from {v_head_device} to {base_device}")
+        model.v_head.to(base_device)
+
+
 def load_reward_model(
     model_name,
     reasoning,
@@ -163,6 +184,7 @@ def load_reward_model(
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
     if getattr(tokenizer, "pad_token_id", None) is not None:
         model.config.pad_token_id = tokenizer.pad_token_id
+    _patch_grm_device_mismatch(model)
     model.eval()
     return model, tokenizer
 
