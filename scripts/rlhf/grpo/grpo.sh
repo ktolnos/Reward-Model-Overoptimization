@@ -249,6 +249,7 @@ export WANDB_RUN_GROUP=${log_dir}
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
+    --report_to wandb \
     --num_generations 16 \
     --num_train_epochs 1 \
     --temperature 1 \
