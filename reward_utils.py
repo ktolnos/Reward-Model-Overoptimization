@@ -1,3 +1,4 @@
+import os
 import random
 from collections import defaultdict
 from typing import List, Tuple, Dict, Any, Union, Mapping
@@ -85,6 +86,44 @@ def _patch_grm_device_mismatch(model):
         model.v_head.to(base_device)
 
 
+def _infer_num_labels(model_name: str) -> int:
+    """Infer num_labels from the checkpoint's score.weight shape.
+
+    For local checkpoints, peek at the saved weights to determine the correct
+    num_labels so we don't hit a shape mismatch at load time.  For HF hub
+    models that are Skywork-Reward-V2, default to 1 (their expected value).
+    Falls back to 1 when the score weight cannot be found.
+    """
+    model_dir = model_name if os.path.isdir(model_name) else None
+    if model_dir is not None:
+        try:
+            from safetensors import safe_open
+            import json
+            # Check the weight index to find which shard has score.weight
+            index_path = os.path.join(model_dir, "model.safetensors.index.json")
+            single_path = os.path.join(model_dir, "model.safetensors")
+            if os.path.isfile(index_path):
+                with open(index_path) as f:
+                    index = json.load(f)
+                shard_file = index["weight_map"].get("score.weight")
+                if shard_file:
+                    shard_path = os.path.join(model_dir, shard_file)
+                    with safe_open(shard_path, framework="pt") as f:
+                        shape = f.get_tensor("score.weight").shape
+                        return shape[0]
+            elif os.path.isfile(single_path):
+                with safe_open(single_path, framework="pt") as f:
+                    if "score.weight" in f.keys():
+                        shape = f.get_tensor("score.weight").shape
+                        return shape[0]
+        except Exception as e:
+            print(f"[_infer_num_labels] Could not peek at checkpoint weights: {e}")
+    # For HF hub Skywork-Reward-V2 models, use num_labels=1
+    if "Skywork-Reward-V2" in model_name:
+        return 1
+    return 1
+
+
 def load_reward_model(
     model_name,
     reasoning,
@@ -164,8 +203,8 @@ def load_reward_model(
     }
     if use_device_map:
         kwargs["device_map"] = device
-    if "Skywork-Reward-V2" in model_name and not reasoning:
-        kwargs["num_labels"] = 1
+    if not reasoning:
+        kwargs["num_labels"] = _infer_num_labels(model_name)
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
