@@ -95,6 +95,7 @@ CUDA_VISIBLE_DEVICES=${devices} accelerate launch --mixed_precision bf16 --num_p
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --learning_rate ${learning_rate} \
     --lr_scheduler_type "constant" \
+    --report_to wandb \
     --dataset "${dataset_name[@]}" \
     --gradient_checkpointing True \
     --save_strategy steps --save_steps ${save_steps} \

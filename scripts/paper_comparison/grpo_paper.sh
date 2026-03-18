@@ -133,6 +133,7 @@ echo ""
 CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
+    --report_to wandb \
     --model_name_or_path "${base_model_name}" \
     --dataset_path "${dataset_path}" \
     --output_dir "${log_dir}" \
