@@ -224,7 +224,8 @@ reward_model_paths=(
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/1_Qwen3-4B-Instruct-2507_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-3128"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-3128"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3-4B_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-3128"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-1173"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-1173"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3-8B_len2048_fulltrain_2e-05_datahelpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B/logs/checkpoint-3128"  
 )
 
 num_reward_models=${#reward_model_paths[@]}
