@@ -29,7 +29,7 @@ fi
 cd "${REPO_ROOT}" || exit
 
 log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
-base_model_name="Qwen/Qwen3-0.6B-Base"
+base_model_name="Qwen/Qwen3-1.7B-Base"
 dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
