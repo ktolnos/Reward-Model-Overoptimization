@@ -33,7 +33,7 @@ cd "${REPO_ROOT}/scripts/rlhf/grpo"
 log_dir="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 # base_model_name="Qwen/Qwen3-0.6B"
 # base_model_name="Qwen/Qwen3-0.6B-Base"
-base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260219_224557_1060185/checkpoint-740"
+base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260320_174823_1070705/checkpoint-740"
 # base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260106_012931_1016814/checkpoint-158"
 dataset_path="ktolnos/helpsteer3v2_annotated_25pct"
 # dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
@@ -52,7 +52,7 @@ gpu=0 #,1,2,3
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
-learning_rate="2e-5"
+learning_rate="1e-5"
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 beta="0"
@@ -280,7 +280,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --learning_rate ${learning_rate} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
-    --gradient_checkpointing False \
+    --gradient_checkpointing True \
     --scale_rewards 'batch' \
     --trust_remote_code True \
     --reference_rewards False \
