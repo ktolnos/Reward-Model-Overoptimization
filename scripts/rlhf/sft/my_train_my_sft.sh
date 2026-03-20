@@ -76,6 +76,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 1 \
+    --gradient_checkpointing True \
     --eval_strategy "steps" \
     --eval_steps 0.05 \
     --save_strategy "steps" \
