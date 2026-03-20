@@ -29,7 +29,7 @@ fi
 cd "${REPO_ROOT}" || exit
 
 log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
-base_model_name="Qwen/Qwen3-1.7B-Base"
+base_model_name="Qwen/Qwen3-4B-Base"
 dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
@@ -72,15 +72,15 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --model_name_or_path ${base_model_name} \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir} \
-    --num_train_epochs 5 \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 8 \
+    --num_train_epochs 2 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 16 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
-    --eval_steps 0.05 \
+    --eval_steps 0.25 \
     --save_strategy "steps" \
-    --save_steps 0.05 \
+    --save_steps 0.25 \
     --save_only_model True \
     --learning_rate 1e-5 \
     --warmup_ratio 0 \
