@@ -35,6 +35,9 @@ dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
 
 gpu=0
+use_lora=true
+base_learning_rate="1e-5"
+lora_lr_multiplier=5  # LoRA typically needs higher LR
 
 # Argument parsing
 COMMIT_MSG=$(git log -1 --pretty=%s)
@@ -48,6 +51,13 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# Compute effective learning rate
+if [[ "${use_lora}" == "true" ]]; then
+    learning_rate=$(python3 -c "print(f'{${base_learning_rate} * ${lora_lr_multiplier}:.0e}')")
+else
+    learning_rate="${base_learning_rate}"
+fi
 
 # Port selection
 PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
@@ -82,7 +92,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --save_strategy "steps" \
     --save_steps 0.25 \
     --save_only_model True \
-    --learning_rate 1e-5 \
+    --learning_rate ${learning_rate} \
     --warmup_ratio 0 \
     --lr_scheduler_type "constant" \
     --logging_steps 20 \
@@ -90,12 +100,13 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --run_name ${wandb_name} \
     --length_config "default" \
     --trust_remote_code True \
+    $(if [[ "${use_lora}" == "true" ]]; then echo "\
     --use_peft True \
     --lora_r 64 \
     --lora_alpha 128 \
     --lora_dropout 0.05 \
     --lora_task_type CAUSAL_LM \
-    --lora_target_modules all-linear || exit 1
+    --lora_target_modules all-linear"; fi) || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"
 sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"

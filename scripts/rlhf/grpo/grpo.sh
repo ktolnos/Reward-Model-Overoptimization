@@ -54,7 +54,9 @@ gpu=0 #,1,2,3
 #reward_base_model="nicolinho/QRM-Gemma-2-27B"
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
-learning_rate="1e-5"
+use_lora=true
+base_learning_rate="1e-5"
+lora_lr_multiplier=5  # LoRA typically needs higher LR
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 beta="0"
@@ -81,7 +83,13 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-#checkpoint="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40"
+# Compute effective learning rate
+if [[ "${use_lora}" == "true" ]]; then
+    learning_rate=$(python3 -c "print(f'{${base_learning_rate} * ${lora_lr_multiplier}:.0e}')")
+else
+    learning_rate="${base_learning_rate}"
+fi
+
 echo $SLURM_JOB_ID
 
 PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"
@@ -315,12 +323,13 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
     --uwo_lambda ${uwo_lambda} \
+    $(if [[ "${use_lora}" == "true" ]]; then echo "\
     --use_peft True \
     --lora_r 16 \
     --lora_alpha 32 \
     --lora_dropout 0.05 \
     --lora_task_type CAUSAL_LM \
-    --lora_target_modules all-linear \
+    --lora_target_modules all-linear"; fi) \
     || exit 1
 #     --clip_reward_max 3.0 \
 
