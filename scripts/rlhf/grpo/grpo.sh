@@ -315,6 +315,12 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
     --uwo_lambda ${uwo_lambda} \
+    --use_peft True \
+    --lora_r 16 \
+    --lora_alpha 32 \
+    --lora_dropout 0.05 \
+    --lora_task_type CAUSAL_LM \
+    --lora_target_modules all-linear \
     || exit 1
 #     --clip_reward_max 3.0 \
 
