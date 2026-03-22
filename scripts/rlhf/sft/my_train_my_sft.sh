@@ -29,7 +29,7 @@ fi
 cd "${REPO_ROOT}" || exit
 
 log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
-base_model_name="Qwen/Qwen3-4B-Base"
+base_model_name="Qwen/Qwen3-8B-Base"
 dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
@@ -89,7 +89,13 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --report_to "wandb" \
     --run_name ${wandb_name} \
     --length_config "default" \
-    --trust_remote_code True || exit 1
+    --trust_remote_code True \
+    --use_peft True \
+    --lora_r 64 \
+    --lora_alpha 128 \
+    --lora_dropout 0.05 \
+    --lora_task_type CAUSAL_LM \
+    --lora_target_modules all-linear || exit 1
 
 echo "running evaluation script for checkpoints in ${log_dir}"
 sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"

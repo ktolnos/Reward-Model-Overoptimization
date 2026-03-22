@@ -132,30 +132,74 @@ def setup_tokenizer(tokenizer, model_name=None):
     return tokenizer
 
 
+def _is_lora_checkpoint(path):
+    """Check if a path contains a LoRA adapter (has adapter_config.json)."""
+    import os
+    return os.path.isdir(path) and os.path.exists(os.path.join(path, "adapter_config.json"))
+
+
+def _get_lora_base_model_path(adapter_path):
+    """Read the base model path from a LoRA adapter_config.json."""
+    import os, json
+    config_path = os.path.join(adapter_path, "adapter_config.json")
+    with open(config_path) as f:
+        return json.load(f)["base_model_name_or_path"]
+
+
+def load_causal_lm(model_name_or_path, *, trust_remote_code=True, device_map=None):
+    """Load a causal LM, auto-detecting and merging LoRA adapters.
+
+    If ``model_name_or_path`` contains ``adapter_config.json``, loads the
+    adapter on top of its base model and returns the merged result.
+    Otherwise loads a plain ``AutoModelForCausalLM``.
+    """
+    import torch
+    if _is_lora_checkpoint(model_name_or_path):
+        from peft import AutoPeftModelForCausalLM
+        print(f"Detected LoRA adapter at {model_name_or_path}, loading and merging...")
+        model = AutoPeftModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            torch_dtype=torch.bfloat16,
+            device_map=device_map,
+        )
+        model = model.merge_and_unload()
+    else:
+        from transformers import AutoModelForCausalLM
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            torch_dtype=torch.bfloat16,
+            device_map=device_map,
+        )
+    return model
+
+
 def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
     """Load a policy model and its tokenizer with consistent setup.
 
     Handles:
+    - LoRA adapter detection (via ``load_causal_lm``).
     - Tokenizer loading and ``setup_tokenizer`` (auto-detects Pythia chat template).
     - Model loading in bfloat16.
-    - Embedding resizing to match the tokenizer.
+    - Embedding resizing to match the tokenizer (only when new tokens were added).
     - ``pad_token_id`` propagation to model config and ``generation_config``.
 
     Returns ``(model, tokenizer)``.
     """
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path, trust_remote_code=trust_remote_code,
     )
-    setup_tokenizer(tokenizer, model_name=model_name_or_path)
+    # For model-type detection, use the base model name so that checks like
+    # _looks_like_llama_model see the real model name, not the adapter path.
+    base_model_name = model_name_or_path
+    if _is_lora_checkpoint(model_name_or_path):
+        base_model_name = _get_lora_base_model_path(model_name_or_path)
+    setup_tokenizer(tokenizer, model_name=base_model_name)
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=trust_remote_code,
-        torch_dtype=torch.bfloat16,
-    )
+    model = load_causal_lm(model_name_or_path, trust_remote_code=trust_remote_code)
     if len(tokenizer) > model.config.vocab_size:
         model.resize_token_embeddings(len(tokenizer))
     model.config.pad_token_id = tokenizer.pad_token_id

@@ -21,6 +21,7 @@ from trl import (
     ModelConfig,
     SFTConfig,
     SFTTrainer,
+    get_peft_config,
 )
 
 @dataclass
@@ -97,6 +98,7 @@ if __name__ == "__main__":
     ################
     # Model & Tokenizer
     ################
+    peft_config = get_peft_config(model_args)
     model, tokenizer = load_policy_and_tokenizer(
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
@@ -134,6 +136,7 @@ if __name__ == "__main__":
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
+        peft_config=peft_config,
     )
     
     # Train the model

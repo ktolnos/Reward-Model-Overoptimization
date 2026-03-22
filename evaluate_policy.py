@@ -28,6 +28,10 @@ from reward_utils import (
 from data_utils import (
     format_and_validate_preference_sample,
     setup_tokenizer,
+    load_policy_and_tokenizer,
+    load_causal_lm,
+    _is_lora_checkpoint,
+    _get_lora_base_model_path,
     get_generation_stop_token_ids,
     get_length_config,
     DATASET_LENGTH_CONFIGS,
@@ -407,13 +411,10 @@ def generate_responses_vllm(
 
 
 def load_policy_model(model_path, tokenizer, device):
-    """Loads a policy model from a path."""
+    """Loads a policy model from a path (supports LoRA adapters)."""
     print(f"Loading model from {model_path}")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=torch.bfloat16, device_map=device
-    )
-    model.resize_token_embeddings(len(tokenizer))
-    model.config.pad_token_id = tokenizer.pad_token_id
+    model, _ = load_policy_and_tokenizer(model_path)
+    model = model.to(device)
     model.eval()
     return model
 
@@ -443,10 +444,7 @@ def update_vllm_weights(llm, model_path, device="cpu"):
     if hasattr(llm, "collective_rpc"):
         llm.collective_rpc("load_weights_from_path", args=(model_path,))
     else:
-        hf_model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.bfloat16, device_map=device,
-            trust_remote_code=True,
-        )
+        hf_model = load_causal_lm(model_path, device_map=device)
         params_to_load = [(n, p.data) for n, p in hf_model.named_parameters()]
         llm_model = llm.llm_engine.model_executor.driver_worker.model_runner.model
         llm_model.load_weights(params_to_load)
@@ -668,11 +666,18 @@ def main():
 
     first_checkpoint_path = single_model_path or os.path.join(args.checkpoints_dir, checkpoints[0])
 
+    # For LoRA checkpoints, resolve the base model for tokenizer and vLLM init.
+    if _is_lora_checkpoint(first_checkpoint_path):
+        vllm_base_model_path = _get_lora_base_model_path(first_checkpoint_path)
+        print(f"LoRA adapter detected, base model: {vllm_base_model_path}")
+    else:
+        vllm_base_model_path = first_checkpoint_path
+
     print("Loading tokenizer...")
     policy_tokenizer = AutoTokenizer.from_pretrained(
         first_checkpoint_path, trust_remote_code=True,
     )
-    setup_tokenizer(policy_tokenizer)
+    setup_tokenizer(policy_tokenizer, model_name=vllm_base_model_path)
     stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
     # Resolve length config for validation.
@@ -789,16 +794,18 @@ def main():
                 }
             )
 
-        # Initialize vLLM with the first checkpoint
-        # We reuse this instance and update weights for subsequent checkpoints
-        print(f"Initializing vLLM with {first_checkpoint_path}")
+        # Initialize vLLM with the base model (LoRA weights are loaded per-checkpoint)
+        print(f"Initializing vLLM with {vllm_base_model_path}")
         llm = LLM(
-            model=first_checkpoint_path,
+            model=vllm_base_model_path,
             gpu_memory_utilization=args.gpu_memory_utilization,
             max_model_len=args.max_length + args.max_new_tokens,
             trust_remote_code=True,
             worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
         )
+        # Load first checkpoint weights (may be LoRA or full)
+        if first_checkpoint_path != vllm_base_model_path:
+            update_vllm_weights(llm, first_checkpoint_path)
 
         try:
             for checkpoint in tqdm(
@@ -808,7 +815,7 @@ def main():
                 checkpoint_num = int(checkpoint.split("-")[1])
                 print(f"\nEvaluating {checkpoint}")
 
-                # Update weights if not the first checkpoint (which was used for init)
+                # Update weights for every checkpoint after the first (first was loaded above)
                 if checkpoint != checkpoints[0]:
                     update_vllm_weights(llm, checkpoint_path)
 
@@ -913,11 +920,11 @@ def main():
                 args.kl_base_model_path, policy_tokenizer, args.device
             )
 
-        # Initialize vLLM with the first checkpoint
-        print(f"Initializing vLLM with {first_checkpoint_path}")
+        # Initialize vLLM with the base model (LoRA weights are loaded per-checkpoint)
+        print(f"Initializing vLLM with {vllm_base_model_path}")
         llm = LLM(
-            model=first_checkpoint_path,
-            tokenizer=first_checkpoint_path,
+            model=vllm_base_model_path,
+            tokenizer=vllm_base_model_path,
             dtype="bfloat16",
             tensor_parallel_size=torch.cuda.device_count(),
             gpu_memory_utilization=args.gpu_memory_utilization,
@@ -925,6 +932,9 @@ def main():
             trust_remote_code=True,
             worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
         )
+        # Load first checkpoint weights (may be LoRA or full)
+        if first_checkpoint_path != vllm_base_model_path:
+            update_vllm_weights(llm, first_checkpoint_path)
 
         try:
             for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
@@ -932,7 +942,7 @@ def main():
                 checkpoint_num = int(checkpoint.split("-")[1])
                 print(f"\nEvaluating {checkpoint}")
 
-                # Update weights if not the first checkpoint (which was used for init)
+                # Update weights for every checkpoint (first one was loaded above from adapter)
                 if checkpoint != checkpoints[0]:
                     update_vllm_weights(llm, checkpoint_path)
 
