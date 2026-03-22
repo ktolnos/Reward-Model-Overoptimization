@@ -156,7 +156,8 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
         trust_remote_code=trust_remote_code,
         torch_dtype=torch.bfloat16,
     )
-    model.resize_token_embeddings(len(tokenizer))
+    if len(tokenizer) > model.config.vocab_size:
+        model.resize_token_embeddings(len(tokenizer))
     model.config.pad_token_id = tokenizer.pad_token_id
     if hasattr(model, "generation_config"):
         model.generation_config.pad_token_id = tokenizer.pad_token_id
