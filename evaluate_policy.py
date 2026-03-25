@@ -165,6 +165,12 @@ class ScriptArguments:
             "Use 'alpacafarm_paper' for the paper comparison (520/256/776)."
         },
     )
+    evaluate_chosen_responses: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Evaluate the chosen responses from the dataset with the reward models instead of generating from a policy."
+        },
+    )
 
 
 def load_reward_model_impl(model_path_or_name, device):
@@ -718,7 +724,66 @@ def main():
     results = []
     full_eval_data = []
 
-    if args.evaluate_with_llm_judge:
+    if args.evaluate_chosen_responses:
+        # --- Evaluate dataset chosen responses directly (no generation) ---
+        print("Evaluating chosen responses from the dataset...")
+        chosen_responses = [ex["chosen"][-1]["content"] for ex in dataset]
+
+        checkpoint_results = {"checkpoint": 0}
+
+        print(f"  Scoring gold RM ({args.gold_rm_name})...")
+        gold_rm_scores = score_responses_with_rm(
+            chosen_responses,
+            prompt_messages_list,
+            args,
+            args.gold_rm_name,
+            checkpoint_num=0,
+        )
+        checkpoint_results["gold_rm/mean"] = float(np.mean(gold_rm_scores))
+        checkpoint_results["gold_rm/std"] = float(np.std(gold_rm_scores))
+        if not args.disable_wandb:
+            checkpoint_results["gold_rm/scores_hist"] = wandb.Histogram(gold_rm_scores)
+
+        if args.evaluate_with_training_rm:
+            print(f"  Scoring training RM ({args.training_rm_path})...")
+            training_rm_scores = score_responses_with_rm(
+                chosen_responses,
+                prompt_messages_list,
+                args,
+                args.training_rm_path,
+                checkpoint_num=0,
+            )
+            checkpoint_results["training_rm/mean"] = float(np.mean(training_rm_scores))
+            checkpoint_results["training_rm/std"] = float(np.std(training_rm_scores))
+            if not args.disable_wandb:
+                checkpoint_results["training_rm/scores_hist"] = wandb.Histogram(
+                    training_rm_scores
+                )
+
+        if args.secondary_rm_name and args.secondary_rm_name.lower() != "none":
+            print(f"  Scoring secondary RM ({args.secondary_rm_name})...")
+            secondary_rm_scores = score_responses_with_rm(
+                chosen_responses,
+                prompt_messages_list,
+                args,
+                args.secondary_rm_name,
+                checkpoint_num=0,
+            )
+            checkpoint_results["secondary_rm/mean"] = float(np.mean(secondary_rm_scores))
+            checkpoint_results["secondary_rm/std"] = float(np.std(secondary_rm_scores))
+            if not args.disable_wandb:
+                checkpoint_results["secondary_rm/scores_hist"] = wandb.Histogram(
+                    secondary_rm_scores
+                )
+
+        if not args.disable_wandb:
+            wandb.log(checkpoint_results, step=0)
+
+        results.append(
+            {k: v for k, v in checkpoint_results.items() if not isinstance(v, wandb.Histogram)}
+        )
+
+    elif args.evaluate_with_llm_judge:
         # --- LLM-as-Judge Evaluation ---
         print("Starting LLM-as-Judge evaluation...")
 

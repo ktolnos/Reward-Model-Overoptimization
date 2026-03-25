@@ -5,7 +5,7 @@
 #SBATCH --mem=16gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=5:00:00
-#SBATCH --qos=high
+#SBATCH --qos=default
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
 source /home/eop/.bashrc
@@ -48,6 +48,7 @@ while [[ "$#" -gt 0 ]]; do
         --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
         --checkpoint) CHECKPOINTS_DIR="$2"; shift ;;
         --skip_validation) SKIP_VALIDATION=1 ;;
+        --evaluate_chosen_responses) EVALUATE_CHOSEN=1 ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -86,6 +87,7 @@ python evaluate_policy.py \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
     $([ ! -z "${SKIP_VALIDATION:-}" ] && echo "--skip_validation True") \
+    $([ ! -z "${EVALUATE_CHOSEN:-}" ] && echo "--evaluate_chosen_responses True") \
 
 #     --subsample_n 25 \
 
