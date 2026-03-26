@@ -139,7 +139,7 @@ class ScriptArguments:
         },
     )
     gpu_memory_utilization: float = field(
-        default=0.5,
+        default=0.3,
         metadata={
             "help": "vLLM GPU memory utilization. Lower this if running into OOM with RMs loaded."
         },
