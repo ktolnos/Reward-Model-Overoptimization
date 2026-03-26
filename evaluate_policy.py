@@ -310,13 +310,22 @@ def get_log_probs_from_ids(
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             logits = outputs.logits
 
-        # Shift logits and labels for causal LM
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels = input_ids[:, 1:].contiguous()
+        # Compute per-token log probs without materializing full vocab-sized tensors
+        # Process one sequence at a time to avoid OOM on the large [batch, seq, vocab] tensor
+        shift_labels = input_ids[:, 1:]
 
-        # Compute log probs
-        log_probs = torch.log_softmax(shift_logits, dim=-1)
-        token_log_probs = log_probs.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
+        token_log_probs_list = []
+        for j in range(input_ids.size(0)):
+            # Only compute log_softmax for this single sequence (saves ~batch_size x memory)
+            seq_logits = logits[j, :-1, :]  # [seq_len-1, vocab]
+            seq_labels = shift_labels[j]     # [seq_len-1]
+            # gather first, then we don't need the full log_softmax output
+            seq_log_probs = torch.log_softmax(seq_logits, dim=-1)
+            seq_token_lp = seq_log_probs.gather(-1, seq_labels.unsqueeze(-1)).squeeze(-1)
+            token_log_probs_list.append(seq_token_lp)
+            del seq_logits, seq_log_probs
+        token_log_probs = torch.stack(token_log_probs_list)
+        del logits
 
         for j in range(input_ids.size(0)):
             # Calculate padding length using attention_mask (more robust)
