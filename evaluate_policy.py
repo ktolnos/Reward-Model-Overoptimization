@@ -39,6 +39,10 @@ from data_utils import (
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
 import gc
+import hashlib
+from datetime import datetime
+
+CHOSEN_SCORES_CACHE_VERSION = 1
 
 
 @dataclass
@@ -607,6 +611,7 @@ class LoadedRewardModels:
     def __init__(self, args):
         self.args = args
         self._models = {}  # name -> (model, tokenizer)
+        self._chosen_scores = {}  # label -> np.ndarray, populated by precompute_chosen_scores
 
         # Always load gold RM
         print(f"Loading gold RM ({args.gold_rm_name})...")
@@ -627,6 +632,74 @@ class LoadedRewardModels:
         gc.collect()
         torch.cuda.empty_cache()
 
+    def precompute_chosen_scores(self, dataset, prompt_messages_list, args):
+        """Score chosen responses with all loaded RMs once and cache to disk.
+
+        Results are cached as JSON files keyed by (rm_name, dataset_name,
+        dataset_split_size).  On subsequent runs with the same configuration
+        the cached scores are loaded instead of recomputed.
+        """
+        chosen_responses = [ex["chosen"][-1]["content"] for ex in dataset]
+
+        # Deterministic cache key from dataset identity + size
+        cache_id = hashlib.sha256(
+            f"{args.dataset_name}:{len(chosen_responses)}".encode()
+        ).hexdigest()[:16]
+
+        cache_dir = os.path.join(
+            os.path.dirname(args.output_file) or ".", "chosen_scores_cache"
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+
+        self._chosen_scores = {}  # label -> np.ndarray
+
+        for label, (model, tokenizer) in self._models.items():
+            rm_name = model.config._name_or_path
+            safe_name = rm_name.replace("/", "_").replace("\\", "_").replace(":", "_")
+            if len(safe_name) > 200:
+                safe_name = safe_name[-200:]
+            cache_file = os.path.join(cache_dir, f"{safe_name}_{cache_id}.json")
+
+            if os.path.exists(cache_file):
+                with open(cache_file, "r") as f:
+                    cached = json.load(f)
+                if (
+                    cached.get("version") == CHOSEN_SCORES_CACHE_VERSION
+                    and cached.get("dataset_name") == args.dataset_name
+                    and cached.get("num_samples") == len(chosen_responses)
+                    and "scores" in cached
+                ):
+                    self._chosen_scores[label] = np.array(cached["scores"], dtype=np.float64)
+                    print(
+                        f"[ChosenScores] {label} ({rm_name}): loaded {len(cached['scores'])} "
+                        f"cached scores (mean={np.mean(cached['scores']):.4f})"
+                    )
+                    continue
+
+            print(f"[ChosenScores] {label} ({rm_name}): scoring {len(chosen_responses)} chosen responses...")
+            scores = score_responses_with_rm(
+                chosen_responses, prompt_messages_list, args, model,
+                rm_tokenizer=tokenizer, checkpoint_num="chosen",
+            )
+            self._chosen_scores[label] = scores
+
+            cache_data = {
+                "version": CHOSEN_SCORES_CACHE_VERSION,
+                "rm_name": rm_name,
+                "dataset_name": args.dataset_name,
+                "num_samples": len(chosen_responses),
+                "scores": scores.tolist(),
+                "mean": float(np.mean(scores)),
+                "std": float(np.std(scores)),
+                "computed_at": datetime.now().isoformat(),
+            }
+            with open(cache_file, "w") as f:
+                json.dump(cache_data, f, indent=2)
+            print(
+                f"[ChosenScores] {label} ({rm_name}): mean={np.mean(scores):.4f}, "
+                f"std={np.std(scores):.4f}, cached to {cache_file}"
+            )
+
     def score_all(self, responses, prompt_messages_list, args, checkpoint_num):
         """Score responses with all loaded reward models.
 
@@ -643,6 +716,17 @@ class LoadedRewardModels:
             results[f"{label}/std"] = float(np.std(scores))
             if not args.disable_wandb:
                 results[f"{label}/scores_hist"] = wandb.Histogram(scores)
+
+            # Win rate vs chosen
+            chosen = self._chosen_scores[label]
+            n = min(len(scores), len(chosen))
+            wins = (scores[:n] > chosen[:n]).sum()
+            ties = (scores[:n] == chosen[:n]).sum()
+            win_rate = float(wins) / n
+            win_or_tie_rate = float(wins + ties) / n
+            results[f"{label}/win_rate_vs_chosen"] = win_rate
+            results[f"{label}/win_or_tie_rate_vs_chosen"] = win_or_tie_rate
+
             return scores
 
         gold_rm_scores = _score("gold_rm", *self._models["gold_rm"])
@@ -1044,6 +1128,10 @@ def main():
 
     # --- Load reward models once ---
     loaded_rms = LoadedRewardModels(args)
+
+    # --- Precompute chosen scores for win-rate metric ---
+    if not args.evaluate_chosen_responses:
+        loaded_rms.precompute_chosen_scores(dataset, prompt_messages_list, args)
 
     # --- Main evaluation loop ---
     results = []
