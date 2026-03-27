@@ -29,19 +29,24 @@ fi
 cd "${REPO_ROOT}" || exit
 
 log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
-base_model_name="Qwen/Qwen3-8B-Base"
+# base_model_name="Qwen/Qwen3-8B-Base"
+base_model_name="Qwen/Qwen3.5-4B-Base"
 dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
 
 gpu=0
-use_lora=true
+use_lora=false
 base_learning_rate="1e-5"
 lora_lr_multiplier=5  # LoRA typically needs higher LR
 
 # Argument parsing
 COMMIT_MSG=$(git log -1 --pretty=%s)
-DEFAULT_WANDB_NAME="sft_${COMMIT_MSG// /_}_${SLURM_JOB_ID}"
+DEFAULT_WANDB_NAME="sft_${COMMIT_MSG// /_}"
+if [[ "${use_lora}" == "true" ]]; then
+    DEFAULT_WANDB_NAME="${DEFAULT_WANDB_NAME}_lora"
+fi
+DEFAULT_WANDB_NAME="${DEFAULT_WANDB_NAME}_${SLURM_JOB_ID}"
 wandb_name="${DEFAULT_WANDB_NAME}"
 
 while [[ "$#" -gt 0 ]]; do
@@ -99,6 +104,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --report_to "wandb" \
     --run_name ${wandb_name} \
     --length_config "default" \
+    --skip_length_validation True \
     --trust_remote_code True \
     $(if [[ "${use_lora}" == "true" ]]; then echo "\
     --use_peft True \

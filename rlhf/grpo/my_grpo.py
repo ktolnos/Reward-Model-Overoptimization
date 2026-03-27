@@ -170,6 +170,13 @@ class MyGRPOScriptArguments:
             "max_completion_length still comes from --length_config."
         },
     )
+    skip_length_validation: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip token-length validation during dataset processing. "
+            "Use when the policy tokenizer differs from the one used to filter the dataset."
+        },
+    )
 
 
 if __name__ == "__main__":
@@ -281,6 +288,7 @@ if __name__ == "__main__":
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
         length_config=script_args.length_config,
+        skip_length_validation=script_args.skip_length_validation,
     )
     print(f"Size of the train set: {len(train_dataset)}, eval set: {len(eval_dataset)}")
 

@@ -260,6 +260,9 @@ fi
 if [[ "${ensemble_aggregation}" == "uwo" ]]; then
     run_name_suffix="${run_name_suffix}${uwo_lambda}"
 fi
+if [[ "${use_lora}" == "true" ]]; then
+    run_name_suffix="${run_name_suffix}_lora"
+fi
 
 wandb_name="${wandb_name_base}_${run_name_suffix}_${SLURM_JOB_ID}"
 
@@ -327,6 +330,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mix_ensemble_size ${mix_ensemble_size} \
     --mix_strategy "${mix_strategy}" \
     --auto_prompt_length True \
+    --skip_length_validation True \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
