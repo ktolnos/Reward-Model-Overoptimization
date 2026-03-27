@@ -33,6 +33,7 @@ from data_utils import (
     _get_lora_base_model_path,
     get_generation_stop_token_ids,
     get_length_config,
+    compute_max_prompt_length,
     DATASET_LENGTH_CONFIGS,
 )
 from vllm import LLM, SamplingParams
@@ -58,7 +59,7 @@ class ScriptArguments:
         metadata={"help": "Name of the dataset to evaluate on"},
     )
     max_length: Optional[int] = field(
-        default=1024, metadata={"help": "Maximum sequence length for input processing"}
+        default=1024, metadata={"help": "Maximum prompt length for vLLM. Overridden when --auto_prompt_length is set."}
     )
     max_new_tokens: Optional[int] = field(
         default=1024, metadata={"help": "Maximum number of new tokens to generate"}
@@ -162,6 +163,14 @@ class ScriptArguments:
         metadata={
             "help": "Name of the length config from DATASET_LENGTH_CONFIGS. "
             "Use 'alpacafarm_paper' for the paper comparison (520/256/776)."
+        },
+    )
+    auto_prompt_length: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Measure actual max prompt length from the dataset with the "
+            "policy tokenizer and use it for vLLM memory allocation. "
+            "Overrides --max_length."
         },
     )
     evaluate_chosen_responses: Optional[bool] = field(
@@ -946,6 +955,15 @@ def main():
             print("Debug mode: using only first checkpoint")
             checkpoints = checkpoints[:1]
 
+    # --- Resolve auto length config ---
+    # Auto-detection measures actual dataset token lengths to set tight vLLM
+    # memory allocation; validation is skipped since the dataset is pre-filtered.
+    is_auto = args.length_config == "auto"
+    if is_auto and policy_tokenizer is not None:
+        auto_cfg = compute_length_config_from_dataset(dataset, policy_tokenizer)
+        args.max_length = auto_cfg["max_prompt_tokens"]
+        # max_new_tokens is a generation budget — keep the CLI value.
+
     # --- Prepare dataset: validate and format prompts ---
     # format_and_validate_preference_sample is the single source of truth for
     # validation and chat-template formatting.  When we have a policy tokenizer
@@ -957,8 +975,8 @@ def main():
                 example["chosen"],
                 policy_tokenizer,
                 rejected_messages=example.get("rejected"),
-                length_config=args.length_config,
-                skip_validation=args.skip_validation,
+                length_config=args.length_config if not is_auto else "default",
+                skip_validation=args.skip_validation or is_auto,
                 sample_id=idx,
                 context="Evaluation",
             )

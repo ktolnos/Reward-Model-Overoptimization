@@ -50,6 +50,43 @@ def get_length_config(config_name):
     return DATASET_LENGTH_CONFIGS[config_name]
 
 
+def compute_max_prompt_length(dataset_or_path, tokenizer, *, padding_tokens=32):
+    """Measure the actual max prompt token length in a dataset.
+
+    Scans all conversations, tokenizes prompts with the given tokenizer, and
+    returns the observed maximum plus *padding_tokens*.  This lets vLLM
+    allocate only as much KV-cache as the data actually needs, regardless of
+    which tokenizer is used.
+
+    Accepts either a HuggingFace ``Dataset`` object or a dataset path string.
+    """
+    import datasets as _ds_lib
+
+    if isinstance(dataset_or_path, str):
+        dataset = _ds_lib.load_dataset(dataset_or_path, split="train")
+    else:
+        dataset = dataset_or_path
+
+    max_prompt = 0
+    for example in dataset:
+        prompt_text, _, _ = format_and_validate_preference_sample(
+            example["chosen"],
+            tokenizer,
+            length_config="default",
+            skip_validation=True,
+        )
+        prompt_tok = count_tokens_with_special_tokens(prompt_text, tokenizer)
+        max_prompt = max(max_prompt, prompt_tok)
+
+    result = max_prompt + padding_tokens
+    print(
+        f"[auto_prompt_length] Measured max prompt length with "
+        f"{tokenizer.name_or_path}: {max_prompt} tokens "
+        f"(+{padding_tokens} padding → {result})"
+    )
+    return result
+
+
 # ---- AlpacaFarm gold RM chat template (Alpaca instruction format) ----
 
 _ALPACAFARM_GOLD_CHAT_TEMPLATE = (

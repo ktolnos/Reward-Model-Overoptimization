@@ -326,6 +326,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --rm_switch_strategy "${rm_switch_strategy}" \
     --mix_ensemble_size ${mix_ensemble_size} \
     --mix_strategy "${mix_strategy}" \
+    --auto_prompt_length True \
     --penalize_no_eos True \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \

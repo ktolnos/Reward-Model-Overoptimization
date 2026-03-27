@@ -24,6 +24,7 @@ from data_utils import (
     load_policy_and_tokenizer,
     get_generation_stop_token_ids,
     get_length_config,
+    compute_max_prompt_length,
     DATASET_LENGTH_CONFIGS,
 )
 
@@ -161,6 +162,14 @@ class MyGRPOScriptArguments:
             "Use 'alpacafarm_paper' for the paper comparison (520/256/776)."
         },
     )
+    auto_prompt_length: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Measure actual max prompt length from the dataset with the "
+            "policy tokenizer and use it for vLLM memory allocation. "
+            "max_completion_length still comes from --length_config."
+        },
+    )
 
 
 if __name__ == "__main__":
@@ -171,8 +180,9 @@ if __name__ == "__main__":
         parser.parse_args_into_dataclasses()
     )
     # Apply length config from DATASET_LENGTH_CONFIGS.
+    # vLLM memory sizing is deferred until the policy tokenizer is loaded
+    # when --auto_prompt_length is set (see Dataset section).
     length_cfg = get_length_config(script_args.length_config)
-    training_args.max_prompt_length = length_cfg["max_prompt_tokens"]
     if training_args.max_completion_length != 256:
         raise ValueError(
             f"max_completion_length is overridden on the command line. "
@@ -183,10 +193,8 @@ if __name__ == "__main__":
     if training_args.vllm_max_model_length is not None:
         raise ValueError(
             f"vllm_max_model_length is overridden on the command line. "
-            f"Use --length_config instead (active config '{script_args.length_config}' "
-            f"sets max_conversation_tokens={length_cfg['max_conversation_tokens']})."
+            f"Use --length_config (or --auto_prompt_length) instead."
         )
-    training_args.vllm_max_model_length = length_cfg["max_conversation_tokens"]
 
     if script_args.clip_reward_max is not None and (
         not script_args.rm_subtract_mean_reward_per_model
@@ -254,6 +262,18 @@ if __name__ == "__main__":
     ################
     # Dataset
     ################
+
+    # Resolve vLLM memory sizing: auto_prompt_length measures the dataset,
+    # otherwise use the hardcoded value from length_config.
+    if script_args.auto_prompt_length:
+        measured_prompt = compute_max_prompt_length(
+            script_args.dataset_path, policy_tokenizer
+        )
+        training_args.max_prompt_length = measured_prompt
+        training_args.vllm_max_model_length = measured_prompt + training_args.max_completion_length
+    else:
+        training_args.max_prompt_length = length_cfg["max_prompt_tokens"]
+        training_args.vllm_max_model_length = length_cfg["max_conversation_tokens"]
 
     train_dataset, eval_dataset = build_train_eval_datasets(
         script_args.dataset_path,

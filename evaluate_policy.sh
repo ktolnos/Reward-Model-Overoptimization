@@ -73,7 +73,7 @@ python evaluate_policy.py \
     --output_file "$OUTPUT_FILE" \
     --batch_size 1 \
     --generation_batch_size 32 \
-    --max_length 1024 \
+    --auto_prompt_length True \
     --device "cuda" \
     --wandb_project "$WANDB_PROJECT" \
     --wandb_run_name "$WANDB_RUN_NAME" \
