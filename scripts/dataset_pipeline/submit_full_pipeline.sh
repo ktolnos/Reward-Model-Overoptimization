@@ -23,6 +23,7 @@ PRIVATE=0
 TRUST_REMOTE_CODE=0
 SKIP_STAGE12=0
 SKIP_STAGE3=0
+SKIP_ANNOTATION=0
 
 usage() {
   cat <<EOF
@@ -37,7 +38,7 @@ Usage: $0 \
   [--subsample-fraction <float>] \
   [--max-prompt-tokens <int>] [--max-response-tokens <int>] [--max-conversation-tokens <int>] \
   [--max-errors <int>] [--private] [--trust-remote-code] \
-  [--skip-stage12] [--skip-stage3]
+  [--skip-stage12] [--skip-stage3] [--skip-annotation]
 EOF
 }
 
@@ -61,6 +62,7 @@ while [[ $# -gt 0 ]]; do
     --trust-remote-code) TRUST_REMOTE_CODE=1; shift ;;
     --skip-stage12) SKIP_STAGE12=1; shift ;;
     --skip-stage3) SKIP_STAGE3=1; shift ;;
+    --skip-annotation) SKIP_ANNOTATION=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "Unknown argument: $1" >&2
@@ -70,8 +72,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${SOURCE_DATASET}" || -z "${REWARD_MODEL}" || -z "${PREFIX}" || -z "${NAMESPACE}" ]]; then
+if [[ -z "${SOURCE_DATASET}" || -z "${PREFIX}" || -z "${NAMESPACE}" ]]; then
   usage
+  exit 2
+fi
+
+if [[ -z "${REWARD_MODEL}" && "${SKIP_ANNOTATION}" -eq 0 && "${SKIP_STAGE3}" -eq 0 ]]; then
+  echo "ERROR: --reward-model is required unless --skip-annotation or --skip-stage3 is set." >&2
   exit 2
 fi
 
@@ -96,7 +103,11 @@ sanitize() {
   echo "$1" | sed -e 's#[/:]#-#g' -e 's#[^a-zA-Z0-9_-]#-#g' -e 's#--*#-#g' -e 's#^-##' -e 's#-$##'
 }
 
-REWARD_SUFFIX="$(sanitize "${REWARD_MODEL}")"
+if [[ -n "${REWARD_MODEL}" ]]; then
+  REWARD_SUFFIX="$(sanitize "${REWARD_MODEL}")"
+else
+  REWARD_SUFFIX="no-rm"
+fi
 
 FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
 ANNOTATED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_${REWARD_SUFFIX}"
@@ -163,11 +174,15 @@ fi
 STAGE3_ARGS=(
   --source-dataset "${FILTERED_DATASET}"
   --output-dataset "${ANNOTATED_DATASET}"
-  --reward-model "${REWARD_MODEL}"
   --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
   --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
   --validation-tokenizer-name "${TOKENIZER_NAME}"
 )
+if [[ "${SKIP_ANNOTATION}" -eq 1 ]]; then
+  STAGE3_ARGS+=(--skip-annotation)
+else
+  STAGE3_ARGS+=(--reward-model "${REWARD_MODEL}")
+fi
 if [[ "${PRIVATE}" -eq 1 ]]; then
   STAGE3_ARGS+=(--private)
 fi

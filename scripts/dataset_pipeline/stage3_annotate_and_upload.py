@@ -42,8 +42,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dataset", required=True, help="HF annotated dataset")
     parser.add_argument(
         "--reward-model",
-        required=True,
-        help="Reward model name/path used for annotation",
+        default="",
+        help="Reward model name/path used for annotation (required unless --skip-annotation)",
     )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument(
@@ -75,6 +75,17 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Tokenizer used only for strict length validation. "
             "If omitted, Stage 3 uses the reward model tokenizer."
+        ),
+    )
+    parser.add_argument(
+        "--skip-annotation",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip gold RM annotation entirely.  The dataset is passed through "
+            "with original chosen/rejected ordering.  Columns chosen_reward, "
+            "rejected_reward, and does_gold_agree_with_original are not added.  "
+            "--reward-model is not required when this flag is set."
         ),
     )
     parser.set_defaults(trust_remote_code=True)
@@ -194,57 +205,66 @@ def _annotate_split(
 
 def main() -> None:
     args = _parse_args()
+
+    if not args.skip_annotation and not args.reward_model:
+        raise ValueError("--reward-model is required unless --skip-annotation is set.")
+
     hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
 
     dataset_dict = ensure_dataset_dict(load_dataset(args.source_dataset))
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(f"Loading reward model: {args.reward_model} on {device}")
-    reward_model, reward_tokenizer = load_reward_model(
-        args.reward_model,
-        reasoning=False,
-        device=device,
-    )
-    setup_tokenizer(reward_tokenizer, model_name=args.reward_model)
-
-    validation_tokenizer = reward_tokenizer
-    if args.validation_tokenizer_name:
-        print(
-            "Loading validation tokenizer for Stage 3 length checks: "
-            f"{args.validation_tokenizer_name}"
-        )
-        validation_tokenizer = AutoTokenizer.from_pretrained(
-            args.validation_tokenizer_name,
-            trust_remote_code=args.trust_remote_code,
-        )
-        setup_tokenizer(
-            validation_tokenizer,
-            model_name=args.validation_tokenizer_name,
-        )
+    if args.skip_annotation:
+        print("--skip-annotation: passing through dataset without gold RM scoring.")
+        output_dataset = dataset_dict
     else:
-        print("Using reward tokenizer for Stage 3 length checks.")
+        device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    annotated_splits = {}
-    for split_name, split_data in dataset_dict.items():
-        annotated_splits[split_name] = _annotate_split(
-            split_name,
-            split_data,
-            reward_model,
-            reward_tokenizer,
-            validation_tokenizer,
-            torch.device(device),
-            batch_size=args.batch_size,
-            max_prompt_tokens=args.max_prompt_tokens,
-            max_conversation_tokens=args.max_conversation_tokens,
+        print(f"Loading reward model: {args.reward_model} on {device}")
+        reward_model, reward_tokenizer = load_reward_model(
+            args.reward_model,
+            reasoning=False,
+            device=device,
         )
+        setup_tokenizer(reward_tokenizer, model_name=args.reward_model)
 
-    annotated_dataset = DatasetDict(annotated_splits)
+        validation_tokenizer = reward_tokenizer
+        if args.validation_tokenizer_name:
+            print(
+                "Loading validation tokenizer for Stage 3 length checks: "
+                f"{args.validation_tokenizer_name}"
+            )
+            validation_tokenizer = AutoTokenizer.from_pretrained(
+                args.validation_tokenizer_name,
+                trust_remote_code=args.trust_remote_code,
+            )
+            setup_tokenizer(
+                validation_tokenizer,
+                model_name=args.validation_tokenizer_name,
+            )
+        else:
+            print("Using reward tokenizer for Stage 3 length checks.")
 
-    print(f"Uploading annotated dataset to {args.output_dataset}")
+        annotated_splits = {}
+        for split_name, split_data in dataset_dict.items():
+            annotated_splits[split_name] = _annotate_split(
+                split_name,
+                split_data,
+                reward_model,
+                reward_tokenizer,
+                validation_tokenizer,
+                torch.device(device),
+                batch_size=args.batch_size,
+                max_prompt_tokens=args.max_prompt_tokens,
+                max_conversation_tokens=args.max_conversation_tokens,
+            )
+
+        output_dataset = DatasetDict(annotated_splits)
+
+    print(f"Uploading dataset to {args.output_dataset}")
     push_kwargs = {"private": args.private}
     if hf_token:
         push_kwargs["token"] = hf_token
-    annotated_dataset.push_to_hub(args.output_dataset, **push_kwargs)
+    output_dataset.push_to_hub(args.output_dataset, **push_kwargs)
     print("Upload complete.")
     clear_hf_dataset_cache(context="Stage3")
 
