@@ -6,6 +6,17 @@ from typing import Optional, Union, List, Any, Mapping
 # Must be before any TRL imports. See https://github.com/vllm-project/vllm/issues/37749
 import vllm
 import vllm.entrypoints.llm
+
+# 1) Force language_model_only=True so vLLM skips the multimodal renderer
+_OriginalLLM = vllm.LLM
+class _TextOnlyLLM(_OriginalLLM):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('language_model_only', True)
+        super().__init__(*args, **kwargs)
+vllm.LLM = _TextOnlyLLM
+vllm.entrypoints.llm.LLM = _TextOnlyLLM
+
+# 2) Relax the strict config type check (Qwen3_5TextConfig vs Qwen3_5Config)
 from vllm.multimodal.processing.context import InputProcessingContext
 _orig_get_hf_config = InputProcessingContext.get_hf_config
 def _patched_get_hf_config(self, hf_config_type=None):
