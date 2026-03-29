@@ -6,8 +6,8 @@ from typing import Optional, Union, List, Any, Mapping
 # Must be before any TRL imports. See https://github.com/vllm-project/vllm/issues/37749
 import vllm
 import vllm.entrypoints.llm
-from vllm.multimodal.processing.context import ProcessingContext
-_orig_get_hf_config = ProcessingContext.get_hf_config
+from vllm.multimodal.processing.context import InputProcessingContext
+_orig_get_hf_config = InputProcessingContext.get_hf_config
 def _patched_get_hf_config(self, hf_config_type=None):
     if hf_config_type is None:
         return _orig_get_hf_config(self)
@@ -15,7 +15,7 @@ def _patched_get_hf_config(self, hf_config_type=None):
         return _orig_get_hf_config(self, hf_config_type)
     except TypeError:
         return self.model_config.hf_config
-ProcessingContext.get_hf_config = _patched_get_hf_config
+InputProcessingContext.get_hf_config = _patched_get_hf_config
 
 
 from accelerate import Accelerator, DeepSpeedPlugin
