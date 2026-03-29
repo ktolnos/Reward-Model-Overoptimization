@@ -2,19 +2,20 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, Union, List, Any, Mapping
 
-# Patch vLLM to load Qwen3.5 as text-only (skips multimodal pipeline)
+# Patch vLLM to work with transformers 5.x Qwen3.5 config (Qwen3_5TextConfig vs Qwen3_5Config)
 # Must be before any TRL imports. See https://github.com/vllm-project/vllm/issues/37749
 import vllm
 import vllm.entrypoints.llm
-_OriginalLLM = vllm.LLM
-
-class _TextOnlyLLM(_OriginalLLM):
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault('language_model_only', True)
-        super().__init__(*args, **kwargs)
-
-vllm.LLM = _TextOnlyLLM
-vllm.entrypoints.llm.LLM = _TextOnlyLLM
+from vllm.multimodal.processing.context import ProcessingContext
+_orig_get_hf_config = ProcessingContext.get_hf_config
+def _patched_get_hf_config(self, hf_config_type=None):
+    if hf_config_type is None:
+        return _orig_get_hf_config(self)
+    try:
+        return _orig_get_hf_config(self, hf_config_type)
+    except TypeError:
+        return self.model_config.hf_config
+ProcessingContext.get_hf_config = _patched_get_hf_config
 
 
 from accelerate import Accelerator, DeepSpeedPlugin
