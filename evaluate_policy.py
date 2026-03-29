@@ -850,6 +850,7 @@ def vllm_responses_provider(
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_length + args.max_new_tokens,
         trust_remote_code=True,
+        language_model_only=True,
         worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
     )
     if first_checkpoint_path != vllm_base_model_path:
@@ -1095,6 +1096,7 @@ def main():
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 max_model_len=args.max_length + args.max_new_tokens,
                 trust_remote_code=True,
+                language_model_only=True,
             )
             baseline_sampling_params = SamplingParams(
                 temperature=0, max_tokens=args.max_new_tokens, n=1,

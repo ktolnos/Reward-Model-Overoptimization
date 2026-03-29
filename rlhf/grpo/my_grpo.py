@@ -1,6 +1,22 @@
 import os
 from dataclasses import dataclass, field
 from typing import Optional, Union, List, Any, Mapping
+
+# Patch vLLM to load Qwen3.5 as text-only (skips multimodal pipeline)
+# Must be before any TRL imports. See https://github.com/vllm-project/vllm/issues/37749
+import vllm
+import vllm.entrypoints.llm
+_OriginalLLM = vllm.LLM
+
+class _TextOnlyLLM(_OriginalLLM):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('language_model_only', True)
+        super().__init__(*args, **kwargs)
+
+vllm.LLM = _TextOnlyLLM
+vllm.entrypoints.llm.LLM = _TextOnlyLLM
+
+
 from accelerate import Accelerator, DeepSpeedPlugin
 import torch
 from tqdm import tqdm
