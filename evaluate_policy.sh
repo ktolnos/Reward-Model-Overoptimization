@@ -42,6 +42,8 @@ OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jso
 WANDB_PROJECT="policy-evaluation"
 WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 
+SKIP_VALIDATION=1
+
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
