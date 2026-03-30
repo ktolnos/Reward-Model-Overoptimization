@@ -31,23 +31,28 @@ _Qwen3_5TextConfig.__getattribute__ = _patched_getattribute
 
 import vllm
 import vllm.entrypoints.llm
-import vllm.multimodal.processing.context as _vllm_ctx
-
-# Patch the context class that does the strict isinstance check on HF config type.
-# The class is named differently across vLLM versions; find it dynamically.
-_ctx_cls = next(
-    cls for name in dir(_vllm_ctx)
-    if isinstance(cls := getattr(_vllm_ctx, name), type) and 'get_hf_config' in vars(cls)
+# Patch Qwen3_5ProcessingInfo.get_hf_config (qwen3_5.py:114) which calls
+# self.ctx.get_hf_config(Qwen3_5Config) — the isinstance check fails because
+# transformers 5.x returns Qwen3_5TextConfig instead of vLLM's Qwen3_5Config.
+from vllm.model_executor.models.qwen3_5 import (
+    Qwen3_5ProcessingInfo,
+    Qwen3_5MoeProcessingInfo,
 )
-_orig_get_hf_config = _ctx_cls.get_hf_config
-def _patched_get_hf_config(self, hf_config_type=None):
-    if hf_config_type is None:
-        return _orig_get_hf_config(self)
+_orig_q35_get_hf_config = Qwen3_5ProcessingInfo.get_hf_config
+def _patched_q35_get_hf_config(self):
     try:
-        return _orig_get_hf_config(self, hf_config_type)
+        return _orig_q35_get_hf_config(self)
     except TypeError:
-        return self.model_config.hf_config
-_ctx_cls.get_hf_config = _patched_get_hf_config
+        return self.ctx.model_config.hf_config
+Qwen3_5ProcessingInfo.get_hf_config = _patched_q35_get_hf_config
+
+_orig_q35moe_get_hf_config = Qwen3_5MoeProcessingInfo.get_hf_config
+def _patched_q35moe_get_hf_config(self):
+    try:
+        return _orig_q35moe_get_hf_config(self)
+    except TypeError:
+        return self.ctx.model_config.hf_config
+Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 
 _OriginalLLM = vllm.LLM
 class _TextOnlyLLM(_OriginalLLM):
