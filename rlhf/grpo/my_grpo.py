@@ -2,12 +2,35 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, Union, List, Any, Mapping
 
-# Patch vLLM to work with transformers 5.x Qwen3.5 config (Qwen3_5TextConfig vs Qwen3_5Config)
-# Must be before any TRL imports. See https://github.com/vllm-project/vllm/issues/37749
+# Patch transformers Qwen3_5TextConfig to work with vLLM, which expects a full VL config
+# with vision_config. transformers 5.x splits the config into text-only (Qwen3_5TextConfig)
+# but vLLM's Qwen3.5 handler inherits from its VL code and always accesses vision_config.
+# See https://github.com/vllm-project/vllm/issues/37749
+class _DummyVisionConfig:
+    spatial_merge_size = 2
+    image_size = 448
+    temporal_patch_size = 2
+    spatial_patch_size = 14
+    in_channels = 3
+    embed_dim = 1280
+    depth = 32
+    num_heads = 16
+    def __getattr__(self, name):
+        return None
+
+from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig as _Qwen3_5TextConfig
+_orig_getattribute = _Qwen3_5TextConfig.__getattribute__
+def _patched_getattribute(self, name):
+    if name == 'vision_config':
+        try:
+            return _orig_getattribute(self, name)
+        except AttributeError:
+            return _DummyVisionConfig()
+    return _orig_getattribute(self, name)
+_Qwen3_5TextConfig.__getattribute__ = _patched_getattribute
+
 import vllm
 import vllm.entrypoints.llm
-
-# 1) Force language_model_only=True so vLLM skips the multimodal renderer
 _OriginalLLM = vllm.LLM
 class _TextOnlyLLM(_OriginalLLM):
     def __init__(self, *args, **kwargs):
@@ -15,18 +38,6 @@ class _TextOnlyLLM(_OriginalLLM):
         super().__init__(*args, **kwargs)
 vllm.LLM = _TextOnlyLLM
 vllm.entrypoints.llm.LLM = _TextOnlyLLM
-
-# 2) Relax the strict config type check (Qwen3_5TextConfig vs Qwen3_5Config)
-from vllm.multimodal.processing.context import InputProcessingContext
-_orig_get_hf_config = InputProcessingContext.get_hf_config
-def _patched_get_hf_config(self, hf_config_type=None):
-    if hf_config_type is None:
-        return _orig_get_hf_config(self)
-    try:
-        return _orig_get_hf_config(self, hf_config_type)
-    except TypeError:
-        return self.model_config.hf_config
-InputProcessingContext.get_hf_config = _patched_get_hf_config
 
 
 from accelerate import Accelerator, DeepSpeedPlugin
