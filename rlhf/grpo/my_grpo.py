@@ -23,7 +23,9 @@ class _DummyVisionConfig:
 _VL_MISSING_ATTRS = frozenset({
     'vision_config', 'video_token_id', 'image_token_id',
     'video_token', 'image_token', 'spatial_merge_size', 'tokens_per_second',
-    'rope_scaling',
+    'rope_scaling', 'vision_start_token_id', 'vision_end_token_id',
+    'vision_token_id', 'image_start_token_id', 'image_end_token_id',
+    'video_start_token_id', 'video_end_token_id',
 })
 
 from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig as _Qwen3_5TextConfig
