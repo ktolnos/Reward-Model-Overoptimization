@@ -54,6 +54,9 @@ def _patched_q35moe_get_hf_config(self):
         return self.ctx.model_config.hf_config
 Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 
+# The checkpoint is text-only (no image processor), so skip multimodal budget computation.
+Qwen3_5ProcessingInfo.get_mm_max_tokens_per_item = lambda self, seq_len, mm_counts: {"image": 0, "video": 0}
+
 # Patch Qwen3_VisionTransformer.__init__ to skip real initialization when given a
 # _DummyVisionConfig. The SFT checkpoint was saved as Qwen3_5ForConditionalGeneration
 # (weights at language_model.*), so we must load with that class for correct weight
