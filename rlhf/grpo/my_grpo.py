@@ -18,13 +18,23 @@ class _DummyVisionConfig:
     def __getattr__(self, name):
         return None
 
+# VL-specific attributes that Qwen3_5TextConfig doesn't have but vLLM's multimodal
+# code accesses. Return None (or DummyVisionConfig) instead of raising AttributeError.
+_VL_MISSING_ATTRS = frozenset({
+    'vision_config', 'video_token_id', 'image_token_id',
+    'video_token', 'image_token', 'spatial_merge_size', 'tokens_per_second',
+    'rope_scaling',
+})
+
 from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig as _Qwen3_5TextConfig
 _orig_getattribute = _Qwen3_5TextConfig.__getattribute__
 def _patched_getattribute(self, name):
     try:
         return _orig_getattribute(self, name)
     except AttributeError:
-        return _DummyVisionConfig() if name == 'vision_config' else None
+        if name in _VL_MISSING_ATTRS:
+            return _DummyVisionConfig() if name == 'vision_config' else None
+        raise
 _Qwen3_5TextConfig.__getattribute__ = _patched_getattribute
 
 import vllm
