@@ -54,10 +54,17 @@ def _patched_q35moe_get_hf_config(self):
         return self.ctx.model_config.hf_config
 Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 
+# Register Qwen3_5ForCausalLM (text-only, no vision tower) in vLLM's model registry.
+# vLLM 0.17.1 only registers Qwen3_5ForConditionalGeneration (multimodal), so we
+# register the text-only class and override the architecture via hf_overrides.
+from vllm.model_executor.models.qwen3_5 import Qwen3_5ForCausalLM as _Qwen3_5ForCausalLM
+from vllm.model_executor.models.registry import ModelRegistry
+ModelRegistry.register_model("Qwen3_5ForCausalLM", _Qwen3_5ForCausalLM)
+
 _OriginalLLM = vllm.LLM
 class _TextOnlyLLM(_OriginalLLM):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault('language_model_only', True)
+        kwargs.setdefault('hf_overrides', {"architectures": ["Qwen3_5ForCausalLM"]})
         super().__init__(*args, **kwargs)
 vllm.LLM = _TextOnlyLLM
 vllm.entrypoints.llm.LLM = _TextOnlyLLM
