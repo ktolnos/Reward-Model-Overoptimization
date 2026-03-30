@@ -54,10 +54,24 @@ def _patched_q35moe_get_hf_config(self):
         return self.ctx.model_config.hf_config
 Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 
-# The checkpoint is text-only (no image processor), so skip all multimodal computation.
+# The checkpoint is text-only (no image processor), so stub out all multimodal methods.
 from vllm.model_executor.models.qwen3_vl import Qwen3VLDummyInputsBuilder
+from transformers import BatchEncoding
+
+class _TextOnlyHFProcessor:
+    """Minimal HF processor stub for text-only Qwen3.5 — wraps tokenizer, no image processor."""
+    image_processor = None
+    video_processor = None
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+    def __call__(self, text=None, return_tensors=None, **kwargs):
+        return BatchEncoding(self.tokenizer(text or "", return_tensors=return_tensors))
+
 Qwen3_5ProcessingInfo.get_mm_max_tokens_per_item = lambda self, seq_len, mm_counts: {"image": 0, "video": 0}
 Qwen3VLDummyInputsBuilder.get_dummy_mm_data = lambda self, seq_len, mm_counts, mm_options: {}
+Qwen3_5ProcessingInfo.get_hf_processor = lambda self, **kwargs: _TextOnlyHFProcessor(self.ctx.tokenizer)
+Qwen3_5ProcessingInfo.get_image_processor = lambda self, **kwargs: None
+Qwen3_5ProcessingInfo.get_video_processor = lambda self, **kwargs: None
 
 # Patch Qwen3_VisionTransformer.__init__ to skip real initialization when given a
 # _DummyVisionConfig. The SFT checkpoint was saved as Qwen3_5ForConditionalGeneration
