@@ -31,6 +31,24 @@ _Qwen3_5TextConfig.__getattribute__ = _patched_getattribute
 
 import vllm
 import vllm.entrypoints.llm
+import vllm.multimodal.processing.context as _vllm_ctx
+
+# Patch the context class that does the strict isinstance check on HF config type.
+# The class is named differently across vLLM versions; find it dynamically.
+_ctx_cls = next(
+    cls for name in dir(_vllm_ctx)
+    if isinstance(cls := getattr(_vllm_ctx, name), type) and 'get_hf_config' in vars(cls)
+)
+_orig_get_hf_config = _ctx_cls.get_hf_config
+def _patched_get_hf_config(self, hf_config_type=None):
+    if hf_config_type is None:
+        return _orig_get_hf_config(self)
+    try:
+        return _orig_get_hf_config(self, hf_config_type)
+    except TypeError:
+        return self.model_config.hf_config
+_ctx_cls.get_hf_config = _patched_get_hf_config
+
 _OriginalLLM = vllm.LLM
 class _TextOnlyLLM(_OriginalLLM):
     def __init__(self, *args, **kwargs):
