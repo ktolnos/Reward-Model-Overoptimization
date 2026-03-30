@@ -54,20 +54,28 @@ def _patched_q35moe_get_hf_config(self):
         return self.ctx.model_config.hf_config
 Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 
-# Register Qwen3_5ForCausalLM (text-only, no vision tower) in vLLM's model registry.
-# vLLM 0.17.1 only registers Qwen3_5ForConditionalGeneration (multimodal), so we
-# register the text-only class and override the architecture via hf_overrides.
-from vllm.model_executor.models.qwen3_5 import Qwen3_5ForCausalLM as _Qwen3_5ForCausalLM
-from vllm.model_executor.models.registry import ModelRegistry
-ModelRegistry.register_model("Qwen3_5ForCausalLM", _Qwen3_5ForCausalLM)
-
-_OriginalLLM = vllm.LLM
-class _TextOnlyLLM(_OriginalLLM):
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault('hf_overrides', {"architectures": ["Qwen3_5ForCausalLM"]})
-        super().__init__(*args, **kwargs)
-vllm.LLM = _TextOnlyLLM
-vllm.entrypoints.llm.LLM = _TextOnlyLLM
+# Patch Qwen3_VisionTransformer.__init__ to skip real initialization when given a
+# _DummyVisionConfig. The SFT checkpoint was saved as Qwen3_5ForConditionalGeneration
+# (weights at language_model.*), so we must load with that class for correct weight
+# mapping. But we never send images, so the vision tower can be a hollow nn.Module.
+from vllm.model_executor.models.qwen3_vl import Qwen3_VisionTransformer
+import torch.nn as nn
+_orig_vt_init = Qwen3_VisionTransformer.__init__
+def _patched_vt_init(self, vision_config, *args, **kwargs):
+    if isinstance(vision_config, _DummyVisionConfig):
+        nn.Module.__init__(self)
+        self.hidden_size = 1280
+        self.num_heads = 16
+        self.num_position_embeddings = 16384  # 128^2
+        self.patch_size = 14
+        self.spatial_merge_size = 2
+        self.temporal_patch_size = 2
+        self.spatial_merge_unit = 4
+        self.out_hidden_size = 1280
+        self.deepstack_visual_indexes = []
+    else:
+        _orig_vt_init(self, vision_config, *args, **kwargs)
+Qwen3_VisionTransformer.__init__ = _patched_vt_init
 
 
 from accelerate import Accelerator, DeepSpeedPlugin
