@@ -68,10 +68,17 @@ Qwen3_5MoeProcessingInfo.get_hf_config = _patched_q35moe_get_hf_config
 from vllm.model_executor.models.qwen3_vl import Qwen3VLDummyInputsBuilder
 from transformers import BatchEncoding
 
+class _ImageProcessorStub:
+    """Minimal image processor stub — only merge_size is needed for token-count math."""
+    merge_size = 2  # matches Qwen3_5VisionConfig.spatial_merge_size default
+
 class _TextOnlyHFProcessor:
     """Minimal HF processor stub for text-only Qwen3.5 — wraps tokenizer, no image processor."""
     image_processor = None
     video_processor = None
+    # Token constants accessed during PromptReplacement construction (qwen3_vl.py:1155)
+    image_token = "<|image_pad|>"
+    image_token_id = 248056  # Qwen3_5Config.image_token_id default
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
     def __call__(self, text=None, return_tensors=None, **kwargs):
@@ -80,7 +87,7 @@ class _TextOnlyHFProcessor:
 Qwen3_5ProcessingInfo.get_mm_max_tokens_per_item = lambda self, seq_len, mm_counts: {"image": 0, "video": 0}
 Qwen3VLDummyInputsBuilder.get_dummy_mm_data = lambda self, seq_len, mm_counts, mm_options: {}
 Qwen3_5ProcessingInfo.get_hf_processor = lambda self, **kwargs: _TextOnlyHFProcessor(self.ctx.tokenizer)
-Qwen3_5ProcessingInfo.get_image_processor = lambda self, **kwargs: None
+Qwen3_5ProcessingInfo.get_image_processor = lambda self, **kwargs: _ImageProcessorStub()
 Qwen3_5ProcessingInfo.get_video_processor = lambda self, **kwargs: None
 
 # Patch Qwen3_VisionTransformer.__init__ to skip real initialization when given a
@@ -105,6 +112,17 @@ def _patched_vt_init(self, vision_config, *args, **kwargs):
     else:
         _orig_vt_init(self, vision_config, *args, **kwargs)
 Qwen3_VisionTransformer.__init__ = _patched_vt_init
+
+# TRL 0.29.0 VLLMGeneration creates LLM() without language_model_only=True.
+# Patch vllm.LLM so every instantiation gets it by default, skipping the
+# multimodal media budget at inference time and saving memory.
+_OriginalLLM = vllm.LLM
+class _TextOnlyLLM(_OriginalLLM):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('language_model_only', True)
+        super().__init__(*args, **kwargs)
+vllm.LLM = _TextOnlyLLM
+vllm.entrypoints.llm.LLM = _TextOnlyLLM
 
 
 from accelerate import Accelerator, DeepSpeedPlugin
