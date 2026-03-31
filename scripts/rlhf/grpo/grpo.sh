@@ -271,6 +271,9 @@ wandb_name="${wandb_name_base}_${run_name_suffix}_${SLURM_JOB_ID}"
 export WANDB_RUN_NAME=${wandb_name}
 export WANDB_RUN_GROUP=${log_dir}
 
+# expandable_segments reduces fragmentation; helps when Triton autotune
+# benchmarks new kernel configs while training tensors are still live.
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
@@ -281,7 +284,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --epsilon_high 0.28 \
     --mask_truncated_completions False \
     --use_vllm True \
-    --vllm_gpu_memory_utilization 0.3 \
+    --vllm_gpu_memory_utilization 0.28 \
     --vllm_mode "colocate" \
     --beta ${beta} \
     --log_completions True \
@@ -314,7 +317,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --online_pet_enabled False \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
-    --move_rm_to_cpu False \
+    --move_rm_to_cpu True \
     --move_policy_to_cpu False \
     --pessimistic_loss_weight 0.005 \
     --cql_optimistic_loss_weight 0.005 \
