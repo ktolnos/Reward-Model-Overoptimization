@@ -124,6 +124,20 @@ class _TextOnlyLLM(_OriginalLLM):
 vllm.LLM = _TextOnlyLLM
 vllm.entrypoints.llm.LLM = _TextOnlyLLM
 
+# TRL's sync_weights sends param names from the training model (AutoModelForCausalLM
+# → Qwen3_5ForCausalLM, params at model.*) to vLLM's Qwen3_5ForConditionalGeneration
+# (params at language_model.model.*). The hf_to_vllm_mapper only handles
+# "model.language_model.*" → "language_model.model.*", not plain "model.*".
+# Fix: prepend "language_model." when the name starts with "model.".
+from trl.generation.vllm_generation import VLLMGeneration
+_orig_fix_param_name = VLLMGeneration._fix_param_name_to_vllm
+def _patched_fix_param_name(self, name, extra_prefixes=None):
+    name = _orig_fix_param_name(self, name, extra_prefixes=extra_prefixes)
+    if name.startswith("model."):
+        name = "language_model." + name
+    return name
+VLLMGeneration._fix_param_name_to_vllm = _patched_fix_param_name
+
 
 from accelerate import Accelerator, DeepSpeedPlugin
 import torch
