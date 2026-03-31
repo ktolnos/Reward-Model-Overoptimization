@@ -36,6 +36,7 @@ from data_utils import (
     compute_max_prompt_length,
     DATASET_LENGTH_CONFIGS,
 )
+import qwen35_vllm_patch  # noqa: F401 — must run before any vLLM code
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
 import gc
