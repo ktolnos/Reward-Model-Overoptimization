@@ -35,7 +35,7 @@ n_gpu=1
 # dataset_name='hendrydong/preference_700K'
 #dataset_name='../experimental/data/helpsteer2_gold/'
 dataset_name=(
-    "ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
+    "ktolnos/helpsteer3-qwen35_annotated_human"
 #    'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B'
 #   'ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k'
 #  'gagan3012/helpsteer2-preference-v2'
@@ -65,7 +65,7 @@ fi
 
 echo "Running with seed: $seed, save_last_only: $save_last_only, skip_optimizer: $skip_optimizer"
 
-wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3v2_annotated"
+wandb_name="${seed}_BT_RM_${base_model}_${SLURM_JOB_ID}_helpsteer3-qwen35_annotated_human"
 log_dir="${REPO_ROOT}/save_reward_models"
 
 PORT_SELECTOR_SCRIPT="${REPO_ROOT}/scripts/common/select_master_port.sh"

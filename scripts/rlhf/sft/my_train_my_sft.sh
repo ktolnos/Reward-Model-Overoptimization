@@ -31,7 +31,7 @@ cd "${REPO_ROOT}" || exit
 log_dir="${REPO_ROOT}/scripts/rlhf/logs_sft/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID}"
 # base_model_name="Qwen/Qwen3-8B-Base"
 base_model_name="Qwen/Qwen3.5-4B-Base"
-dataset_path="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
+dataset_path="ktolnos/helpsteer3-qwen35_annotated_human"
 
 export PYTHONPATH="${PWD}:${PYTHONPATH}"
 
@@ -87,7 +87,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --model_name_or_path ${base_model_name} \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir} \
-    --num_train_epochs 2 \
+    --num_train_epochs 1 \
     --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 2 \
     --gradient_accumulation_steps 16 \

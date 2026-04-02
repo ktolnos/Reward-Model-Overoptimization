@@ -28,7 +28,7 @@ GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 # Dataset name
 #DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
 # DATASET_NAME="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
-DATASET_NAME="ktolnos/helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B"
+DATASET_NAME="ktolnos/helpsteer3-qwen35_annotated_human"
 
 
 # Base model name (required for LoRA checkpoints)
