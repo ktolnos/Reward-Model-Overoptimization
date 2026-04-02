@@ -238,13 +238,14 @@ STAGE4_SBATCH_ARGS=(
   --export "${SBATCH_EXPORT}"
   --chdir "${REPO_ROOT}"
 )
-if [[ -n "${JOB2}" ]]; then
-  STAGE4_SBATCH_ARGS+=(--dependency="afterok:${JOB2}")
+STAGE4_DEPENDS="${JOB2:-${JOB1}}"
+if [[ -n "${STAGE4_DEPENDS}" ]]; then
+  STAGE4_SBATCH_ARGS+=(--dependency="afterok:${STAGE4_DEPENDS}")
 fi
 
 JOB3="$(sbatch "${STAGE4_SBATCH_ARGS[@]}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
-if [[ -n "${JOB2}" ]]; then
-  echo "Submitted Stage 4 job: ${JOB3} (depends on ${JOB2})"
+if [[ -n "${STAGE4_DEPENDS}" ]]; then
+  echo "Submitted Stage 4 job: ${JOB3} (depends on ${STAGE4_DEPENDS})"
 else
   echo "Submitted Stage 4 job: ${JOB3}"
 fi
