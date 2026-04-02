@@ -76,6 +76,17 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Do not upload dataset (useful for dry runs)",
     )
+    parser.add_argument(
+        "--skip-prefix-check",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the check that the tokenized prompt is a prefix of the tokenized "
+            "chosen/rejected conversations. The check catches BPE boundary "
+            "inconsistencies that can cause distribution shift between SFT and GRPO, "
+            "but may produce false positives with some tokenizers (e.g. Qwen3)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -138,14 +149,13 @@ def _filter_split(
             rejected_len, rejected_ids = _compute_token_lengths(rejected_text, tokenizer)
 
             prefix_len = len(prompt_ids)
-            if chosen_ids[:prefix_len] != prompt_ids:
-                raise ValueError(
-                    "Tokenized prompt is not a prefix of tokenized chosen conversation."
-                )
-            if rejected_ids[:prefix_len] != prompt_ids:
-                raise ValueError(
-                    "Tokenized prompt is not a prefix of tokenized rejected conversation."
-                )
+            if not args.skip_prefix_check:
+                if chosen_ids[:prefix_len] != prompt_ids:
+                    drop_reasons["prefix_mismatch"] += 1
+                    continue
+                if rejected_ids[:prefix_len] != prompt_ids:
+                    drop_reasons["prefix_mismatch"] += 1
+                    continue
 
             chosen_response_len = chosen_len - prefix_len
             rejected_response_len = rejected_len - prefix_len

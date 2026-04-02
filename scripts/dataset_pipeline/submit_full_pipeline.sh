@@ -24,6 +24,7 @@ TRUST_REMOTE_CODE=0
 SKIP_STAGE12=0
 SKIP_STAGE3=0
 SKIP_ANNOTATION=0
+SKIP_PREFIX_CHECK=0
 
 usage() {
   cat <<EOF
@@ -38,7 +39,7 @@ Usage: $0 \
   [--subsample-fraction <float>] \
   [--max-prompt-tokens <int>] [--max-response-tokens <int>] [--max-conversation-tokens <int>] \
   [--max-errors <int>] [--private] [--trust-remote-code] \
-  [--skip-stage12] [--skip-stage3] [--skip-annotation]
+  [--skip-stage12] [--skip-stage3] [--skip-annotation] [--skip-prefix-check]
 EOF
 }
 
