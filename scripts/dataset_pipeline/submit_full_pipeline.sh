@@ -105,13 +105,22 @@ sanitize() {
 
 if [[ -n "${REWARD_MODEL}" ]]; then
   REWARD_SUFFIX="$(sanitize "${REWARD_MODEL}")"
+elif [[ "${SKIP_ANNOTATION}" -eq 1 ]]; then
+  REWARD_SUFFIX="human"
 else
   REWARD_SUFFIX="no-rm"
 fi
 
-FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
 ANNOTATED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_${REWARD_SUFFIX}"
-SUBSAMPLED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_25pct"
+SUBSAMPLED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_${REWARD_SUFFIX}_25pct"
+
+# When skipping annotation, Stage 2 writes directly to ANNOTATED_DATASET (no _filtered upload).
+if [[ "${SKIP_ANNOTATION}" -eq 1 ]]; then
+  FILTERED_DATASET="${ANNOTATED_DATASET}"
+  SKIP_STAGE3=1
+else
+  FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
+fi
 
 # Hugging Face SQL (run on the ANNOTATED_DATASET viewer) to check RM agreement accuracy:
 # Overall accuracy across splits:
@@ -138,7 +147,9 @@ SUBSAMPLED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_annotated_25pct"
 # ORDER BY split;
 
 echo "Source dataset:     ${SOURCE_DATASET}"
-echo "Filtered dataset:   ${FILTERED_DATASET}"
+if [[ "${SKIP_ANNOTATION}" -eq 0 ]]; then
+  echo "Filtered dataset:   ${FILTERED_DATASET}"
+fi
 echo "Annotated dataset:  ${ANNOTATED_DATASET}"
 echo "Subsampled dataset: ${SUBSAMPLED_DATASET}"
 
@@ -165,7 +176,7 @@ fi
 JOB1=""
 if [[ "${SKIP_STAGE12}" -eq 1 ]]; then
   echo "Skipping Stage 1+2 submission (--skip-stage12)."
-  echo "Expected existing filtered dataset repo: ${FILTERED_DATASET}"
+  echo "Expected existing annotated dataset repo: ${ANNOTATED_DATASET}"
 else
   JOB1="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
   echo "Submitted Stage 1+2 job: ${JOB1}"
@@ -240,7 +251,9 @@ fi
 
 echo ""
 echo "Pipeline submitted successfully."
-echo "Filtered dataset repo:   ${FILTERED_DATASET}"
+if [[ "${SKIP_ANNOTATION}" -eq 0 ]]; then
+  echo "Filtered dataset repo:   ${FILTERED_DATASET}"
+fi
 echo "Annotated dataset repo:  ${ANNOTATED_DATASET}"
 echo "Subsampled dataset repo: ${SUBSAMPLED_DATASET}"
 
