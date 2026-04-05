@@ -64,8 +64,6 @@ from reward_utils import (
 )
 from data_utils import (
     format_and_validate_preference_sample,
-    completion_has_stop_token,
-    get_generation_stop_token_ids,
     get_length_config,
 )
 import math
@@ -685,43 +683,12 @@ def build_reward_function(
             )
 
         if script_args.penalize_no_eos:
-            assert (
-                policy_tokenizer is not None
-            ), "policy_tokenizer must be provided if penalize_no_eos is True"
             completion_ids = kwargs.get("completion_ids", None)
-            assert (
-                completion_ids is not None
-            ), "completion_ids must be provided if penalize_no_eos is True"
-            stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
-
-            has_eos_list = []
-            for c_ids in completion_ids:
-                has_eos_list.append(
-                    completion_has_stop_token(
-                        c_ids,
-                        stop_token_ids=stop_token_ids,
-                    )
-                )
-
-            has_eos = torch.tensor(has_eos_list, device=reward.device)
-
-            # penalize_no_eos logic:
-            # We want to penalize sequences that do NOT have EOS (i.e., truncated/unfinished).
-            # We use the sequences that DO have EOS (finished) as the baseline.
-
-            finished_indices = torch.nonzero(has_eos).squeeze(1)
-            unfinished_indices = torch.nonzero(~has_eos).squeeze(1)
-
-            if len(finished_indices) > 0 and len(unfinished_indices) > 0:
-                min_finished_reward = reward[finished_indices].min()
-                # Penalize unfinished to be lower than min_finished_reward
-                margin = 1.0
-                target_reward = min_finished_reward - margin
-
-                # Only lower them if they are higher
-                current_unfinished_rewards = reward[unfinished_indices]
-                new_rewards = torch.min(current_unfinished_rewards, target_reward)
-                reward[unfinished_indices] = new_rewards
+            assert completion_ids is not None, "completion_ids must be provided if penalize_no_eos is True"
+            max_len = controller.trainer.max_completion_length
+            for i, c_ids in enumerate(completion_ids):
+                if len(c_ids) >= max_len:
+                    reward[i] -= 1.0
 
         # Flush completed step's rewards and compute true batch stats
         if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:

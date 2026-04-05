@@ -269,6 +269,22 @@ if __name__ == "__main__":
     )
     policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
+    # Ensure vLLM stops on ALL relevant EOS tokens (e.g. <|im_end|> for Qwen).
+    # tokenizer.eos_token_id is a single int (<|endoftext|>); vLLM picks it up
+    # from the model config automatically, but chat turn-end tokens like
+    # <|im_end|> must be passed explicitly via stop_token_ids.
+    extra_stop_ids = [
+        tid for tid in policy_stop_token_ids
+        if tid != policy_tokenizer.eos_token_id
+    ]
+    if extra_stop_ids:
+        if training_args.generation_kwargs is None:
+            training_args.generation_kwargs = {}
+        existing = training_args.generation_kwargs.get("stop_token_ids", [])
+        merged = list(dict.fromkeys(existing + extra_stop_ids))  # deduplicate, preserve order
+        training_args.generation_kwargs["stop_token_ids"] = merged
+        print(f"[my_grpo] Injected vLLM stop_token_ids: {merged}")
+
     ################
     # Dataset
     ################
