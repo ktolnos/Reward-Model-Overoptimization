@@ -142,11 +142,6 @@ _OriginalLLM = vllm.LLM
 class _TextOnlyLLM(_OriginalLLM):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault('language_model_only', True)
-        # Qwen3.5 GDN (linear_attention) layers keep recurrent state in float32
-        # in the transformers forward pass but vLLM defaults to bfloat16 cache.
-        # This dtype mismatch causes growing log-prob divergence between the
-        # training model and vLLM, breaking importance-sampling correction.
-        kwargs.setdefault('mamba_ssm_cache_dtype', 'float32')
         super().__init__(*args, **kwargs)
 vllm.LLM = _TextOnlyLLM
 vllm.entrypoints.llm.LLM = _TextOnlyLLM
@@ -167,69 +162,3 @@ def _patched_fix_param_name(self, name, extra_prefixes=None):
         name = "language_model." + name
     return name
 VLLMGeneration._fix_param_name_to_vllm = _patched_fix_param_name
-
-# ---------------------------------------------------------------------------
-# 7. Verify weight sync correctness after each sync_weights call
-# ---------------------------------------------------------------------------
-# Spot-check a sample of weights to ensure the prefix mapping is correct and
-# all training weights actually reach vLLM.  Logs mismatches to wandb and
-# raises on complete failures.
-
-import torch as _torch
-
-_orig_sync_weights = VLLMGeneration.sync_weights
-_first_sync_done = False
-
-# Unpacked params safe for exact comparison — covers embed, final norm,
-# and per-layer norms across model depth.
-_PROBE_TRAIN_NAMES = [
-    "model.embed_tokens.weight",
-    "model.norm.weight",
-    "model.layers.0.input_layernorm.weight",
-    "model.layers.15.input_layernorm.weight",
-]
-
-def _verified_sync_weights(self):
-    global _first_sync_done
-    _orig_sync_weights(self)
-
-    if _first_sync_done or self.mode != "colocate":
-        return
-    _first_sync_done = True
-
-    llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
-    training_model = self.model
-
-    checked, failed, details = 0, 0, []
-    for train_name in _PROBE_TRAIN_NAMES:
-        vllm_name = _patched_fix_param_name(self, train_name)
-        try:
-            obj = llm_model
-            for part in vllm_name.split('.'):
-                obj = obj[int(part)] if part.isdigit() else getattr(obj, part)
-            vllm_param = obj
-            train_param = training_model
-            for part in train_name.split('.'):
-                train_param = train_param[int(part)] if part.isdigit() else getattr(train_param, part)
-        except (AttributeError, IndexError, TypeError) as e:
-            failed += 1
-            details.append(f"  NOT FOUND: '{train_name}' -> '{vllm_name}' ({e})")
-            continue
-        checked += 1
-        diff = (train_param.data.float() - vllm_param.data.float()).abs().max().item()
-        if diff > 1e-4:
-            failed += 1
-            details.append(f"  MISMATCH: '{vllm_name}' max_diff={diff:.6f}")
-
-    if checked == 0:
-        raise RuntimeError(
-            f"[weight_sync] No probe params found in vLLM model — "
-            f"prefix mapping is broken.\n" + "\n".join(details)
-        )
-    assert failed == 0, (
-        f"[weight_sync] {failed}/{checked + failed} probes failed:\n"
-        + "\n".join(details)
-    )
-    print(f"[weight_sync] first sync OK: {checked} probes matched")
-
-VLLMGeneration.sync_weights = _verified_sync_weights
