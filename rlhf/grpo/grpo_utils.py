@@ -97,27 +97,7 @@ class RewardController:
         return buffer_copy
 
 
-def build_train_eval_datasets(
-    data_path_train,
-    tokenizer,
-    eval_proportion,
-    size=None,
-    *,
-    length_config,
-    skip_length_validation=False,
-):
-    ds = datasets.load_dataset(data_path_train, split="train")
-    if size is not None:
-        ds = ds.select(range(0, size))
-    ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
-    ds_train = ds_dict["train"]
-    ds_eval = ds_dict["test"]
-    ds_train = post_process_common_dataset(ds_train, tokenizer, length_config=length_config, skip_length_validation=skip_length_validation)
-    ds_eval = post_process_common_dataset(ds_eval, tokenizer, length_config=length_config, skip_length_validation=skip_length_validation)
-    return ds_train, ds_eval
-
-
-def post_process_common_dataset(ds, tokenizer, *, length_config, skip_length_validation=False):
+def post_process_grpo_dataset(ds, tokenizer, *, length_config, skip_length_validation=False):
     def formatting_func(example):
         # Keep structured messages for reward model formatting
         # chosen contains [User, Assistant] (usually). Strip the last message if it's the assistant's.

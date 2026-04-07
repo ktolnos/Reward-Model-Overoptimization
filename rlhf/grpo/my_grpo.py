@@ -27,13 +27,15 @@ from data_utils import (
     load_policy_and_tokenizer,
     get_generation_stop_token_ids,
     get_length_config,
+    set_lengths_from_config,
     compute_max_prompt_length,
+    build_train_eval_datasets,
     DATASET_LENGTH_CONFIGS,
 )
 
 tqdm.pandas()
 from grpo_utils import (
-    build_train_eval_datasets,
+    post_process_grpo_dataset,
     build_reward_function,
     precompute_reward_statistics,
     RewardController,
@@ -192,19 +194,9 @@ if __name__ == "__main__":
     # Apply length config from DATASET_LENGTH_CONFIGS.
     # vLLM memory sizing is deferred until the policy tokenizer is loaded
     # when --auto_prompt_length is set (see Dataset section).
-    length_cfg = get_length_config(script_args.length_config)
-    if training_args.max_completion_length != 256:
-        raise ValueError(
-            f"max_completion_length is overridden on the command line. "
-            f"Use --length_config instead (active config '{script_args.length_config}' "
-            f"sets max_response_tokens={length_cfg['max_response_tokens']})."
-        )
-    training_args.max_completion_length = length_cfg["max_response_tokens"]
-    if training_args.vllm_max_model_length is not None:
-        raise ValueError(
-            f"vllm_max_model_length is overridden on the command line. "
-            f"Use --length_config (or --auto_prompt_length) instead."
-        )
+    length_cfg = set_lengths_from_config(
+        training_args, script_args.length_config, trainer_type="grpo"
+    )
 
     if script_args.clip_reward_max is not None and (
         not script_args.rm_subtract_mean_reward_per_model
@@ -304,6 +296,7 @@ if __name__ == "__main__":
     train_dataset, eval_dataset = build_train_eval_datasets(
         script_args.dataset_path,
         policy_tokenizer,
+        post_process_fn=post_process_grpo_dataset,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
         length_config=script_args.length_config,

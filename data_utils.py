@@ -579,3 +579,113 @@ def tokenize_for_sft(text, tokenizer):
     Strips leading BOS, then tokenizes with add_special_tokens=True.
     """
     return tokenize_text_with_special_tokens(text, tokenizer, return_tensors="pt")
+
+
+# ---------------------------------------------------------------------------
+# Shared dataset loading skeleton
+# ---------------------------------------------------------------------------
+
+def build_train_eval_datasets(
+    data_path_train,
+    tokenizer,
+    *,
+    post_process_fn,
+    eval_proportion=0.1,
+    size=None,
+    length_config,
+    skip_length_validation=False,
+):
+    """Load a preference dataset, split it, and apply stage-specific formatting.
+
+    This is the single shared skeleton used by SFT, GRPO, DPO (and any future
+    stage).  The caller provides ``post_process_fn`` which transforms the raw
+    dataset into the format the trainer expects.
+
+    Args:
+        post_process_fn: callable(ds, tokenizer, *, length_config, skip_length_validation)
+            that returns a processed Dataset.
+    """
+    import datasets as _ds_lib
+
+    ds = _ds_lib.load_dataset(data_path_train, split="train")
+    if size is not None:
+        ds = ds.select(range(0, size))
+    ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
+
+    ds_train = post_process_fn(
+        ds_dict["train"], tokenizer,
+        length_config=length_config,
+        skip_length_validation=skip_length_validation,
+    )
+    ds_eval = post_process_fn(
+        ds_dict["test"], tokenizer,
+        length_config=length_config,
+        skip_length_validation=skip_length_validation,
+    )
+    return ds_train, ds_eval
+
+
+# ---------------------------------------------------------------------------
+# Length-config safeguard
+# ---------------------------------------------------------------------------
+
+# DPOConfig default for max_length; used to detect "not overridden on CLI".
+_DPO_MAX_LENGTH_SENTINEL = 1024
+
+
+def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
+    """Derive all length-related trainer args from a single length config.
+
+    This is the **single point** where trainer args receive their length
+    values.  Call it once, right after parsing arguments, and never set
+    max_length / max_prompt_length / max_completion_length by hand.
+
+    Raises ``ValueError`` when the user overrides a length on the CLI that
+    conflicts with the config (catches the "changed it in one place but not
+    the other" bug).
+
+    Supported ``trainer_type`` values: ``"dpo"``, ``"grpo"``, ``"sft"``.
+    """
+    cfg = get_length_config(length_config_name)
+
+    if trainer_type == "dpo":
+        expected = cfg["max_conversation_tokens"]
+        current = getattr(training_args, "max_length", None)
+        if current is not None and current != _DPO_MAX_LENGTH_SENTINEL and current != expected:
+            raise ValueError(
+                f"--max_length={current} was set on the CLI but conflicts with "
+                f"length_config '{length_config_name}' "
+                f"(max_conversation_tokens={expected}).  "
+                f"Remove --max_length and use --length_config to control lengths."
+            )
+        training_args.max_length = expected
+
+    elif trainer_type == "grpo":
+        # max_completion_length
+        if training_args.max_completion_length != 256:
+            raise ValueError(
+                f"--max_completion_length is overridden on the command line. "
+                f"Use --length_config instead (active config "
+                f"'{length_config_name}' sets "
+                f"max_response_tokens={cfg['max_response_tokens']})."
+            )
+        training_args.max_completion_length = cfg["max_response_tokens"]
+
+        # vllm_max_model_length is handled separately because of
+        # auto_prompt_length; callers must NOT set it on the CLI.
+        if training_args.vllm_max_model_length is not None:
+            raise ValueError(
+                "--vllm_max_model_length is overridden on the command line. "
+                "Use --length_config (or --auto_prompt_length) instead."
+            )
+
+    elif trainer_type == "sft":
+        # SFTTrainer does not truncate; the dataset is pre-filtered by
+        # format_and_validate_preference_sample.  Nothing to set here, but
+        # we still validate the config name is valid.
+        pass
+
+    else:
+        raise ValueError(f"Unknown trainer_type '{trainer_type}'")
+
+    return cfg

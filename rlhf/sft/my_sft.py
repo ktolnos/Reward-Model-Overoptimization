@@ -1,19 +1,15 @@
 from dataclasses import dataclass, field
 from typing import Optional
 import torch
-import datasets
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    HfArgumentParser,
-)
+from transformers import HfArgumentParser
 
 from data_utils import (
     format_and_validate_preference_sample,
     tokenize_for_sft,
     setup_tokenizer,
     load_policy_and_tokenizer,
-    get_length_config,
+    build_train_eval_datasets,
+    set_lengths_from_config,
     DATASET_LENGTH_CONFIGS,
 )
 
@@ -39,28 +35,7 @@ class ScriptArguments:
         },
     )
 
-def build_train_eval_datasets(data_path_train, tokenizer, *, length_config, eval_proportion, size=None, skip_length_validation=False):
-    ds = datasets.load_dataset(data_path_train, split="train")
-    if size is not None:
-        ds = ds.select(range(0, size))
-    ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)
-    ds_train = ds_dict['train']
-    ds_eval = ds_dict['test']
-    ds_train = post_process_common_dataset(ds_train, tokenizer, length_config=length_config, skip_length_validation=skip_length_validation)
-    ds_eval = post_process_common_dataset(ds_eval, tokenizer, length_config=length_config, skip_length_validation=skip_length_validation)
-    return ds_train, ds_eval
-
-
-def build_dataset_common(data_path, tokenizer, *, length_config, split='', size=None, skip_length_validation=False):
-    ds = datasets.load_dataset(data_path, split=split)
-
-    if size is not None:
-        ds = ds.select(range(0, size))
-
-    ds = post_process_common_dataset(ds, tokenizer, length_config=length_config, skip_length_validation=skip_length_validation)
-    return ds
-
-def post_process_common_dataset(ds, tokenizer, *, length_config, skip_length_validation=False):
+def post_process_sft_dataset(ds, tokenizer, *, length_config, skip_length_validation=False):
     def formatting_func(example):
         chosen_messages = example["chosen"]
 
@@ -124,8 +99,12 @@ if __name__ == "__main__":
     ################
     # Dataset
     ################
+    set_lengths_from_config(
+        training_args, script_args.length_config, trainer_type="sft"
+    )
     train_dataset, eval_dataset = build_train_eval_datasets(
         script_args.dataset_path, tokenizer,
+        post_process_fn=post_process_sft_dataset,
         length_config=script_args.length_config,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
