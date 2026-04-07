@@ -719,14 +719,15 @@ class LoadedRewardModels:
                 results[f"{label}/scores_hist"] = wandb.Histogram(scores)
 
             # Win rate vs chosen
-            chosen = self._chosen_scores[label]
-            n = min(len(scores), len(chosen))
-            wins = (scores[:n] > chosen[:n]).sum()
-            ties = (scores[:n] == chosen[:n]).sum()
-            win_rate = float(wins) / n
-            win_or_tie_rate = float(wins + ties) / n
-            results[f"{label}/win_rate_vs_chosen"] = win_rate
-            results[f"{label}/win_or_tie_rate_vs_chosen"] = win_or_tie_rate
+            if label in self._chosen_scores:
+                chosen = self._chosen_scores[label]
+                n = min(len(scores), len(chosen))
+                wins = (scores[:n] > chosen[:n]).sum()
+                ties = (scores[:n] == chosen[:n]).sum()
+                win_rate = float(wins) / n
+                win_or_tie_rate = float(wins + ties) / n
+                results[f"{label}/win_rate_vs_chosen"] = win_rate
+                results[f"{label}/win_or_tie_rate_vs_chosen"] = win_or_tie_rate
 
             return scores
 
