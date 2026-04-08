@@ -184,6 +184,12 @@ class ScriptArguments:
             "help": "Evaluate the chosen responses from the dataset with the reward models instead of generating from a policy."
         },
     )
+    evaluate_ifeval: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "Run the IFEval (instruction-following) benchmark for each checkpoint using the same vLLM instance."
+        },
+    )
 
 
 # =========================================================================
@@ -196,6 +202,7 @@ class CheckpointResponses:
     checkpoint_num: int
     responses: list
     kl_results: Optional[dict] = None
+    ifeval_results: Optional[dict] = None
 
 
 # =========================================================================
@@ -789,6 +796,9 @@ def evaluate_responses(cr, prompt_messages_list, original_prompts, baseline_resp
     if cr.kl_results:
         checkpoint_results.update(cr.kl_results)
 
+    if cr.ifeval_results:
+        checkpoint_results.update(cr.ifeval_results)
+
     # RM evaluation
     rm_results, gold_rm_scores = loaded_rms.score_all(
         cr.responses, prompt_messages_list, args, cr.checkpoint_num,
@@ -817,6 +827,98 @@ def chosen_responses_provider(dataset):
     responses = [ex["chosen"][-1]["content"] for ex in dataset]
     print(f"Evaluating {len(responses)} chosen responses from the dataset...")
     yield CheckpointResponses(checkpoint_num=0, responses=responses)
+
+
+_IFEVAL_MAX_NEW_TOKENS = 1280  # lm-evaluation-harness default for IFEval
+
+_THINK_BLOCK_RE = None  # lazy-compiled regex
+
+
+def _strip_thinking(text):
+    """Remove ``<think>...</think>`` blocks (including empty ones) from model output."""
+    global _THINK_BLOCK_RE
+    if _THINK_BLOCK_RE is None:
+        import re
+        _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
+    return _THINK_BLOCK_RE.sub("", text)
+
+
+def run_ifeval(llm, policy_tokenizer, args):
+    """Run the IFEval benchmark reusing an existing vLLM instance.
+
+    Returns a dict of metrics:
+        ifeval/prompt_strict_acc, ifeval/prompt_loose_acc,
+        ifeval/inst_strict_acc, ifeval/inst_loose_acc
+    """
+    from lm_eval.tasks.ifeval.utils import (
+        InputExample,
+        test_instruction_following_strict,
+        test_instruction_following_loose,
+    )
+    from data_utils import _apply_chat_template_no_thinking
+
+    ifeval_ds = load_dataset("google/IFEval", split="train")
+    print(f"[IFEval] Loaded {len(ifeval_ds)} prompts")
+
+    # Format prompts with thinking disabled so the model doesn't emit
+    # <think>...</think> blocks that would corrupt IFEval verification.
+    prompts = []
+    for example in ifeval_ds:
+        messages = [{"role": "user", "content": example["prompt"]}]
+        prompt = _apply_chat_template_no_thinking(
+            policy_tokenizer, messages, add_generation_prompt=True
+        )
+        prompts.append(prompt)
+
+    stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
+    ifeval_max_tokens = max(_IFEVAL_MAX_NEW_TOKENS, args.max_new_tokens)
+    vllm_budget = args.max_length + args.max_new_tokens
+    assert ifeval_max_tokens <= vllm_budget, (
+        f"IFEval needs {ifeval_max_tokens} generation tokens but vLLM max_model_len "
+        f"is only {vllm_budget}. Increase --max_new_tokens or --max_length."
+    )
+    sampling_params = SamplingParams(
+        temperature=0,
+        max_tokens=ifeval_max_tokens,
+        stop_token_ids=stop_token_ids,
+    )
+    outputs = llm.generate(prompts, sampling_params)
+    # Strip any residual <think>...</think> as a safety net.
+    responses = [_strip_thinking(output.outputs[0].text) for output in outputs]
+
+    prompt_strict = []
+    prompt_loose = []
+    inst_strict_all = []
+    inst_loose_all = []
+
+    for example, response in zip(ifeval_ds, responses):
+        inp = InputExample(
+            key=example["key"],
+            instruction_id_list=example["instruction_id_list"],
+            prompt=example["prompt"],
+            kwargs=example["kwargs"],
+        )
+        out_strict = test_instruction_following_strict(inp, response)
+        out_loose = test_instruction_following_loose(inp, response)
+
+        prompt_strict.append(out_strict.follow_all_instructions)
+        prompt_loose.append(out_loose.follow_all_instructions)
+        inst_strict_all.extend(out_strict.follow_instruction_list)
+        inst_loose_all.extend(out_loose.follow_instruction_list)
+
+    results = {
+        "ifeval/prompt_strict_acc": sum(prompt_strict) / len(prompt_strict),
+        "ifeval/prompt_loose_acc": sum(prompt_loose) / len(prompt_loose),
+        "ifeval/inst_strict_acc": sum(inst_strict_all) / len(inst_strict_all),
+        "ifeval/inst_loose_acc": sum(inst_loose_all) / len(inst_loose_all),
+    }
+    print(
+        f"[IFEval] prompt_strict={results['ifeval/prompt_strict_acc']:.4f}  "
+        f"prompt_loose={results['ifeval/prompt_loose_acc']:.4f}  "
+        f"inst_strict={results['ifeval/inst_strict_acc']:.4f}  "
+        f"inst_loose={results['ifeval/inst_loose_acc']:.4f}"
+    )
+    return results
 
 
 def vllm_responses_provider(
@@ -922,10 +1024,16 @@ def vllm_responses_provider(
                     "kl/grpo_std": kl_grpo_std,
                 }
 
+            # IFEval (reuses the same vLLM instance)
+            ifeval_results = None
+            if args.evaluate_ifeval:
+                ifeval_results = run_ifeval(llm, policy_tokenizer, args)
+
             yield CheckpointResponses(
                 checkpoint_num=checkpoint_num,
                 responses=responses,
                 kl_results=kl_results,
+                ifeval_results=ifeval_results,
             )
     finally:
         try:
