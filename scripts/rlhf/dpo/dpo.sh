@@ -5,7 +5,7 @@
 #SBATCH --mem=64gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
 #SBATCH --time=24:00:00
-#SBATCH --qos=high
+#SBATCH --qos=default
 
 REPO_ROOT=""
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/AGENTS.md" ]]; then
