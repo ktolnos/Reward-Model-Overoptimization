@@ -140,7 +140,23 @@ class MyGRPOScriptArguments:
     penalize_no_eos: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "if True, penalize completions that do not contain an EOS token"
+            "help": "if True, penalize completions that do not contain an EOS token. "
+            "Uses soft penalty (DAPO-style) controlled by penalize_no_eos_soft_fraction "
+            "and penalize_no_eos_max_penalty."
+        },
+    )
+    penalize_no_eos_soft_fraction: Optional[float] = field(
+        default=0.8,
+        metadata={
+            "help": "Fraction of max_completion_length at which the no-EOS penalty begins "
+            "ramping up (soft cap). Penalty linearly increases from 0 at soft_cap to "
+            "max_penalty at max_completion_length. Set to 1.0 to revert to hard penalty."
+        },
+    )
+    penalize_no_eos_max_penalty: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "Maximum penalty subtracted from reward at or beyond max_completion_length."
         },
     )
     uwo_lambda: Optional[float] = field(

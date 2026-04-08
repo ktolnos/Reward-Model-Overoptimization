@@ -666,9 +666,14 @@ def build_reward_function(
             completion_ids = kwargs.get("completion_ids", None)
             assert completion_ids is not None, "completion_ids must be provided if penalize_no_eos is True"
             max_len = controller.trainer.max_completion_length
+            soft_cap = int(script_args.penalize_no_eos_soft_fraction * max_len)
+            max_penalty = script_args.penalize_no_eos_max_penalty
             for i, c_ids in enumerate(completion_ids):
-                if len(c_ids) >= max_len:
-                    reward[i] -= 1.0
+                comp_len = len(c_ids)
+                if comp_len > soft_cap:
+                    # Linear ramp from 0 at soft_cap to max_penalty at max_len
+                    penalty = max_penalty * min(1.0, (comp_len - soft_cap) / max(1, max_len - soft_cap))
+                    reward[i] -= penalty
 
         # Flush completed step's rewards and compute true batch stats
         if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:
