@@ -39,7 +39,7 @@ export PYTHONPATH="${REPO_ROOT}/rlhf/dpo:${REPO_ROOT}:$PYTHONPATH"
 
 gpu=0
 use_lora=false
-base_learning_rate="5e-7"
+base_learning_rate="5e-6"
 lora_lr_multiplier=5  # LoRA typically needs higher LR
 
 # ---- DPO Hyperparameters ----
@@ -106,19 +106,19 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --output_dir ${log_dir} \
     --loss_type "${loss_type}" \
     --beta ${beta} \
-    --num_train_epochs 1 \
+    --num_train_epochs 2 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 16 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
-    --eval_steps 0.1 \
+    --eval_steps 0.05 \
     --save_strategy "steps" \
-    --save_steps 0.1 \
+    --save_steps 0.05 \
     --save_only_model True \
     --learning_rate ${learning_rate} \
-    --warmup_ratio 0.03 \
-    --lr_scheduler_type "cosine" \
+    --warmup_ratio 0 \
+    --lr_scheduler_type "constant" \
     --logging_steps 5 \
     --max_grad_norm 1.0 \
     --disable_dropout True \
