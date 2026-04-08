@@ -48,6 +48,12 @@ def post_process_dpo_dataset(ds, tokenizer, *, length_config, skip_length_valida
             "prompt": prompt_msgs,
             "chosen": chosen_msg,
             "rejected": rejected_msg,
+            # Qwen3.5 chat templates default to enable_thinking=True, which
+            # causes a tokenization mismatch: add_generation_prompt produces
+            # "<think>\n" while the full conversation has "<think>\n\n</think>".
+            # Passing enable_thinking=False makes both paths emit the complete
+            # empty-think block so the token prefix matches exactly.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
 
     ds = ds.map(

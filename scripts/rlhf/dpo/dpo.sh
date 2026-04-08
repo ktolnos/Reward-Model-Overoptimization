@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
 #SBATCH --gres=gpu:A100-PCI-80GB:1
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=high
 
 REPO_ROOT=""
@@ -107,8 +107,8 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --loss_type "${loss_type}" \
     --beta ${beta} \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 2 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 16 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
@@ -139,3 +139,5 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
 
 echo "running evaluation script for checkpoints in ${log_dir}"
 sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"
+
+# APO: psbt scripts/rlhf/dpo/dpo.sh --loss_type apo_zero --beta 0.05
