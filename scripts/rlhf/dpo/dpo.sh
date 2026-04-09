@@ -45,21 +45,10 @@ lora_lr_multiplier=5  # LoRA typically needs higher LR
 # ---- DPO Hyperparameters ----
 # loss_type options: sigmoid (standard DPO), apo_zero, apo_down, ipo, hinge
 loss_type="sigmoid"
-beta="0.1"              # KL penalty strength (use 0.05 for apo_zero)
+beta="0"             # KL penalty strength
 
 # ---- Argument parsing ----
-if [ -n "$LAST_COMMIT_MESSAGE" ]; then
-    COMMIT_MSG="$LAST_COMMIT_MESSAGE"
-else
-    COMMIT_MSG=$(git log -1 --pretty=%s)
-fi
-DEFAULT_WANDB_NAME="dpo_${loss_type}_${COMMIT_MSG// /_}"
-if [[ "${use_lora}" == "true" ]]; then
-    DEFAULT_WANDB_NAME="${DEFAULT_WANDB_NAME}_lora"
-fi
-DEFAULT_WANDB_NAME="${DEFAULT_WANDB_NAME}_${SLURM_JOB_ID}"
-wandb_name="${DEFAULT_WANDB_NAME}"
-
+wandb_name=""
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) wandb_name="$2_${SLURM_JOB_ID}"; shift ;;
@@ -72,6 +61,20 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# Build wandb name AFTER arg parsing so --loss_type is reflected
+if [[ -z "${wandb_name}" ]]; then
+    if [ -n "$LAST_COMMIT_MESSAGE" ]; then
+        COMMIT_MSG="$LAST_COMMIT_MESSAGE"
+    else
+        COMMIT_MSG=$(git log -1 --pretty=%s)
+    fi
+    wandb_name="dpo_${loss_type}_KL${beta}_${COMMIT_MSG// /_}"
+    if [[ "${use_lora}" == "true" ]]; then
+        wandb_name="${wandb_name}_lora"
+    fi
+    wandb_name="${wandb_name}_${SLURM_JOB_ID}"
+fi
 
 # Compute effective learning rate
 if [[ "${use_lora}" == "true" ]]; then
@@ -106,7 +109,7 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch \
     --output_dir ${log_dir} \
     --loss_type "${loss_type}" \
     --beta ${beta} \
-    --num_train_epochs 2 \
+    --num_train_epochs 1 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 16 \

@@ -190,6 +190,13 @@ class ScriptArguments:
             "help": "Run the IFEval (instruction-following) benchmark for each checkpoint using the same vLLM instance."
         },
     )
+    ifeval_thinking: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Enable thinking for IFEval generation (matches official leaderboard setup). "
+                    "Requires more token budget. Default off for faster eval."
+        },
+    )
 
 
 # =========================================================================
@@ -829,7 +836,8 @@ def chosen_responses_provider(dataset):
     yield CheckpointResponses(checkpoint_num=0, responses=responses)
 
 
-_IFEVAL_MAX_NEW_TOKENS = 1280  # lm-evaluation-harness default for IFEval
+_IFEVAL_MAX_NEW_TOKENS_NO_THINK = 1280  # lm-evaluation-harness default
+_IFEVAL_MAX_NEW_TOKENS_THINK = 1280 + 4096  # extra budget for thinking
 
 _THINK_BLOCK_RE = None  # lazy-compiled regex
 
@@ -857,25 +865,32 @@ def run_ifeval(llm, policy_tokenizer, args):
     )
     from data_utils import _apply_chat_template_no_thinking
 
+    thinking = args.ifeval_thinking
     ifeval_ds = load_dataset("google/IFEval", split="train")
-    print(f"[IFEval] Loaded {len(ifeval_ds)} prompts")
+    print(f"[IFEval] Loaded {len(ifeval_ds)} prompts (thinking={thinking})")
 
-    # Format prompts with thinking disabled so the model doesn't emit
-    # <think>...</think> blocks that would corrupt IFEval verification.
     prompts = []
     for example in ifeval_ds:
         messages = [{"role": "user", "content": example["prompt"]}]
-        prompt = _apply_chat_template_no_thinking(
-            policy_tokenizer, messages, add_generation_prompt=True
-        )
+        if thinking:
+            prompt = policy_tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            prompt = _apply_chat_template_no_thinking(
+                policy_tokenizer, messages, add_generation_prompt=True
+            )
         prompts.append(prompt)
 
     stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
-    ifeval_max_tokens = max(_IFEVAL_MAX_NEW_TOKENS, args.max_new_tokens)
-    vllm_budget = args.max_length + args.max_new_tokens
-    assert ifeval_max_tokens <= vllm_budget, (
+    ifeval_max_tokens = _IFEVAL_MAX_NEW_TOKENS_THINK if thinking else _IFEVAL_MAX_NEW_TOKENS_NO_THINK
+    ifeval_max_tokens = max(ifeval_max_tokens, args.max_new_tokens)
+    vllm_max_model_len = args.max_length + args.max_new_tokens
+    if thinking:
+        vllm_max_model_len = max(vllm_max_model_len, _IFEVAL_MAX_NEW_TOKENS_THINK)
+    assert ifeval_max_tokens <= vllm_max_model_len, (
         f"IFEval needs {ifeval_max_tokens} generation tokens but vLLM max_model_len "
-        f"is only {vllm_budget}. Increase --max_new_tokens or --max_length."
+        f"is only {vllm_max_model_len}. Increase --max_new_tokens or --max_length."
     )
     sampling_params = SamplingParams(
         temperature=0,
@@ -883,7 +898,7 @@ def run_ifeval(llm, policy_tokenizer, args):
         stop_token_ids=stop_token_ids,
     )
     outputs = llm.generate(prompts, sampling_params)
-    # Strip any residual <think>...</think> as a safety net.
+    # Strip <think>...</think> blocks before verification.
     responses = [_strip_thinking(output.outputs[0].text) for output in outputs]
 
     prompt_strict = []
@@ -945,14 +960,17 @@ def vllm_responses_provider(
             n=num_responses, stop_token_ids=stop_token_ids,
         )
 
-    print(f"Initializing vLLM with {vllm_base_model_path}")
+    max_model_len = args.max_length + args.max_new_tokens
+    if args.evaluate_ifeval and args.ifeval_thinking:
+        max_model_len = max(max_model_len, _IFEVAL_MAX_NEW_TOKENS_THINK)
+    print(f"Initializing vLLM with {vllm_base_model_path} (max_model_len={max_model_len})")
     llm = LLM(
         model=vllm_base_model_path,
         tokenizer=vllm_base_model_path,
         dtype="bfloat16",
         tensor_parallel_size=torch.cuda.device_count(),
         gpu_memory_utilization=args.gpu_memory_utilization,
-        max_model_len=args.max_length + args.max_new_tokens,
+        max_model_len=max_model_len,
         trust_remote_code=True,
         language_model_only=True,
         worker_extension_cls="vllm_weight_loader.WeightLoaderExtension",
