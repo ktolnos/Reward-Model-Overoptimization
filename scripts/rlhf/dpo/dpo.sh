@@ -45,7 +45,7 @@ lora_lr_multiplier=5  # LoRA typically needs higher LR
 # ---- DPO Hyperparameters ----
 # loss_type options: sigmoid (standard DPO), apo_zero, apo_down, ipo, hinge
 loss_type="sigmoid"
-beta="0"             # KL penalty strength
+beta="0.01"          # KL penalty strength (must be >0 for DPO; scales the reward signal)
 
 # ---- Argument parsing ----
 wandb_name=""
