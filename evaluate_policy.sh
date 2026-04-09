@@ -51,6 +51,8 @@ while [[ "$#" -gt 0 ]]; do
         --checkpoint) CHECKPOINTS_DIR="$2"; shift ;;
         --skip_validation) SKIP_VALIDATION=1 ;;
         --evaluate_chosen_responses) EVALUATE_CHOSEN=1 ;;
+        --ifeval_thinking) IFEVAL_THINKING=1 ;;
+        --no_ifeval) NO_IFEVAL=1 ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -90,6 +92,8 @@ python evaluate_policy.py \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
     $([ ! -z "${SKIP_VALIDATION:-}" ] && echo "--skip_validation True") \
     $([ ! -z "${EVALUATE_CHOSEN:-}" ] && echo "--evaluate_chosen_responses True") \
+    $([ ! -z "${IFEVAL_THINKING:-}" ] && echo "--ifeval_thinking True") \
+    $([ ! -z "${NO_IFEVAL:-}" ] && echo "--evaluate_ifeval False") \
 
 #     --subsample_n 25 \
 
