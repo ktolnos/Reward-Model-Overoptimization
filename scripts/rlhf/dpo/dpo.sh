@@ -32,7 +32,7 @@ log_dir="${REPO_ROOT}/scripts/rlhf/logs_dpo/$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_I
 
 # ---- Model & Dataset ----
 # Point to the SFT checkpoint (output of my_train_my_sft.sh)
-base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260402_233303_1082435"  # 3.5 4B-base human
+base_model_name="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260408_231230_1089122/checkpoint-744"  # 3.5 4B-base human
 dataset_path="ktolnos/helpsteer3-qwen35_annotated_human"
 
 export PYTHONPATH="${REPO_ROOT}/rlhf/dpo:${REPO_ROOT}:$PYTHONPATH"
