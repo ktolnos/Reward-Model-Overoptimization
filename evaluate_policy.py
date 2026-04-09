@@ -837,21 +837,18 @@ def chosen_responses_provider(dataset):
 
 
 _IFEVAL_MAX_NEW_TOKENS_NO_THINK = 1280  # lm-evaluation-harness default
-_IFEVAL_MAX_NEW_TOKENS_THINK = 1280 + 4096  # extra budget for thinking
-
-_THINK_BLOCK_RE = None  # lazy-compiled regex
-
+_IFEVAL_MAX_NEW_TOKENS_THINK = 1280 + 8192  # extra budget for thinking
 
 def _strip_thinking(text):
-    """Remove ``<think>...</think>`` blocks (including empty ones) from model output."""
-    global _THINK_BLOCK_RE
-    if _THINK_BLOCK_RE is None:
-        import re
-        _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
-    return _THINK_BLOCK_RE.sub("", text)
+    """Strip everything up to and including the last ``</think>`` tag."""
+    tag = "</think>"
+    idx = text.rfind(tag)
+    if idx == -1:
+        return text
+    return text[idx + len(tag):].lstrip()
 
 
-def run_ifeval(llm, policy_tokenizer, args):
+def run_ifeval(llm, policy_tokenizer, args, checkpoint_num=0):
     """Run the IFEval benchmark reusing an existing vLLM instance.
 
     Returns a dict of metrics:
@@ -898,8 +895,28 @@ def run_ifeval(llm, policy_tokenizer, args):
         stop_token_ids=stop_token_ids,
     )
     outputs = llm.generate(prompts, sampling_params)
-    # Strip <think>...</think> blocks before verification.
-    responses = [_strip_thinking(output.outputs[0].text) for output in outputs]
+
+    raw_responses = [output.outputs[0].text for output in outputs]
+    responses = [_strip_thinking(r) for r in raw_responses]
+
+    # Count truncated responses (hit max_tokens instead of a stop token)
+    n_truncated = sum(
+        1 for o in outputs if o.outputs[0].finish_reason == "length"
+    )
+    if n_truncated:
+        print(f"[IFEval] WARNING: {n_truncated}/{len(outputs)} responses truncated by max_tokens")
+
+    # Upload raw + stripped responses to wandb
+    if not args.disable_wandb and wandb.run is not None:
+        ifeval_table = wandb.Table(columns=[
+            "key", "prompt", "raw_response", "stripped_response", "finish_reason",
+        ])
+        for example, output, raw, stripped in zip(ifeval_ds, outputs, raw_responses, responses):
+            ifeval_table.add_data(
+                example["key"], example["prompt"], raw, stripped,
+                output.outputs[0].finish_reason,
+            )
+        wandb.log({f"ifeval/responses_{checkpoint_num}": ifeval_table}, commit=False)
 
     prompt_strict = []
     prompt_loose = []
@@ -926,6 +943,7 @@ def run_ifeval(llm, policy_tokenizer, args):
         "ifeval/prompt_loose_acc": sum(prompt_loose) / len(prompt_loose),
         "ifeval/inst_strict_acc": sum(inst_strict_all) / len(inst_strict_all),
         "ifeval/inst_loose_acc": sum(inst_loose_all) / len(inst_loose_all),
+        "ifeval/n_truncated": n_truncated,
     }
     print(
         f"[IFEval] prompt_strict={results['ifeval/prompt_strict_acc']:.4f}  "
@@ -1045,7 +1063,7 @@ def vllm_responses_provider(
             # IFEval (reuses the same vLLM instance)
             ifeval_results = None
             if args.evaluate_ifeval:
-                ifeval_results = run_ifeval(llm, policy_tokenizer, args)
+                ifeval_results = run_ifeval(llm, policy_tokenizer, args, checkpoint_num)
 
             yield CheckpointResponses(
                 checkpoint_num=checkpoint_num,
