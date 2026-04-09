@@ -837,7 +837,7 @@ def chosen_responses_provider(dataset):
 
 
 _IFEVAL_MAX_NEW_TOKENS_NO_THINK = 1280  # lm-evaluation-harness default
-_IFEVAL_MAX_NEW_TOKENS_THINK = 1280 + 8192  # extra budget for thinking
+_IFEVAL_MAX_NEW_TOKENS_THINK = 1280 + 32768  # extra budget for thinking
 
 def _strip_thinking(text):
     """Strip everything up to and including the last ``</think>`` tag."""
