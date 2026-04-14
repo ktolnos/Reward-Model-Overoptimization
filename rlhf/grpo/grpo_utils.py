@@ -23,7 +23,7 @@ W&B metrics emitted by this module:
 - rewards/batch_mean:
   Batch-level scalar reward mean after aggregation and post-processing,
   interval-averaged. Different from ensemble_mean when aggregation is not
-  "mean" (e.g. "min", "uwo", Adv-RM) or when penalize_no_eos modifies reward.
+  "mean" (e.g. "min", "uwo", Adv-RM) or when gr3_length_debiasing modifies reward.
 - rewards/batch_min:
   Batch-level scalar reward min after aggregation and post-processing,
   interval-averaged.
@@ -662,18 +662,19 @@ def build_reward_function(
                 f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"
             )
 
-        if script_args.penalize_no_eos:
+        if script_args.gr3_length_debiasing:
             completion_ids = kwargs.get("completion_ids", None)
-            assert completion_ids is not None, "completion_ids must be provided if penalize_no_eos is True"
-            max_len = controller.trainer.max_completion_length
-            soft_cap = int(script_args.penalize_no_eos_soft_fraction * max_len)
-            max_penalty = script_args.penalize_no_eos_max_penalty
-            for i, c_ids in enumerate(completion_ids):
-                comp_len = len(c_ids)
-                if comp_len > soft_cap:
-                    # Linear ramp from 0 at soft_cap to max_penalty at max_len
-                    penalty = max_penalty * min(1.0, (comp_len - soft_cap) / max(1, max_len - soft_cap))
-                    reward[i] -= penalty
+            assert completion_ids is not None, "completion_ids must be provided if gr3_length_debiasing is True"
+            alpha = script_args.gr3_alpha
+            lengths = torch.tensor([len(c_ids) for c_ids in completion_ids], dtype=reward.dtype, device=reward.device)
+            mean_length = lengths.mean().clamp(min=1.0)
+            # GR3 multiplicative rescaling (arXiv 2603.10535), sign-aware for RLHF.
+            # Original GR3 assumes non-negative rewards (RLVR). With standardized RM
+            # rewards (mean~0), naive division makes negative rewards *less* negative
+            # for long responses. Fix: divide positives (dampen), multiply negatives
+            # (amplify), so length is consistently penalized regardless of sign.
+            scale = 1.0 + alpha * lengths / mean_length
+            reward = torch.where(reward >= 0, reward / scale, reward * scale)
 
         # Flush completed step's rewards and compute true batch stats
         if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:

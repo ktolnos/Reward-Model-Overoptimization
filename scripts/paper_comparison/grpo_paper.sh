@@ -167,7 +167,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --run_name "${run_name}" \
     --rm_subtract_mean_reward_per_model True \
     --rm_scale_reward_by_std_per_model True \
-    --penalize_no_eos False \
+    --gr3_length_debiasing False \
     --reference_rewards False \
     --sigmoid_rewards False \
     --adv_rm_lambda 0.0 \
