@@ -312,7 +312,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --scale_rewards 'batch' \
     --trust_remote_code True \
     --reference_rewards False \
-    --sigmoid_rewards False \
+    --sigmoid_rewards True \
     --rm_subtract_mean_reward_per_model True \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
