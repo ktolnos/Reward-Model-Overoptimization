@@ -339,7 +339,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --auto_prompt_length True \
     --skip_length_validation True \
     --gr3_length_debiasing True \
-    --gr3_alpha 1.0 \
+    --gr3_alpha 0.5 \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
     --uwo_lambda ${uwo_lambda} \
