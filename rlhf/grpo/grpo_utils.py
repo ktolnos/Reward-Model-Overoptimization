@@ -773,6 +773,9 @@ def build_reward_function(
             _reset_metric_buffers(rew_mean_sum, rew_mean_count)
             _reset_metric_buffers(ensemble_metric_sum, ensemble_metric_count)
             _last_logged_step = current_global_step
-        return reward.tolist()
+        reward_list = reward.tolist()
+        del rewards_dict, rewards_tensor, processed_rewards, all_rewards_raw
+        torch.cuda.empty_cache()
+        return reward_list
 
     return model_reward_func
