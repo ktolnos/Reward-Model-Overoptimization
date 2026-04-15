@@ -775,6 +775,7 @@ def build_reward_function(
             _last_logged_step = current_global_step
         reward_list = reward.tolist()
         del rewards_dict, rewards_tensor, processed_rewards, all_rewards_raw
+        gc.collect()
         torch.cuda.empty_cache()
         return reward_list
 
