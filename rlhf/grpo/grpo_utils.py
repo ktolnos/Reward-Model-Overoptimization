@@ -666,15 +666,25 @@ def build_reward_function(
             completion_ids = kwargs.get("completion_ids", None)
             assert completion_ids is not None, "completion_ids must be provided if gr3_length_debiasing is True"
             alpha = script_args.gr3_alpha
+            num_gens = controller.trainer.num_generations
             lengths = torch.tensor([len(c_ids) for c_ids in completion_ids], dtype=reward.dtype, device=reward.device)
-            mean_length = lengths.mean().clamp(min=1.0)
-            # GR3 multiplicative rescaling (arXiv 2603.10535), sign-aware for RLHF.
-            # Original GR3 assumes non-negative rewards (RLVR). With standardized RM
-            # rewards (mean~0), naive division makes negative rewards *less* negative
-            # for long responses. Fix: divide positives (dampen), multiply negatives
-            # (amplify), so length is consistently penalized regardless of sign.
-            scale = 1.0 + alpha * lengths / mean_length
-            reward = torch.where(reward >= 0, reward / scale, reward * scale)
+            # Group-centered sign-aware multiplicative length debiasing.
+            # Inspired by GR3 (arXiv 2603.10535), adapted for RLHF where
+            # rewards are signed. We center on the per-group mean, then:
+            #   - positive excess (above group mean): divide by scale
+            #     → long responses get less credit
+            #   - negative excess (below group mean): multiply by scale
+            #     → long responses get more punishment
+            # Continuous at excess=0 (both branches give 0), and multiplicative
+            # so correction scales with reward magnitude (no decoupled incentive).
+            lengths_grouped = lengths.view(-1, num_gens)  # (num_prompts, num_gens)
+            mean_length = lengths_grouped.mean(dim=1, keepdim=True).clamp(min=1.0)
+            reward_grouped = reward.view(-1, num_gens)
+            group_mean = reward_grouped.mean(dim=1, keepdim=True)
+            excess = reward_grouped - group_mean
+            scale = 1.0 + alpha * lengths_grouped / mean_length
+            adjusted_excess = torch.where(excess >= 0, excess / scale, excess * scale)
+            reward = (group_mean + adjusted_excess).view(-1)
 
         # Flush completed step's rewards and compute true batch stats
         if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:
