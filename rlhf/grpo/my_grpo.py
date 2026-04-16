@@ -137,21 +137,26 @@ class MyGRPOScriptArguments:
             "Requires rm_subtract_mean_reward_per_model and rm_scale_reward_by_std_per_model."
         },
     )
-    gr3_length_debiasing: Optional[bool] = field(
+    penalize_no_eos: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "if True, apply GR3 (Group Relative Reward Rescaling) to counter "
-            "reward model length bias. Rescales rewards multiplicatively: "
-            "R_hat = R / (1 + alpha * length / mean_group_length). "
-            "See arXiv 2603.10535."
+            "help": "if True, penalize completions that do not contain an EOS token. "
+            "Uses soft penalty (DAPO-style) controlled by penalize_no_eos_soft_fraction "
+            "and penalize_no_eos_max_penalty."
         },
     )
-    gr3_alpha: Optional[float] = field(
+    penalize_no_eos_soft_fraction: Optional[float] = field(
+        default=0.8,
+        metadata={
+            "help": "Fraction of max_completion_length at which the no-EOS penalty begins "
+            "ramping up (soft cap). Penalty linearly increases from 0 at soft_cap to "
+            "max_penalty at max_completion_length. Set to 1.0 to revert to hard penalty."
+        },
+    )
+    penalize_no_eos_max_penalty: Optional[float] = field(
         default=1.0,
         metadata={
-            "help": "Alpha parameter for GR3 length debiasing. Controls the strength "
-            "of multiplicative length rescaling. Higher values penalize length more. "
-            "Typical range: [0.5, 2.0]."
+            "help": "Maximum penalty subtracted from reward at or beyond max_completion_length."
         },
     )
     uwo_lambda: Optional[float] = field(

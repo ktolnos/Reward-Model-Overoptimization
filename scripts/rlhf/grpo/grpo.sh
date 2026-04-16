@@ -338,8 +338,9 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mix_strategy "${mix_strategy}" \
     --auto_prompt_length True \
     --skip_length_validation True \
-    --gr3_length_debiasing True \
-    --gr3_alpha 0.5 \
+    --penalize_no_eos True \
+    --penalize_no_eos_soft_fraction 0.5 \
+    --penalize_no_eos_max_penalty 1.5 \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
     --uwo_lambda ${uwo_lambda} \

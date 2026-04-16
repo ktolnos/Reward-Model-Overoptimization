@@ -23,7 +23,7 @@ W&B metrics emitted by this module:
 - rewards/batch_mean:
   Batch-level scalar reward mean after aggregation and post-processing,
   interval-averaged. Different from ensemble_mean when aggregation is not
-  "mean" (e.g. "min", "uwo", Adv-RM) or when gr3_length_debiasing modifies reward.
+  "mean" (e.g. "min", "uwo", Adv-RM) or when penalize_no_eos modifies reward.
 - rewards/batch_min:
   Batch-level scalar reward min after aggregation and post-processing,
   interval-averaged.
@@ -662,27 +662,18 @@ def build_reward_function(
                 f"Unknown ensemble aggregation method: {script_args.ensemble_aggregation}"
             )
 
-        if script_args.gr3_length_debiasing:
+        if script_args.penalize_no_eos:
             completion_ids = kwargs.get("completion_ids", None)
-            assert completion_ids is not None, "completion_ids must be provided if gr3_length_debiasing is True"
-            alpha = script_args.gr3_alpha
-            num_gens = controller.trainer.num_generations
-            lengths = torch.tensor([len(c_ids) for c_ids in completion_ids], dtype=reward.dtype, device=reward.device)
-            lengths_grouped = lengths.view(-1, num_gens)  # (num_prompts, num_gens)
-            mean_length = lengths_grouped.mean(dim=1, keepdim=True).clamp(min=1.0)
-            scale = 1.0 + alpha * lengths_grouped / mean_length
-            reward_grouped = reward.view(-1, num_gens)
-            if script_args.sigmoid_rewards:
-                # Rewards in (0, 1) — vanilla GR3 applies directly.
-                reward = (reward_grouped / scale).view(-1)
-            else:
-                # Signed rewards: center on group mean, then divide positive
-                # excess (less credit for long) and multiply negative excess
-                # (more punishment for long). Continuous at excess=0.
-                group_mean = reward_grouped.mean(dim=1, keepdim=True)
-                excess = reward_grouped - group_mean
-                adjusted_excess = torch.where(excess >= 0, excess / scale, excess * scale)
-                reward = (group_mean + adjusted_excess).view(-1)
+            assert completion_ids is not None, "completion_ids must be provided if penalize_no_eos is True"
+            max_len = controller.trainer.max_completion_length
+            soft_cap = int(script_args.penalize_no_eos_soft_fraction * max_len)
+            max_penalty = script_args.penalize_no_eos_max_penalty
+            for i, c_ids in enumerate(completion_ids):
+                comp_len = len(c_ids)
+                if comp_len > soft_cap:
+                    # Linear ramp from 0 at soft_cap to max_penalty at max_len
+                    penalty = max_penalty * min(1.0, (comp_len - soft_cap) / max(1, max_len - soft_cap))
+                    reward[i] -= penalty
 
         # Flush completed step's rewards and compute true batch stats
         if current_global_step != _prev_batch_step and _prev_batch_step >= 0 and len(_reward_buffer) > 0:
