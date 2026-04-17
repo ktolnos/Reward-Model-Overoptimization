@@ -125,7 +125,7 @@ class ScriptArguments:
         metadata={"help": "Enable thinking for IFEval generation (matches official leaderboard)."},
     )
     ifeval_use_gold_rm: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Also score IFEval responses with the gold RM."},
     )
 
