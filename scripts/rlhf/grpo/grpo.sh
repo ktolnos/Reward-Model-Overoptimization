@@ -341,7 +341,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --penalize_no_eos True \
     --penalize_no_eos_soft_fraction 0.6 \
     --penalize_no_eos_max_penalty 1.0 \
-    --penalize_no_eos_power 2.0 \
+    --penalize_no_eos_power 1.0 \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
     --uwo_lambda ${uwo_lambda} \
