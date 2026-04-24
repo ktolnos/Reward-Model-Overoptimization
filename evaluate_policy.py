@@ -128,6 +128,22 @@ class ScriptArguments:
         default=True,
         metadata={"help": "Also score IFEval responses with the gold RM."},
     )
+    arena_hard_dataset: Optional[str] = field(
+        default="lmarena-ai/arena-hard-auto",
+        metadata={"help": "HF dataset repo holding Arena-Hard-Auto. The v2.0 files live under data/arena-hard-v2.0/."},
+    )
+    arena_hard_baseline_models: Optional[str] = field(
+        default="auto",
+        metadata={"help": "Comma-separated list of baseline models. Special token 'auto' expands to the per-category baselines used by the official Arena-Hard-Auto v2.0 leaderboard (hard_prompt/coding/math → o3-mini-2025-01-31, creative_writing → gemini-2.0-flash-001) and switches evaluation to per-category mode. Mixing 'auto' with explicit baselines runs both."},
+    )
+    arena_hard_judges: Optional[str] = field(
+        default="rm:gold_rm",
+        metadata={"help": "Comma-separated judge specs. Use 'rm:<label>' for a reward model judge or 'llm:<model>' for an Arena-Hard-style OpenRouter API judge (e.g. 'llm:openai/gpt-4.1'). Multiple judges can be combined: 'rm:gold_rm,llm:openai/gpt-4.1'."},
+    )
+    arena_hard_thinking: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Enable thinking for Arena-Hard generation."},
+    )
 
     # ------------------------------------------------------------------
     # LLM judge (attaches to the preference benchmark when enabled)

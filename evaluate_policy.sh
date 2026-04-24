@@ -19,8 +19,11 @@
 # IFEval with both rule-based AND gold-RM scoring:
 #     sbatch evaluate_policy.sh --ifeval_use_gold_rm
 #
+# Arena-Hard-Auto v2.0 (gold RM only):
+#     sbatch evaluate_policy.sh --only_arena_hard [--run_id <WANDB_RUN_ID>]
+#
 # Arbitrary benchmark subset:
-#     sbatch evaluate_policy.sh --benchmarks ifeval,preference
+#     sbatch evaluate_policy.sh --benchmarks ifeval,preference,arena_hard
 #
 # Other overrides (all optional): --run_name, --checkpoint, --kl_base_model_path,
 # --ifeval_thinking, --evaluate_chosen_responses, --no_secondary_rm,
@@ -74,6 +77,8 @@ while [[ "$#" -gt 0 ]]; do
         --benchmarks) BENCHMARKS="$2"; shift ;;
         --only_ifeval) BENCHMARKS="ifeval"; NO_SECONDARY_RM=1 ;;
         --only_preference) BENCHMARKS="preference" ;;
+        --only_arena_hard) BENCHMARKS="arena_hard"; NO_SECONDARY_RM=1 ;;
+        --arena_hard_thinking) ARENA_HARD_THINKING=1 ;;
         --skip_validation) SKIP_VALIDATION=1 ;;
         --evaluate_chosen_responses) EVALUATE_CHOSEN=1 ;;
         --ifeval_thinking) IFEVAL_THINKING=1 ;;
@@ -126,6 +131,7 @@ python evaluate_policy.py \
     $([ ! -z "${EVALUATE_CHOSEN:-}" ] && echo "--evaluate_chosen_responses True") \
     $([ ! -z "${IFEVAL_THINKING:-}" ] && echo "--ifeval_thinking True") \
     $([ ! -z "${IFEVAL_USE_GOLD_RM:-}" ] && echo "--ifeval_use_gold_rm True") \
+    $([ ! -z "${ARENA_HARD_THINKING:-}" ] && echo "--arena_hard_thinking True") \
     $([ ! -z "${NO_IFEVAL:-}" ] && echo "--evaluate_ifeval False") \
     $([ ! -z "${NO_SECONDARY_RM:-}" ] && echo "--secondary_rm_name none") \
     $([ ! -z "${WANDB_RUN_ID:-}" ] && echo "--wandb_run_id $WANDB_RUN_ID") \

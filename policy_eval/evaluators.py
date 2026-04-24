@@ -13,6 +13,8 @@ to the relevant benchmark in ``benchmarks.py``.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import random
 import time
@@ -22,6 +24,9 @@ import numpy as np
 import requests
 import wandb
 
+from .arena_hard_upstream import CATEGORY_BASELINES
+from .judges import LLMAPIJudge, RMJudge
+from .pairwise import compute_pairwise_metrics
 from .rewards import score_responses_with_rm
 from .types import Benchmark, EvalContext, Example, GenerationResult
 from .wandb_utils import log_artifact
@@ -88,14 +93,208 @@ class RewardModelEvaluator:
         if chosen is not None and len(chosen) == len(examples) and len(chosen) > 0:
             if n > 1:
                 scores_per_prompt = scores.reshape(-1, n).mean(axis=1)
+                policy_responses_per_prompt = generation.responses[::n]
             else:
                 scores_per_prompt = scores
-            wins = (scores_per_prompt > chosen).sum()
-            ties = (scores_per_prompt == chosen).sum()
-            out[benchmark.metric_key(f"{label}/win_rate_vs_chosen")] = float(wins) / len(chosen)
-            out[benchmark.metric_key(f"{label}/win_or_tie_rate_vs_chosen")] = float(wins + ties) / len(chosen)
+                policy_responses_per_prompt = generation.responses
+            chosen_responses = [ex.metadata["chosen_response"] for ex in examples]
+            metrics = compute_pairwise_metrics(
+                scores_per_prompt, np.asarray(chosen),
+                policy_responses_per_prompt, chosen_responses,
+            )
+            # Preserve legacy metric names for chart continuity.
+            out[benchmark.metric_key(f"{label}/win_rate_vs_chosen")] = metrics["win_rate"]
+            out[benchmark.metric_key(f"{label}/win_or_tie_rate_vs_chosen")] = metrics["win_or_tie_rate"]
+            # Arena-style + style-controlled.
+            for k in ("arena_score", "arena_score_ci_low", "arena_score_ci_high",
+                      "sc_score", "sc_score_ci_low", "sc_score_ci_high"):
+                if k in metrics:
+                    out[benchmark.metric_key(f"{label}/{k}")] = metrics[k]
+            for k, v in metrics.items():
+                if k.startswith("sc_coef/"):
+                    out[benchmark.metric_key(f"{label}/{k}")] = v
 
         return out
+
+
+# =============================================================================
+# Generic pairwise evaluator — swap any Judge (RM or LLM) without a new class
+# =============================================================================
+
+def _get_baseline_responses_for(examples: List[Example], baseline_name: str) -> List[str]:
+    """Pull baseline responses out of Example metadata.
+
+    Supports two conventions so the same evaluator works across benchmarks:
+      - ``metadata["baselines"][baseline_name]`` (arena_hard: dict of model→answer)
+      - ``metadata["chosen_response"]`` when baseline_name == "chosen" (preference)
+    """
+    if baseline_name == "chosen":
+        return [ex.metadata.get("chosen_response", "") for ex in examples]
+    return [ex.metadata.get("baselines", {}).get(baseline_name, "") for ex in examples]
+
+
+class PairwiseEvaluator:
+    """Compute Arena-Hard-style pairwise win metrics against one or more baselines.
+
+    Pluggable via ``judge`` (``RMJudge`` or ``LLMAPIJudge``). Same metric keys
+    regardless of judge, so swapping backends keeps charts comparable. Caches
+    per-baseline-and-judge battle results on disk.
+
+    Two modes:
+      - Global (default): each baseline in ``baselines`` is compared against
+        every prompt. Metric key = ``{judge}/{baseline}/{metric}``.
+      - Per-category (``per_category=True``): each prompt is compared against
+        ``CATEGORY_BASELINES[prompt.metadata['category']]`` — matching
+        upstream ``show_result.py --category``. Metric key =
+        ``{judge}/{category}/{metric}``. Any baselines in ``baselines`` that
+        aren't referenced by ``CATEGORY_BASELINES`` are silently ignored.
+    """
+    phase = "online"
+    requires_logprobs = False
+
+    def __init__(
+        self,
+        judge,
+        baselines: List[str],
+        per_category: bool = False,
+        cache_subdir: str = "pairwise_cache",
+    ):
+        self.judge = judge
+        self.baselines = baselines
+        self.per_category = per_category
+        self.name = f"pairwise_{judge.name}"
+        self.cache_subdir = cache_subdir
+
+    def _cache_path(
+        self, args, backend_id: str, slot: str, n_examples: int, checkpoint_num,
+    ) -> str:
+        safe_backend = backend_id.replace("/", "_").replace("\\", "_").replace(":", "_")
+        if len(safe_backend) > 160:
+            safe_backend = safe_backend[-160:]
+        safe_slot = slot.replace("/", "_")
+        cache_dir = os.path.join(
+            os.path.dirname(args.output_file) or ".", self.cache_subdir
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        key = f"{safe_backend}__{safe_slot}__ckpt{checkpoint_num}__n{n_examples}"
+        return os.path.join(cache_dir, f"{key}.json")
+
+    def _run_judge_with_cache(
+        self,
+        slot_name: str,             # metric slot label ("baseline_model" or category)
+        prompt_messages_list,
+        policy_responses,
+        baseline_responses,
+        ctx,
+    ) -> Optional[List[List[float]]]:
+        if not all(baseline_responses):
+            print(
+                f"[pairwise:{self.judge.name}] slot '{slot_name}' has missing "
+                f"baseline responses; skipping."
+            )
+            return None
+
+        backend_id = self.judge.backend_id(ctx)
+        cache_file = self._cache_path(
+            ctx.args, backend_id, slot_name, len(policy_responses), ctx.checkpoint_num
+        )
+        if os.path.exists(cache_file):
+            with open(cache_file) as f:
+                cached = json.load(f)
+            if cached.get("num_prompts") == len(policy_responses):
+                print(
+                    f"[pairwise:{self.judge.name}] loaded cached battles for "
+                    f"{slot_name} (ckpt {ctx.checkpoint_num})"
+                )
+                return cached["battles_per_prompt"]
+
+        print(
+            f"[pairwise:{self.judge.name}] judging {len(policy_responses)} prompts "
+            f"for {slot_name} (ckpt {ctx.checkpoint_num})..."
+        )
+        battles_per_prompt, _extras = self.judge.score_pairs(
+            prompt_messages_list, policy_responses, baseline_responses, ctx,
+        )
+        with open(cache_file, "w") as f:
+            json.dump({
+                "judge_backend": backend_id,
+                "slot": slot_name,
+                "checkpoint_num": ctx.checkpoint_num,
+                "num_prompts": len(policy_responses),
+                "battles_per_prompt": battles_per_prompt,
+            }, f)
+        return battles_per_prompt
+
+    def _eval_global(
+        self, examples, prompt_messages_list, policy_responses, ctx,
+    ) -> Dict[str, float]:
+        out: Dict = {}
+        for baseline_name in self.baselines:
+            baseline_responses = _get_baseline_responses_for(examples, baseline_name)
+            battles = self._run_judge_with_cache(
+                baseline_name, prompt_messages_list, policy_responses,
+                baseline_responses, ctx,
+            )
+            if battles is None:
+                continue
+            metrics = compute_pairwise_metrics(battles, policy_responses, baseline_responses)
+            for k, v in metrics.items():
+                out[f"{self.judge.name}/{baseline_name}/{k}"] = v
+        return out
+
+    def _eval_per_category(
+        self, examples, prompt_messages_list, policy_responses, ctx,
+    ) -> Dict[str, float]:
+        """For each category, filter to its prompts and compare vs the upstream
+        baseline for that category (CATEGORY_BASELINES)."""
+        out: Dict = {}
+        # Group prompt indices by category.
+        by_category: Dict[str, List[int]] = {}
+        for i, ex in enumerate(examples):
+            cat = ex.metadata.get("category")
+            if cat is None:
+                continue
+            by_category.setdefault(cat, []).append(i)
+
+        for category, baseline_name in CATEGORY_BASELINES.items():
+            indices = by_category.get(category, [])
+            if not indices:
+                continue
+            sub_examples = [examples[i] for i in indices]
+            sub_prompts = [prompt_messages_list[i] for i in indices]
+            sub_policy = [policy_responses[i] for i in indices]
+            sub_baseline = _get_baseline_responses_for(sub_examples, baseline_name)
+            battles = self._run_judge_with_cache(
+                f"{category}__vs_{baseline_name}",
+                sub_prompts, sub_policy, sub_baseline, ctx,
+            )
+            if battles is None:
+                continue
+            metrics = compute_pairwise_metrics(battles, sub_policy, sub_baseline)
+            # Metric slot is the category name (matches upstream's leaderboard format).
+            for k, v in metrics.items():
+                out[f"{self.judge.name}/{category}/{k}"] = v
+            # Also record which baseline each category used (diagnostic only).
+            out[f"{self.judge.name}/{category}/baseline_model"] = baseline_name
+        return out
+
+    def evaluate(
+        self,
+        benchmark: Benchmark,
+        examples: List[Example],
+        generation: GenerationResult,
+        ctx: EvalContext,
+    ) -> dict:
+        n = generation.n_responses_per_example
+        policy_responses = generation.responses[::n] if n > 1 else generation.responses
+        prompt_messages_list = [ex.prompt_messages for ex in examples]
+
+        if self.per_category:
+            raw = self._eval_per_category(examples, prompt_messages_list, policy_responses, ctx)
+        else:
+            raw = self._eval_global(examples, prompt_messages_list, policy_responses, ctx)
+
+        return {benchmark.metric_key(k): v for k, v in raw.items()}
 
 
 # =============================================================================

@@ -668,11 +668,14 @@ def build_reward_function(
             max_len = controller.trainer.max_completion_length
             soft_cap = int(script_args.penalize_no_eos_soft_fraction * max_len)
             max_penalty = script_args.penalize_no_eos_max_penalty
+            power = script_args.penalize_no_eos_power
             for i, c_ids in enumerate(completion_ids):
                 comp_len = len(c_ids)
                 if comp_len > soft_cap:
-                    # Linear ramp from 0 at soft_cap to max_penalty at max_len
-                    penalty = max_penalty * min(1.0, (comp_len - soft_cap) / max(1, max_len - soft_cap))
+                    # Ramp from 0 at soft_cap to max_penalty at max_len.
+                    # power=1 → linear (DAPO), power=2 → quadratic, etc.
+                    ratio = min(1.0, (comp_len - soft_cap) / max(1, max_len - soft_cap))
+                    penalty = max_penalty * (ratio ** power)
                     reward[i] -= penalty
 
         # Flush completed step's rewards and compute true batch stats

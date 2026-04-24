@@ -159,6 +159,15 @@ class MyGRPOScriptArguments:
             "help": "Maximum penalty subtracted from reward at or beyond max_completion_length."
         },
     )
+    penalize_no_eos_power: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "Exponent for the penalty ramp between soft_cap and max_completion_length. "
+            "1.0 = linear (default, DAPO-style). 2.0 = quadratic (gentler near soft_cap, "
+            "steeper near max_len). Penalty is 0 at soft_cap and max_penalty at max_len "
+            "regardless of this value."
+        },
+    )
     uwo_lambda: Optional[float] = field(
         default=1.0,
         metadata={
