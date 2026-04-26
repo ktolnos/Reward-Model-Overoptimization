@@ -98,8 +98,13 @@ class RewardModelEvaluator:
                 scores_per_prompt = scores
                 policy_responses_per_prompt = generation.responses
             chosen_responses = [ex.metadata["chosen_response"] for ex in examples]
+            chosen_arr = np.asarray(chosen)
+            battles_per_prompt = [
+                [1.0 if p > c else (0.5 if p == c else 0.0)]
+                for p, c in zip(scores_per_prompt, chosen_arr)
+            ]
             metrics = compute_pairwise_metrics(
-                scores_per_prompt, np.asarray(chosen),
+                battles_per_prompt,
                 policy_responses_per_prompt, chosen_responses,
             )
             # Preserve legacy metric names for chart continuity.
