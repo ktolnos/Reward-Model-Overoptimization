@@ -112,7 +112,7 @@ class ScriptArguments:
     # Benchmark selection
     # ------------------------------------------------------------------
     benchmarks: str = field(
-        default="preference,ifeval",
+        default="preference,ifeval,arena_hard",
         metadata={"help": "Comma-separated list of benchmarks to run."},
     )
     # Legacy flag: disable IFEval if False (equivalent to dropping it from --benchmarks).
