@@ -76,7 +76,7 @@ fi
 export MASTER_PORT
 
 learning_rate=2e-5
-num_train_epochs=8
+num_train_epochs=3
 
 evals_per_epoch=4
 save_steps=$(echo "scale=10; 1 / $num_train_epochs" | bc)
