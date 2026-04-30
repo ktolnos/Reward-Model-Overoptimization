@@ -140,11 +140,6 @@ class ScriptArguments:
         default="rm:gold_rm",
         metadata={"help": "Comma-separated judge specs. Use 'rm:<label>' for a reward model judge or 'llm:<model>' for an Arena-Hard-style OpenRouter API judge (e.g. 'llm:openai/gpt-4.1'). Multiple judges can be combined: 'rm:gold_rm,llm:openai/gpt-4.1'."},
     )
-    arena_hard_thinking: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Enable thinking for Arena-Hard generation."},
-    )
-
     # ------------------------------------------------------------------
     # LLM judge (attaches to the preference benchmark when enabled)
     # ------------------------------------------------------------------

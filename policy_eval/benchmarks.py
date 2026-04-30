@@ -236,8 +236,10 @@ def build_ifeval_benchmark(args) -> Benchmark:
 # disk so baselines are only scored once per (RM, dataset) pair.
 # ---------------------------------------------------------------------------
 
-_ARENA_HARD_MAX_NEW_TOKENS_NO_THINK = 2048
-_ARENA_HARD_MAX_NEW_TOKENS_THINK = 2048 + 32768
+_ARENA_HARD_MAX_NEW_TOKENS = 2048
+# Prompt budget (in tokens) reserved on top of generation budget when sizing
+# the engine's max_model_len. Some Arena-Hard prompts exceed 2k tokens.
+_ARENA_HARD_PROMPT_BUDGET = 4096
 
 
 def _extract_baseline_answer_text(messages: List[dict]) -> str:
@@ -383,13 +385,8 @@ def _load_arena_hard_examples(args) -> List[Example]:
 
 
 def _format_arena_hard_prompt(example: Example, tokenizer, thinking: bool) -> str:
-    messages = example.prompt_messages
-    if thinking:
-        return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
     return _apply_chat_template_no_thinking(
-        tokenizer, messages, add_generation_prompt=True,
+        tokenizer, example.prompt_messages, add_generation_prompt=True,
     )
 
 
@@ -429,11 +426,7 @@ def build_arena_hard_benchmark(args) -> Benchmark:
         for judge in judges
     ]
 
-    thinking = args.arena_hard_thinking
-    max_tokens = (
-        _ARENA_HARD_MAX_NEW_TOKENS_THINK if thinking else _ARENA_HARD_MAX_NEW_TOKENS_NO_THINK
-    )
-    max_tokens = max(max_tokens, args.max_new_tokens)
+    max_tokens = max(_ARENA_HARD_MAX_NEW_TOKENS, args.max_new_tokens)
 
     sampling_params = SamplingParams(
         temperature=0,
@@ -442,10 +435,10 @@ def build_arena_hard_benchmark(args) -> Benchmark:
     )
     gen_config = GenerationConfig(
         sampling_params=sampling_params,
-        thinking=thinking,
+        thinking=False,
         n_responses_per_example=1,
         collect_logprobs=False,
-        extra_max_model_len=_ARENA_HARD_MAX_NEW_TOKENS_THINK if thinking else None,
+        extra_max_model_len=max_tokens + _ARENA_HARD_PROMPT_BUDGET,
     )
     return Benchmark(
         name="arena_hard",
