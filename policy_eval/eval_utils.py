@@ -24,7 +24,8 @@ import pandas as pd
 from data_utils import get_generation_stop_token_ids
 
 from . import wandb_utils
-from .evaluators import RewardModelEvaluator
+from .evaluators import PairwiseEvaluator, RewardModelEvaluator
+from .judges import RMJudge
 from .generation import teardown_vllm
 from .types import Benchmark, EvalContext, Example, GenerationResult
 
@@ -57,12 +58,18 @@ def list_checkpoints(args) -> Tuple[List[str], Optional[str], str]:
 
 
 def rms_required_by(benchmarks: List[Benchmark]) -> set:
-    """Scan benchmarks' evaluators for required RM labels."""
+    """Scan benchmarks' evaluators for required RM labels.
+
+    When adding a new evaluator type that consumes a reward model, extend this
+    scan so ``LoadedRewardModels`` knows to load it upfront.
+    """
     labels = set()
     for b in benchmarks:
         for ev in b.evaluators:
             if isinstance(ev, RewardModelEvaluator):
                 labels.add(ev.rm_label)
+            elif isinstance(ev, PairwiseEvaluator) and isinstance(ev.judge, RMJudge):
+                labels.add(ev.judge.rm_label)
     return labels
 
 
