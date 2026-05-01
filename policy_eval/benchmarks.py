@@ -238,8 +238,10 @@ def build_ifeval_benchmark(args) -> Benchmark:
 
 _ARENA_HARD_MAX_NEW_TOKENS = 2048
 # Prompt budget (in tokens) reserved on top of generation budget when sizing
-# the engine's max_model_len. Some Arena-Hard prompts exceed 2k tokens.
-_ARENA_HARD_PROMPT_BUDGET = 4096
+# the engine's max_model_len. Measured on Arena-Hard-Auto v2.0 (n=750, Qwen3
+# tokenizer, no-think chat template): median 94, p99 3439, max 8431. 10240
+# leaves ~1.8k headroom over the longest observed prompt.
+_ARENA_HARD_PROMPT_BUDGET = 10240
 
 
 def _extract_baseline_answer_text(messages: List[dict]) -> str:
