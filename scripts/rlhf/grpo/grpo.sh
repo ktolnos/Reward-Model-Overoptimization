@@ -264,7 +264,7 @@ reward_model_paths=(
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/23_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/24_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/25_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/26_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/26_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/27_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/28_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/29_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
