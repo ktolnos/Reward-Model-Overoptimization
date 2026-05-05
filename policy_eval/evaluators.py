@@ -14,18 +14,12 @@ to the relevant benchmark in ``benchmarks.py``.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import random
-import time
 from typing import Dict, List, Optional
 
 import numpy as np
-import requests
 import wandb
 
 from .arena_hard_upstream import CATEGORY_BASELINES
-from .judges import LLMAPIJudge, RMJudge
 from .pairwise import compute_pairwise_metrics
 from .rewards import score_responses_with_rm
 from .types import Benchmark, EvalContext, Example, GenerationResult
@@ -126,6 +120,15 @@ class RewardModelEvaluator:
 # Generic pairwise evaluator — swap any Judge (RM or LLM) without a new class
 # =============================================================================
 
+def _hash_responses(responses: List[str]) -> str:
+    """Stable short hash of a list of response strings (for cache keys)."""
+    h = hashlib.sha256()
+    for r in responses:
+        h.update(r.encode("utf-8", errors="replace"))
+        h.update(b"\x00")
+    return h.hexdigest()[:16]
+
+
 def _get_baseline_responses_for(examples: List[Example], baseline_name: str) -> List[str]:
     """Pull baseline responses out of Example metadata.
 
@@ -142,8 +145,13 @@ class PairwiseEvaluator:
     """Compute Arena-Hard-style pairwise win metrics against one or more baselines.
 
     Pluggable via ``judge`` (``RMJudge`` or ``LLMAPIJudge``). Same metric keys
-    regardless of judge, so swapping backends keeps charts comparable. Caches
-    per-baseline-and-judge battle results on disk.
+    regardless of judge, so swapping backends keeps charts comparable.
+
+    Caching: for ``RMJudge`` only, the baseline-side RM scores are cached on
+    disk per (RM, baseline slot, n, content hash) — independent of the policy
+    being evaluated, since baseline responses don't change. The policy side is
+    always re-scored. Generative judges (``LLMAPIJudge``) skip the cache; their
+    verdicts depend on the current policy responses.
 
     Two modes:
       - Global (default): each baseline in ``baselines`` is compared against
@@ -162,29 +170,13 @@ class PairwiseEvaluator:
         judge,
         baselines: List[str],
         per_category: bool = False,
-        cache_subdir: str = "pairwise_cache",
     ):
         self.judge = judge
         self.baselines = baselines
         self.per_category = per_category
         self.name = f"pairwise_{judge.name}"
-        self.cache_subdir = cache_subdir
 
-    def _cache_path(
-        self, args, backend_id: str, slot: str, n_examples: int, checkpoint_num,
-    ) -> str:
-        safe_backend = backend_id.replace("/", "_").replace("\\", "_").replace(":", "_")
-        if len(safe_backend) > 160:
-            safe_backend = safe_backend[-160:]
-        safe_slot = slot.replace("/", "_")
-        cache_dir = os.path.join(
-            os.path.dirname(args.output_file) or ".", self.cache_subdir
-        )
-        os.makedirs(cache_dir, exist_ok=True)
-        key = f"{safe_backend}__{safe_slot}__ckpt{checkpoint_num}__n{n_examples}"
-        return os.path.join(cache_dir, f"{key}.json")
-
-    def _run_judge_with_cache(
+    def _run_judge(
         self,
         slot_name: str,             # metric slot label ("baseline_model" or category)
         prompt_messages_list,
@@ -199,36 +191,30 @@ class PairwiseEvaluator:
             )
             return None
 
-        backend_id = self.judge.backend_id(ctx)
-        cache_file = self._cache_path(
-            ctx.args, backend_id, slot_name, len(policy_responses), ctx.checkpoint_num
-        )
-        if os.path.exists(cache_file):
-            with open(cache_file) as f:
-                cached = json.load(f)
-            if cached.get("num_prompts") == len(policy_responses):
-                print(
-                    f"[pairwise:{self.judge.name}] loaded cached battles for "
-                    f"{slot_name} (ckpt {ctx.checkpoint_num})"
-                )
-                return cached["battles_per_prompt"]
-
         print(
             f"[pairwise:{self.judge.name}] judging {len(policy_responses)} prompts "
             f"for {slot_name} (ckpt {ctx.checkpoint_num})..."
         )
-        battles_per_prompt, _extras = self.judge.score_pairs(
-            prompt_messages_list, policy_responses, baseline_responses, ctx,
-        )
-        with open(cache_file, "w") as f:
-            json.dump({
-                "judge_backend": backend_id,
-                "slot": slot_name,
-                "checkpoint_num": ctx.checkpoint_num,
-                "num_prompts": len(policy_responses),
-                "battles_per_prompt": battles_per_prompt,
-            }, f)
-        return battles_per_prompt
+
+        # Cache strategy:
+        #   - RMJudge: cache the baseline-side scores. Pure function of
+        #     (RM, baseline content), so safe to reuse across runs.
+        #   - LLMAPIJudge etc.: no cache; the verdict depends on the policy.
+        if getattr(self.judge, "kind", None) == "rm":
+            safe_slot = slot_name.replace("/", "_")
+            cache_key = (
+                f"{safe_slot}__n{len(baseline_responses)}__"
+                f"{_hash_responses(baseline_responses)}"
+            )
+            battles, _ = self.judge.score_pairs(
+                prompt_messages_list, policy_responses, baseline_responses, ctx,
+                baseline_cache_key=cache_key,
+            )
+        else:
+            battles, _ = self.judge.score_pairs(
+                prompt_messages_list, policy_responses, baseline_responses, ctx,
+            )
+        return battles
 
     def _eval_global(
         self, examples, prompt_messages_list, policy_responses, ctx,
@@ -236,7 +222,7 @@ class PairwiseEvaluator:
         out: Dict = {}
         for baseline_name in self.baselines:
             baseline_responses = _get_baseline_responses_for(examples, baseline_name)
-            battles = self._run_judge_with_cache(
+            battles = self._run_judge(
                 baseline_name, prompt_messages_list, policy_responses,
                 baseline_responses, ctx,
             )
@@ -269,7 +255,7 @@ class PairwiseEvaluator:
             sub_prompts = [prompt_messages_list[i] for i in indices]
             sub_policy = [policy_responses[i] for i in indices]
             sub_baseline = _get_baseline_responses_for(sub_examples, baseline_name)
-            battles = self._run_judge_with_cache(
+            battles = self._run_judge(
                 f"{category}__vs_{baseline_name}",
                 sub_prompts, sub_policy, sub_baseline, ctx,
             )

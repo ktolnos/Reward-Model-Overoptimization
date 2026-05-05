@@ -107,22 +107,14 @@ class RMJudge:
         self.rm_label = rm_label
         self.name = f"rm_{rm_label}"
 
-    def backend_id(self, ctx) -> str:
-        """Returns a stable string identifying this judge's backend model
-        (used in cache file names so swapping RMs invalidates caches)."""
-        rms = ctx.loaded_rms
-        entry = rms.get(self.rm_label) if rms else None
-        if entry is None:
-            return f"missing:{self.rm_label}"
-        model, _ = entry
-        return model.config._name_or_path
-
     def score_pairs(
         self,
         prompts_messages: List[list],
         answers_a: List[str],
         answers_b: List[str],
         ctx,
+        *,
+        baseline_cache_key: Optional[str] = None,
     ) -> Tuple[List[List[float]], Dict[str, np.ndarray]]:
         rms = ctx.loaded_rms
         entry = rms.get(self.rm_label) if rms else None
@@ -130,16 +122,27 @@ class RMJudge:
             raise ValueError(f"RMJudge needs RM '{self.rm_label}' loaded")
         model, tokenizer = entry
 
+        # Always re-score the policy side: its responses change every checkpoint.
         scores_a = score_responses_with_rm(
             answers_a, prompts_messages, model, tokenizer,
             batch_size=ctx.args.batch_size, device=ctx.args.device,
             checkpoint_num=ctx.checkpoint_num,
         )
-        scores_b = score_responses_with_rm(
-            answers_b, prompts_messages, model, tokenizer,
-            batch_size=ctx.args.batch_size, device=ctx.args.device,
-            checkpoint_num=f"{ctx.checkpoint_num}:pair_b",
-        )
+        # Baseline side: cached on disk when caller supplies a key (the cache
+        # is keyed only on the baseline content + RM, not on the policy).
+        if baseline_cache_key is not None:
+            scores_b = rms.score_with_cache(
+                self.rm_label, answers_b, prompts_messages,
+                cache_namespace="baseline_score_cache",
+                cache_key=baseline_cache_key,
+                log_label=f"Baseline:{self.rm_label}",
+            )
+        else:
+            scores_b = score_responses_with_rm(
+                answers_b, prompts_messages, model, tokenizer,
+                batch_size=ctx.args.batch_size, device=ctx.args.device,
+                checkpoint_num=f"{ctx.checkpoint_num}:pair_b",
+            )
         battles = []
         for sa, sb in zip(scores_a, scores_b):
             if sa > sb:
@@ -198,9 +201,6 @@ class LLMAPIJudge:
         self.max_parallel = max_parallel
         self.api_key_env = api_key_env
         self.name = f"llm_{model_name.replace('/', '_')}"
-
-    def backend_id(self, ctx) -> str:
-        return f"{self.model_name}:w{self.weight}"
 
     def _one_game(self, question: str, answer_a: str, answer_b: str, ctx) -> Optional[str]:
         """Single call; returns the parsed label or None on failure."""
