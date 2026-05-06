@@ -255,19 +255,18 @@ reward_model_paths=(
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1965"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-2358"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-2751"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-3144"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-3144"
     #
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/20_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/21_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/22_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/23_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/24_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/25_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/26_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/27_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/28_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/29_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/20_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/21_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/22_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/23_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/24_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/25_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/27_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/28_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/29_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
 )
 
 num_reward_models=${#reward_model_paths[@]}
@@ -329,10 +328,10 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --gradient_checkpointing True \
-    --scale_rewards 'batch' \
+    --scale_rewards False \
     --trust_remote_code True \
     --reference_rewards False \
-    --sigmoid_rewards True \
+    --sigmoid_rewards False \
     --rm_subtract_mean_reward_per_model True \
     --save_generations_path "${log_dir}/generations.csv" \
     --adv_rm_lambda 0.0 \
@@ -360,7 +359,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --skip_length_validation True \
     --penalize_no_eos True \
     --penalize_no_eos_soft_fraction 0.6 \
-    --penalize_no_eos_max_penalty 1.5 \
+    --penalize_no_eos_max_penalty 2 \
     --penalize_no_eos_power 1.0 \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \
