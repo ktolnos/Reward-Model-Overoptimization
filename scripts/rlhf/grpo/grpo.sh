@@ -328,7 +328,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --gradient_accumulation_steps ${gradient_accumulation_steps} \
     --gradient_checkpointing True \
-    --scale_rewards False \
+    --scale_rewards 'none' \
     --trust_remote_code True \
     --reference_rewards False \
     --sigmoid_rewards False \
