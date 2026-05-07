@@ -44,7 +44,7 @@ def format_line(run) -> str:
     url = RUN_URL_TEMPLATE.format(project=PROJECT, run_id=run.id)
     date = (run.created_at or "")[:10]  # YYYY-MM-DD
     name = run.name or run.id
-    return f"- {date} — [{name}]({url})"
+    return f"- [{name}]({url})"
 
 
 def select_new_runs(runs: Iterable, existing_ids: set[str], cutoff: str | None):

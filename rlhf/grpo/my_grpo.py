@@ -66,6 +66,75 @@ from peft import get_peft_model
 from pathlib import Path
 
 
+class _MultiTokenEosId(int):
+    """An int that compares equal (via ``==``) to any of several stop-token ids.
+
+    Subclasses ``int`` so anything that consumes ``self.eos_token_id`` as a
+    plain integer (e.g. ``tokenizer.eos_token_id`` round-tripping, transformers
+    ``generate`` arguments, tensor scalar coercion) keeps seeing the primary id.
+    The custom ``__eq__`` only changes Python list-membership semantics: when
+    ``last_id in [self.eos_token_id, self.pad_token_id]`` is evaluated, Python
+    uses reflected dispatch (right operand's type is a subclass of int), calls
+    our ``__eq__``, and returns True for any token in the full stop set.
+
+    Note: ``Tensor == _MultiTokenEosId(...)`` does NOT use this override --
+    ``Tensor.__eq__`` runs first and coerces to the primary int. That path is
+    only used inside the transformers-generate branch of ``GRPOTrainer._generate``
+    (line ~1320 in TRL 0.29). ``MyGRPOTrainer._generate_transformers_eos_mask``
+    handles that case separately.
+    """
+
+    _stop_set: frozenset
+
+    def __new__(cls, primary_id, all_stop_ids):
+        instance = super().__new__(cls, int(primary_id))
+        instance._stop_set = frozenset(int(t) for t in all_stop_ids)
+        return instance
+
+    def __eq__(self, other):
+        try:
+            return int(other) in self._stop_set
+        except (TypeError, ValueError):
+            return NotImplemented
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return NotImplemented
+        return not result
+
+    def __hash__(self):
+        return int.__hash__(self)
+
+
+class MyGRPOTrainer(GRPOTrainer):
+    """GRPOTrainer that recognizes the full stop-token set for EOS/truncation.
+
+    After ``super().__init__`` runs, swap ``self.eos_token_id`` for a
+    ``_MultiTokenEosId`` covering every stop token reported by
+    ``get_generation_stop_token_ids``. This corrects the
+    ``completions/clipped_ratio`` metric and ``mask_truncated_completions``
+    behavior for chat-template models where multiple tokens (e.g. ``<|im_end|>``
+    and ``<|endoftext|>``) can legitimately terminate a completion.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        all_ids = get_generation_stop_token_ids(self.processing_class)
+        if len(all_ids) > 1:
+            primary = self.processing_class.eos_token_id
+            if primary not in all_ids:
+                raise ValueError(f"Primary EOS token {primary} not found in stop set {all_ids}")
+            self.eos_token_id = _MultiTokenEosId(primary, all_ids)
+            self._all_stop_token_ids = tuple(sorted(int(t) for t in all_ids))
+            print(
+                f"[MyGRPOTrainer] eos_token_id covers {sorted(all_ids)}; "
+                f"primary={int(self.eos_token_id)}"
+            )
+        else:
+            self._all_stop_token_ids = tuple(int(t) for t in all_ids)
+
+
 @dataclass
 class MyGRPOScriptArguments:
     dataset_path: Optional[str] = field(
@@ -284,12 +353,40 @@ if __name__ == "__main__":
         model_args.model_name_or_path,
         trust_remote_code=model_args.trust_remote_code,
     )
+
+    # Re-point tokenizer.eos_token_id to <|im_end|> when available. Chat-template-
+    # trained models almost always emit <|im_end|> as the turn-end token, while base
+    # tokenizers leave eos_token_id pointing at <|endoftext|>. TRL reads
+    # tokenizer.eos_token_id as a single int in its truncation checks
+    # (completions/clipped_ratio, mask_truncated_completions), so picking the
+    # token the model actually emits avoids mis-classifying clean completions
+    # as truncated. <|endoftext|> remains in get_generation_stop_token_ids so it
+    # still counts as a valid stop token everywhere we use the full set.
+    im_end_id = policy_tokenizer.convert_tokens_to_ids("<|im_end|>")
+    unk_id = getattr(policy_tokenizer, "unk_token_id", None)
+    if (
+        im_end_id is not None
+        and im_end_id != unk_id
+        and policy_tokenizer.eos_token_id != im_end_id
+    ):
+        prev_id = policy_tokenizer.eos_token_id
+        prev_token = policy_tokenizer.eos_token
+        policy_tokenizer.eos_token_id = im_end_id
+        policy_tokenizer.eos_token = "<|im_end|>"
+        print(
+            f"[my_grpo] Repointing tokenizer.eos_token_id "
+            f"{prev_id} ({prev_token!r}) -> {im_end_id} ('<|im_end|>')."
+        )
+        if hasattr(policy, "generation_config"):
+            policy.generation_config.eos_token_id = get_generation_stop_token_ids(
+                policy_tokenizer
+            )
+
     policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
 
-    # Ensure vLLM stops on ALL relevant EOS tokens (e.g. <|im_end|> for Qwen).
-    # tokenizer.eos_token_id is a single int (<|endoftext|>); vLLM picks it up
-    # from the model config automatically, but chat turn-end tokens like
-    # <|im_end|> must be passed explicitly via stop_token_ids.
+    # Ensure vLLM stops on ALL relevant EOS tokens. vLLM picks up
+    # tokenizer.eos_token_id (now <|im_end|>) from the model config; the others
+    # (e.g. <|endoftext|>) must be passed explicitly via stop_token_ids.
     extra_stop_ids = [
         tid for tid in policy_stop_token_ids
         if tid != policy_tokenizer.eos_token_id
@@ -373,7 +470,7 @@ if __name__ == "__main__":
     ################
     # Training
     ################
-    trainer = GRPOTrainer(
+    trainer = MyGRPOTrainer(
         args=training_args,
         # reward_processing_classes=reward_tokenizer,
         model=policy,

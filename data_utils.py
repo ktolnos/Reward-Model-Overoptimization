@@ -280,8 +280,9 @@ def _add_token_id(stop_ids, token_id):
 def get_generation_stop_token_ids(tokenizer):
     """Return tokenizer-specific generation stop IDs.
 
-    Includes eos_token_id and common chat turn-end tokens used by modern
-    chat templates (for example Qwen's <|im_end|>).
+    Includes eos_token_id and common chat turn-end tokens. <|endoftext|> is
+    looked up explicitly so it stays in the set even after eos_token_id has
+    been re-pointed to a chat turn-end token (e.g. <|im_end|> for Qwen).
     """
     stop_ids = set()
     _add_token_id(stop_ids, tokenizer.eos_token_id)
@@ -291,7 +292,7 @@ def get_generation_stop_token_ids(tokenizer):
     convert = getattr(raw_tokenizer, "convert_tokens_to_ids", None)
     unk_token_id = getattr(raw_tokenizer, "unk_token_id", None)
     if convert is not None:
-        for token in ("<|im_end|>", "<|eot_id|>", "<end_of_turn>"):
+        for token in ("<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>"):
             token_id = convert(token)
             if token_id is None or token_id == unk_token_id:
                 continue
