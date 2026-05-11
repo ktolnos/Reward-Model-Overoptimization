@@ -299,7 +299,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --mixed_precision bf16 \
     rlhf/grpo/my_grpo.py \
     --report_to wandb \
-    --num_generations 16 \
+    --num_generations 4 \
     --num_train_epochs 1 \
     --temperature 1 \
     --epsilon_high 0.28 \
@@ -359,7 +359,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --skip_length_validation True \
     --penalize_no_eos True \
     --penalize_no_eos_soft_fraction 0.6 \
-    --penalize_no_eos_max_penalty 4 \
+    --penalize_no_eos_max_penalty 2 \
     --penalize_no_eos_power 1.0 \
     --max_grad_norm 1.0 \
     --rm_scale_reward_by_std_per_model True \

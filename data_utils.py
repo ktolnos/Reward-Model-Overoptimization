@@ -29,8 +29,8 @@ from pythia_tokenizer import (  # noqa: F401 — re-exported for backward compat
 DATASET_LENGTH_CONFIGS = {
     "default": {
         "max_prompt_tokens": 1024,
-        "max_response_tokens": 1024,
-        "max_conversation_tokens": 2048,
+        "max_response_tokens": 2048,
+        "max_conversation_tokens": 3072,
     },
     "alpacafarm_paper": {
         "max_prompt_tokens": 520,

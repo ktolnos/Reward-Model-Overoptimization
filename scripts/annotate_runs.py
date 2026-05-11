@@ -344,17 +344,38 @@ def find_sft_for_grpo(grpo_run: dict, sft_index: dict[str, dict]
 
 
 def _rm_paths_from_run(grpo_run: dict) -> list[str]:
-    """RM paths used by a GRPO/DPO run.
+    """RM paths configured for a GRPO/DPO run.
 
-    The training script logs per-RM stats as summary keys like
-    "reward/<absolute path to checkpoint>", so we can recover the full RM list
-    from there. Falls back to a config field if present.
+    Primary source is the captured launch args (metadata['args']) — specifically
+    the values after --reward_model_paths. This reflects the RM list as
+    *configured*, which is what we want to surface in RUN_LINKS.md. Summary
+    keys "reward/<path>" only cover RMs that were actually pulled at least
+    once during training and undercount for sequential / partial-coverage
+    strategies that don't cycle through every configured RM. Falls back to
+    summary, then to a config field, when launch args aren't available
+    (older caches without metadata).
     """
-    cfg = grpo_run.get("config") or {}
-    summary = grpo_run.get("summary") or {}
+    metadata = grpo_run.get("metadata") or {}
+    args = metadata.get("args") or []
 
-    # Primary source: summary keys.
+    # Primary source: --reward_model_paths in launch args.
     paths: list[str] = []
+    in_rm = False
+    for a in args:
+        if not isinstance(a, str):
+            continue
+        if a == "--reward_model_paths":
+            in_rm = True
+            continue
+        if in_rm:
+            if a.startswith("--"):
+                break
+            paths.append(a)
+    if paths:
+        return paths
+
+    # Secondary source: summary keys.
+    summary = grpo_run.get("summary") or {}
     seen: set[str] = set()
     for key in summary:
         if isinstance(key, str) and key.startswith("reward/") and "/" in key[7:]:
@@ -366,6 +387,7 @@ def _rm_paths_from_run(grpo_run: dict) -> list[str]:
         return paths
 
     # Fallback: explicit config field.
+    cfg = grpo_run.get("config") or {}
     raw = cfg.get("reward_model_paths") or cfg.get("reward_model_path") or []
     if isinstance(raw, str):
         if raw.startswith("[") and raw.endswith("]"):

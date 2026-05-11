@@ -53,6 +53,10 @@ def serialize_run(rid, name, created, run):
         summary = {k: v for k, v in run.summary.items() if not k.startswith("_")}
     except Exception:
         summary = {}
+    try:
+        metadata = dict(run.metadata) if run.metadata else {}
+    except Exception:
+        metadata = {}
     return {
         "id": rid,
         "name": name,
@@ -61,6 +65,7 @@ def serialize_run(rid, name, created, run):
         "tags": list(run.tags or []),
         "config": {k: jsonable(v) for k, v in cfg.items()},
         "summary": {k: jsonable(v) for k, v in summary.items()},
+        "metadata": {k: jsonable(v) for k, v in metadata.items()},
     }
 
 

@@ -40,6 +40,8 @@ MAIN_METRICS = [
     "secondary_rm/win_rate_vs_chosen",
     "gold_rm/sc_score",
     "secondary_rm/sc_score",
+    "gold_rm/mean",
+    "secondary_rm/mean",
     "ifeval/inst_strict_acc",
     "arena_hard/rm_gold_rm/hard_prompt/sc_score",
     "kl/grpo_mean",
@@ -87,11 +89,15 @@ def heading_to_workspace_name(heading: str) -> str:
     return ("auto: " + text)[:120]
 
 
-def upsert_workspace(entity_project: str, heading: str, run_names: list[str],
+def upsert_workspace(entity_project: str, heading: str, run_ids: list[str],
                      existing_url: str | None) -> str:
     """Create-or-update a saved workspace and return its share URL."""
     entity, project = entity_project.split("/", 1)
-    filt = f"Name in {run_names!r}"
+    # Filter on `ID` (the immutable run ID encoded in the URL) rather than
+    # `Name` (the display name). Display names in EXPERIMENTS.md are often
+    # manually trimmed for readability and don't exact-match the W&B run name,
+    # which would otherwise silently drop runs from the saved comparison.
+    filt = f"ID in {run_ids!r}"
     name = heading_to_workspace_name(heading)
 
     workspace = None
@@ -113,10 +119,16 @@ def upsert_workspace(entity_project: str, heading: str, run_names: list[str],
             runset_settings=ws.RunsetSettings(filters=filt),
         )
     else:
-        # Refresh the filter and re-pin Main at the top. `auto_generate_panels`
-        # is set-once-at-creation per the SDK, so we don't touch it.
+        # Refresh the filter and re-pin Main at the top. `from_url()` builds
+        # the Workspace via `_from_model`, which does NOT propagate
+        # `auto_generate_panels` — it silently resets to the dataclass default
+        # (False) on every reload. The public `auto_generate_panels` is a
+        # read-only @property, but the underlying private field is writable,
+        # and `_to_model` reads from the property. Re-affirm via the private
+        # field so save() doesn't strip auto-generated panels.
         workspace.name = name
         workspace.runset_settings = ws.RunsetSettings(filters=filt)
+        workspace._auto_generate_panels = True
         sections = [s for s in workspace.sections if s.name != "Main"]
         workspace.sections = [make_main_section()] + sections
 
@@ -152,15 +164,15 @@ def process(text: str) -> tuple[str, int, int]:
         for r in LEGACY_RES:
             section_clean = r.sub("", section_clean)
 
-        # Collect run display names per project (deduped).
+        # Collect run IDs per project (deduped).
         by_proj: dict[str, list[str]] = defaultdict(list)
         seen: set[tuple[str, str]] = set()
         for lm in LINK_RE.finditer(section_clean):
-            display_name, proj, rid = lm.group(1), lm.group(2), lm.group(3)
+            proj, rid = lm.group(2), lm.group(3)
             if (proj, rid) in seen:
                 continue
             seen.add((proj, rid))
-            by_proj[proj].append(display_name)
+            by_proj[proj].append(rid)
 
         if not by_proj:
             text = text[:sec_start] + section_clean + text[sec_end:]
@@ -168,10 +180,10 @@ def process(text: str) -> tuple[str, int, int]:
 
         print(f"[{n_done + 1}] {heading[:80]}", file=sys.stderr)
         links: list[str] = []
-        for proj, names in by_proj.items():
+        for proj, ids in by_proj.items():
             url_existing = existing_url if (existing_url and existing_url.startswith(
                 f"https://wandb.ai/{proj}?")) else None
-            url = upsert_workspace(proj, heading, names, url_existing)
+            url = upsert_workspace(proj, heading, ids, url_existing)
             links.append(f"[Comparison]({url})")
         compare_line = " ".join(links) + "\n"
 
