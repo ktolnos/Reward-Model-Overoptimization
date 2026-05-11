@@ -1,12 +1,5 @@
 No KL - higher peak, KL - less reward hacking
-
-### Win rate vs chosen can go up to 70-80% even when you only use the base model for both reward model and the policy.
-[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=awv127w497v)
-- [qwen3.5-4B-official-human](https://wandb.ai/distill-llms/policy-evaluation/runs/urbm8ngr)
-- [4B-Base_KL0_1rms_sequential3x_1089357](https://wandb.ai/distill-llms/policy-evaluation/runs/hlct4b7l) {3.5-4B-SFT}
-- [group_4_max_penalty_2_KL0_1rms_sequential3x_1132733](https://wandb.ai/distill-llms/policy-evaluation/runs/oudkd74k) {3.5-4B-SFT}
-- [chosen-human](https://wandb.ai/distill-llms/policy-evaluation/runs/xfsfhujo) {0.6B-Base-SFT}
-
+ensembles are robust across settings, special mitigations tend to break at different models, learning rates, KL, etc.
 
 ### Q: If we have 100 RMs, what is the best way to use them: mean vs min vs UWO vs sequential-cycling?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=lrenmhanrue)
@@ -22,6 +15,15 @@ Same RM bank, same `mix_ensemble_size=10`, KL=0; only `ensemble_aggregation` dif
 High-UWO and mean disjoint 10x10 had the highest gold peaks, sequential without KL has the highest secondary RM peak. Final performane is the best for sequential with small KL (0.005) with no significant reward hacking, 40-mean is second best final performance (same KL).
 Overall across multiple experiments (see  40-RM ensemble: mean vs min aggregation), mean ensembles seem to outperform min. UWO is usually as good as mean and training reward std doesn't decrease much. Sequential is competitve with mean, but is cheaper to run.
 
+### Q: 100-RM cycling once vs three times and training time (full helpsteer3 dataset, β=0.005)?
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=v0bg3f7dxr9)
+- [1x_KL0.005_100rms_sequential1x_1062161](https://wandb.ai/distill-llms/policy-evaluation/runs/vc2f073s) {0.6B-Base-SFT} — 1× on subset
+- [seq_KL0.005_sequential3x_100rms_1061685](https://wandb.ai/distill-llms/policy-evaluation/runs/7kxkvl6b) {0.6B-Base-SFT} - 3x on subset
+- [full-ds_KL0.005_100rms_sequential3x_1062944](https://wandb.ai/distill-llms/policy-evaluation/runs/tdbu4tnq) {0.6B-Base-SFT} — 3x on full dataset
+
+**Results**
+First half is the same for 3x vs 1x, after 3x has both higher peak and less hacking.
+Full-ds run shows that same recipe on full dataset (4x prompts) also doesn't reward hack according to gold rm, but secondary RM decreases after 20%.
 
 
 ### Q: First-pass mix-strategy granularity (group count × group size)?
@@ -63,15 +65,59 @@ Min ensemble is worse than sequential (but RMs matter more than ensemble strateg
 **Results:**
 Ensembles didn't prevent reward hacking completely, the peak sc_score and other metrics are not significantly better than baseline. But the decline is much smaller and the final score on some metrics is close to the peak score, while on others it is still much better than baseline.
 
-### Q: 100-RM cycling once vs three times and training time (full helpsteer3 dataset, β=0.005)?
-[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=v0bg3f7dxr9)
-- [1x_KL0.005_100rms_sequential1x_1062161](https://wandb.ai/distill-llms/policy-evaluation/runs/vc2f073s) {0.6B-Base-SFT} — 1× on subset
-- [seq_KL0.005_sequential3x_100rms_1061685](https://wandb.ai/distill-llms/policy-evaluation/runs/7kxkvl6b) {0.6B-Base-SFT} - 3x on subset
-- [full-ds_KL0.005_100rms_sequential3x_1062944](https://wandb.ai/distill-llms/policy-evaluation/runs/tdbu4tnq) {0.6B-Base-SFT} — 3x on full dataset
+### Q: RM-size sweep on 0.6B sft_5ep_1060185 (single RM, sequential3x, β=0)?
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=blmq5wod2bt)
+Same 0.6B-Base SFT policy (`sft_5ep_1060185`, `1060185/checkpoint-740`), same helpsteer3v2 GRPO dataset, same gold (Skywork-Reward-V2-Llama-3.1-8B)
+- [4B-3128-nokl_KL0_1rms_sequential3x_1066782](https://wandb.ai/distill-llms/policy-evaluation/runs/ba0kul6w) {0.6B-Base-SFT} — Qwen3-4B-Instruct-2507 RM (`1_BT_RM_…_1065302`, ckpt-3128)
+- [qwen3.5-4b_KL0_1rms_sequential3x_1069471](https://wandb.ai/distill-llms/policy-evaluation/runs/s1fiv1uc) {0.6B-Base-SFT} — Qwen3.5-4B RM (`19_…_Qwen3.5-4B_len2048_fulltrain`)
+- [Qwen3-8B_KL0_1rms_sequential3x_1069470](https://wandb.ai/distill-llms/policy-evaluation/runs/9okigr2v) {0.6B-Base-SFT} — Qwen3-8B RM (`19_BT_RM_…_1066933`)
+- [0.6Bsft_3.5-9BRM_KL0_1rms_sequential3x_1072946](https://wandb.ai/distill-llms/policy-evaluation/runs/gguolgti) {0.6B-Base-SFT} — Qwen3.5-9B RM (`19_BT_RM_…_1069742`)
+- [1x_KL0.005_100rms_sequential1x_1062161](https://wandb.ai/distill-llms/policy-evaluation/runs/vc2f073s) {0.6B-Base-SFT} <- 100 RMs 0.6B 600-series
 
 **Results**
-First half is the same for 3x vs 1x, after 3x has both higher peak and less hacking.
-Full-ds run shows that same recipe on full dataset (4x prompts) also doesn't reward hack according to gold rm, but secondary RM decreases after 20%.
+- Bigger RMs are better, except for Qwen3-8B. 
+- Bigger RMs don't really reward hack and the performance is much better than 100 smaller reward models
 
 
+### Best 0.6B run vs bigger policies:
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=alb17wmfvhq)
+- [0.6Bsft_3.5-9BRM_KL0_1rms_sequential3x_1072946](https://wandb.ai/distill-llms/policy-evaluation/runs/gguolgti) {0.6B-Base-SFT} — Qwen3.5-9B RM (`19_BT_RM_…_1069742`)
+- [1.7Bsft_KL0_1rms_sequential3x_1070738](https://wandb.ai/distill-llms/policy-evaluation/runs/1obc7wzc) {1.7B-Base-SFT} — 1.7B SFT
+- [4Bsft-4BInstructRM_KL0_1rms_sequential3x_1071882](https://wandb.ai/distill-llms/policy-evaluation/runs/r5oubozm) {3-4B-Base-SFT} — 4B policy, 4B-Instruct RM
+- [8B-LoRA-higherLR_KL0_1rms_sequential3x_1074580](https://wandb.ai/distill-llms/policy-evaluation/runs/5irdcj8d) {8B-Base} — LoRA, higher lr; 8B LoRA policy with 4B RM
+- [3.5-4B-both_KL0_1rms_sequential3x_1078525](https://wandb.ai/distill-llms/policy-evaluation/runs/592ug9hu) {3.5-4B-SFT}
+
+**Results**
+When scaling up both we can achieve much better results and it doesn't cost crazy amounts of compute time. Also 3.5 reward hacks by default which makes it a convenient study subject.
+
+
+### SFT across model sizes
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=soi2m4bsj8g)
+- [sft-qwen3.5-4B](https://wandb.ai/distill-llms/policy-evaluation/runs/vnyf7yl0) {3.5-4B-SFT}
+- [sft_default_1089122](https://wandb.ai/distill-llms/policy-evaluation/runs/l4cc8kam) {3.5-4B-SFT}
+- [sft_4B-Base_1070739](https://wandb.ai/distill-llms/policy-evaluation/runs/rj0a2f7p) {3-4B-Base-SFT}
+- [sft_1.7B_1070705](https://wandb.ai/distill-llms/policy-evaluation/runs/upl84n76) {1.7B-Base-SFT}
+- [sft_5ep_1060185](https://wandb.ai/distill-llms/policy-evaluation/runs/81fp3ez6) {0.6B-Base-SFT}
+- [0.6Bsft_3.5-9BRM_KL0_1rms_sequential3x_1072946](https://wandb.ai/distill-llms/policy-evaluation/runs/gguolgti) {0.6B-Base-SFT} — best 0.6B GRPO run for comparison
+
+### Win rate vs chosen can go up to 70-80% even when you only use the base model for both reward model and the policy.
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=awv127w497v)
+- [qwen3.5-4B-official-human](https://wandb.ai/distill-llms/policy-evaluation/runs/urbm8ngr)
+- [4B-Base_KL0_1rms_sequential3x_1089357](https://wandb.ai/distill-llms/policy-evaluation/runs/hlct4b7l) {3.5-4B-SFT}
+- [group_4_max_penalty_2_KL0_1rms_sequential3x_1132733](https://wandb.ai/distill-llms/policy-evaluation/runs/oudkd74k) {3.5-4B-SFT}
+- [chosen-human](https://wandb.ai/distill-llms/policy-evaluation/runs/xfsfhujo) {0.6B-Base-SFT}
+
+### DPO vs GRPO
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=4s3juyk68ez)
+- [dpo_sigmoid_KL0.01_0.01KL_1089542](https://wandb.ai/distill-llms/policy-evaluation/runs/ez0fbzp8) {3.5-4B-SFT} — sigmoid, β=0.01
+- [grpo_5e-6lr_KL0_1rms_sequential3x_1087938](https://wandb.ai/distill-llms/policy-evaluation/runs/dsknetrl) {3.5-4B-SFT} — 5e-6
+
+### Sequential ensembles for 3.5-4B
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=utftn0w9oca)
+- [same_seed_KL0_8rms_sequential3x_1129482](https://wandb.ai/distill-llms/policy-evaluation/runs/llxyplds) {3.5-4B-SFT} — 8 checkpoints of the same training run, 1 per epoch
+- [3epRMs_KL0_10rms_sequential3x_1129495](https://wandb.ai/distill-llms/policy-evaluation/runs/b6e9si4j) {3.5-4B-SFT} — 10 RMs trained 3 epochs
+- Baseline (1rm): [linear0.6-max1.5_KL0_1rms_sequential3x_1126524](https://wandb.ai/distill-llms/policy-evaluation/runs/4n3i20ph) {3.5-4B-SFT}
+
+**Results:**
+Ensembles didn't prevent reward hacking completely, the peak sc_score and other metrics are not significantly better than baseline. But the decline is much smaller and the final score on some metrics is close to the peak score, while on others it is still much better than baseline.
 

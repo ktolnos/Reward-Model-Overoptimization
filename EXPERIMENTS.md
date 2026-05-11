@@ -106,6 +106,19 @@ High-UWO and mean disjoint 10x10 had the highest gold peaks, sequential without 
 **Results**
 No significant impact.
 
+### Q: All disjoint-partition variants on the new SFT + helpsteer3v2 (β=0)?
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=ilcr2dztofe)
+Shared stack: SFT base `1060185/checkpoint-740`, dataset `helpsteer3v2_annotated_Skywork-Reward-V2-Llama-3.1-8B`, 100-RM bank, gold = Skywork-Reward-V2-Llama-3.1-8B, secondary = GRM-Gemma-2B-sftreg, β=0. Aggregation, UWO `λ`, partition flavor, and `clip_reward_max` vary.
+- [__KL0_mix_100rms_mean_disjoint_10-mixens_1061682](https://wandb.ai/distill-llms/policy-evaluation/runs/znmynyme) {0.6B-Base-SFT} — 10×10 mean, disjoint
+- [min_KL0_mix_100rms_min_disjoint_10-mixens_1061683](https://wandb.ai/distill-llms/policy-evaluation/runs/7rznh8wf) {0.6B-Base-SFT} — 10×10 min, disjoint
+- [high-uwo_KL0_mix_100rms_uwo10_random_disjoint_10-mixens_1061681](https://wandb.ai/distill-llms/policy-evaluation/runs/w9rq5zie) {0.6B-Base-SFT} — 10×10 UWO `λ=10`, random-disjoint
+- [1e-5lr_KL0_mix_100rms_uwo_disjoint_10-mixens_1061176](https://wandb.ai/distill-llms/policy-evaluation/runs/qryzhkab) {0.6B-Base-SFT} — 10×10 UWO, disjoint, no clipping ⚠️ crashed
+- [clip3_KL0_mix_100rms_uwo_disjoint_10-mixens_1061189](https://wandb.ai/distill-llms/policy-evaluation/runs/j9w6q8f1) {0.6B-Base-SFT} — 10×10 UWO, disjoint, `clip_reward_max=3` ⚠️ crashed
+
+**Results**
+No clear winner, but high UWO looks promising.
+
+
 ### Q: Effect of disabling `rm_scale_reward_by_std_per_model` on a 10-RM mean ensemble?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=1dv2b25s9jz)
 - [reproduce_KL0_ensemble_10rms_mean_1061173](https://wandb.ai/distill-llms/policy-evaluation/runs/sj2i5ui5) {0.6B-Base-SFT} — with std-scaling (baseline)
@@ -119,6 +132,22 @@ No significant impact.
 - [10x10uwo1_disjoint_0.005KL_1053530](https://wandb.ai/distill-llms/policy-evaluation/runs/p2a4yp6a) {0.6B-Base-SFT} — UWO λ=1
 **Results**
 Mean is significantly better: higher peak, no reward hacking, higher final score.
+
+### Q: All disjoint-partition variants on the old SFT + helpsteer3-10k (β=0.005)?
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=mqmyl21xcfq)
+Shared stack: SFT base `1016814/checkpoint-158`, dataset `helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k`, 100-RM bank (`Qwen3-0.6B_42_BT_RM_…/checkpoint-142`), gold = Skywork-Reward-V2-Llama-3.1-8B, β=0.005. Aggregation, group shape (10×10 vs 25×4 vs 3-of-100), and partition flavor (static-disjoint vs random-disjoint) vary.
+- [10x10mean_disjoint__reorder_parallel_v2_0.005K_1053397](https://wandb.ai/distill-llms/policy-evaluation/runs/s2ac81kp) {0.6B-Base-SFT} — 10×10 mean
+- [10x10mean_disjoint_0.005KL_1038818](https://wandb.ai/distill-llms/policy-evaluation/runs/o5325lt2) {0.6B-Base-SFT} — 10×10 mean (independent training replicate)
+- [10x10mean_disjoint__reorder_parallel_0.005K_1047283](https://wandb.ai/distill-llms/policy-evaluation/runs/vkolkfga) {0.6B-Base-SFT} — 10×10 mean (eval-side rerun of one training after eval-tokenization fixes — not an independent training)
+- [10x10mean_disjoint_datautils_refactor+precompute_0.005K_1053919](https://wandb.ai/distill-llms/policy-evaluation/runs/bxxocfcq) {0.6B-Base-SFT} — 10×10 mean (data-utils refactor + precompute)
+- [mix_10x10min_disjoint_0.005KL_1036530](https://wandb.ai/distill-llms/policy-evaluation/runs/inyswtrh) {0.6B-Base-SFT} — 10×10 min
+- [10x10uwo1_disjoint_0.005KL_1053530](https://wandb.ai/distill-llms/policy-evaluation/runs/p2a4yp6a) {0.6B-Base-SFT} — 10×10 UWO λ=1
+- [10x10uwo_disjoint_subprecompmean_0.005KL_1053933](https://wandb.ai/distill-llms/policy-evaluation/runs/w769d1ww) {0.6B-Base-SFT} — 10×10 UWO λ=1 with precomputed-mean optimization (should match the previous UWO run up to numerics)
+- [25x4mean_disjoint_0.005KL_1043248](https://wandb.ai/distill-llms/policy-evaluation/runs/oyveeskn) {0.6B-Base-SFT} — 25×4 mean (smaller groups, more groups)
+- [3_out_100_uwo1_rand-disj_3x_0.005KL_1053531](https://wandb.ai/distill-llms/policy-evaluation/runs/grpzra8l) {0.6B-Base-SFT} — 3-of-100 random-disjoint, UWO λ=1, sequential3x (different RM-selection scheme)
+
+**Results**
+- 10x10mean_disjoint_0.005KL_1038818 is clear winner, achieving higher peak and not reward hacking too much.
 
 ### Q: KL coefficient on a 10-RM mean ensemble (lr=1e-5)?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=nygzxwg8kqj)
@@ -235,12 +264,8 @@ Eval-side `kl_base_model_path` change (commit `e59a2353` *kl base policy* / `fea
 ### Other / standalone
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=8dlwwl6lc6a)
 - [25pct_5epRMs_KL0.005_ensemble_10rms_mean_1060956](https://wandb.ai/distill-llms/policy-evaluation/runs/i6negqgg) {0.6B-Base-SFT} — 5-epoch RMs on a 25% subset
-- [10x10uwo_disjoint_subprecompmean_0.005KL_1053933](https://wandb.ai/distill-llms/policy-evaluation/runs/w769d1ww) {0.6B-Base-SFT} — UWO with precomputed-mean optimization
-- [10x10mean_disjoint__reorder_parallel_0.005K_1047283](https://wandb.ai/distill-llms/policy-evaluation/runs/vkolkfga) {0.6B-Base-SFT} — eval reruns of one training run after eval-tokenization fixes (useful for measuring eval-side variance)
-- [10x10mean_disjoint_datautils_refactor+precompute_0.005K_1053919](https://wandb.ai/distill-llms/policy-evaluation/runs/bxxocfcq) {0.6B-Base-SFT}
-- [3_out_100_uwo1_rand-disj_3x_0.005KL_1053531](https://wandb.ai/distill-llms/policy-evaluation/runs/grpzra8l) {0.6B-Base-SFT} — random-disjoint sampling 3 RMs from a 100-pool, UWO λ=1, sequential3x
-- [25x4mean_disjoint_0.005KL_1043248](https://wandb.ai/distill-llms/policy-evaluation/runs/oyveeskn) {0.6B-Base-SFT} (25 disjoint groups of 4) | [..._Qwen3-0.6B-Base_1043249](https://wandb.ai/distill-llms/policy-evaluation/runs/ccbmsxld) {0.6B-Base} (sibling on raw Base, not SFT)
-- [other_40_mean_0.05KL_1038817](https://wandb.ai/distill-llms/policy-evaluation/runs/rbvos9s8) {0.6B-Base-SFT} — 40-RM mean at β=0.05 (10× usual KL) | [10x10mean_disjoint_0.005KL_1038818](https://wandb.ai/distill-llms/policy-evaluation/runs/o5325lt2) {0.6B-Base-SFT}
+- [25x4mean_disjoint_Qwen3-0.6B-Base_1043249](https://wandb.ai/distill-llms/policy-evaluation/runs/ccbmsxld) {0.6B-Base} — 25×4 mean disjoint on raw Qwen3-0.6B-Base (sibling of the SFT-base 1043248, but starting policy differs)
+- [other_40_mean_0.05KL_1038817](https://wandb.ai/distill-llms/policy-evaluation/runs/rbvos9s8) {0.6B-Base-SFT} — 40-RM mean at β=0.05 (10× usual KL)
 - [new_10_seq-ens_3x_0.01KL_1021610](https://wandb.ai/distill-llms/policy-evaluation/runs/o8sfudyb) {0.6B-Base-SFT} | [new_10_seq_ens_3x_noKL_1020207](https://wandb.ai/distill-llms/policy-evaluation/runs/38vulkjb) {0.6B-Base-SFT} | [25_min_ensemble_0KL_1020191](https://wandb.ai/distill-llms/policy-evaluation/runs/zdj21jo0) {0.6B-Base-SFT}
 - [100_sequential_noKL_1019598](https://wandb.ai/distill-llms/policy-evaluation/runs/vzn2yyx1) {0.6B-Base-SFT} | [100rm_sequential_1019534](https://wandb.ai/distill-llms/policy-evaluation/runs/hb0fn0ms) {0.6B-Base-SFT} | [free_memory_sequential_10_x50_1019400](https://wandb.ai/distill-llms/policy-evaluation/runs/iv84ysdn) {0.6B-Base-SFT} | [sequential_10_3x_1018956_0.01KL](https://wandb.ai/distill-llms/policy-evaluation/runs/gma9k2le) {0.6B-Base-SFT}
 - [grpo_new_sft_min_ens_0.02kl_1017002](https://wandb.ai/distill-llms/policy-evaluation/runs/sphfjynm) {0.6B-Base-SFT} — first run on the new SFT base + min-ensemble
@@ -269,9 +294,35 @@ Eval-side `kl_base_model_path` change (commit `e59a2353` *kl base policy* / `fea
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=r88423bbfwt)
 - [1.7Bsft_KL0_1rms_sequential3x_1070738](https://wandb.ai/distill-llms/policy-evaluation/runs/1obc7wzc) {1.7B-Base-SFT} — 1.7B SFT
 - [4B-Base_KL0_1rms_sequential3x_1069463](https://wandb.ai/distill-llms/policy-evaluation/runs/1soo7lfo) — 4B Base — ⚠️ training run not in W&B cache; base couldn't be auto-verified
-- [Qwen3-8B_KL0_1rms_sequential3x_1069470](https://wandb.ai/distill-llms/policy-evaluation/runs/9okigr2v) {0.6B-Base-SFT} — 8B (full-FT) — ⚠️ **the underlying GRPO run is actually a 0.6B model** (`hidden_size=1024`, 28 layers, 596M params); the "8B" in the name is incorrect
+- [Qwen3-8B_KL0_1rms_sequential3x_1069470](https://wandb.ai/distill-llms/policy-evaluation/runs/9okigr2v) {0.6B-Base-SFT} — 8B Reward model
 
+### Q: RM-size sweep on 0.6B sft_5ep_1060185 (single RM, sequential3x, β=0)?
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=blmq5wod2bt)
+Same 0.6B-Base SFT policy (`sft_5ep_1060185`, `1060185/checkpoint-740`), same helpsteer3v2 GRPO dataset, same gold (Skywork-Reward-V2-Llama-3.1-8B)
+- [4B-3128-nokl_KL0_1rms_sequential3x_1066782](https://wandb.ai/distill-llms/policy-evaluation/runs/ba0kul6w) {0.6B-Base-SFT} — Qwen3-4B-Instruct-2507 RM (`1_BT_RM_…_1065302`, ckpt-3128)
+- [qwen3.5-4b_KL0_1rms_sequential3x_1069471](https://wandb.ai/distill-llms/policy-evaluation/runs/s1fiv1uc) {0.6B-Base-SFT} — Qwen3.5-4B RM (`19_…_Qwen3.5-4B_len2048_fulltrain`)
+- [Qwen3-8B_KL0_1rms_sequential3x_1069470](https://wandb.ai/distill-llms/policy-evaluation/runs/9okigr2v) {0.6B-Base-SFT} — Qwen3-8B RM (`19_BT_RM_…_1066933`)
+- [0.6Bsft_3.5-9BRM_KL0_1rms_sequential3x_1072946](https://wandb.ai/distill-llms/policy-evaluation/runs/gguolgti) {0.6B-Base-SFT} — Qwen3.5-9B RM (`19_BT_RM_…_1069742`)
+- [4B-nokl_KL0_7rms_sequential3x_1066780](https://wandb.ai/distill-llms/policy-evaluation/runs/sor7ytzf) {0.6B-Base-SFT} RM: 1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
+- [500-nokl_KL0_1rms_sequential3x_1066781](https://wandb.ai/distill-llms/policy-evaluation/runs/2fezn8o6) {0.6B-Base-SFT} RMs: 1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
+- [1x_KL0.005_100rms_sequential1x_1062161](https://wandb.ai/distill-llms/policy-evaluation/runs/vc2f073s) {0.6B-Base-SFT} <- 100 RMs 0.6B 600-series
 
+**Results**
+- Bigger RMs are better, except for Qwen3-8B. 
+- Bigger RMs don't really reward hack and the performance is much better than 100 smaller reward models
+
+### Other sft_5ep_1060185 runs
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=jn814xaq8dl) [Comparison](https://wandb.ai/distill-llms/huggingface?nw=xws2z9ztare)
+- [4B-sequential-same-run_KL0.01_7rms_sequential3x_1066643](https://wandb.ai/distill-llms/policy-evaluation/runs/89v3h28w) {0.6B-Base-SFT} RM:[1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
+- [4B-3128_KL0.01_1rms_sequential3x_1066642](https://wandb.ai/distill-llms/policy-evaluation/runs/67wp3l1r) {0.6B-Base-SFT} RM: [1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (8.0eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
+- [4B-500_KL0.01_1rms_sequential3x_1066641](https://wandb.ai/distill-llms/policy-evaluation/runs/svl94js5) {0.6B-Base-SFT}  RMs: [1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
+
+### Q: GRPO runs that used the 19-seed Qwen3-4B / helpsteer3-10k RM (1066927)?
+[Comparison](https://wandb.ai/distill-llms/huggingface?nw=y8dahfsl3dw) [Comparison](https://wandb.ai/distill-llms/grpo?nw=x1z2nx579j2) [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=pv2xxcfee31)
+RM bank = `19_BT_RM_Qwen/Qwen3-4B_1066927_helpsteer3_gold_10k` (Qwen3-4B base, 19 seeds, helpsteer3-10k, 8 epochs; HF run [`figxkiok`](https://wandb.ai/distill-llms/huggingface/runs/figxkiok)), used as the single training RM. Policy base varies. **All four runs crashed or failed** — included for record-keeping.
+- [4B-4bBaseRMep8_KL0_1rms_sequential3x_1076250](https://wandb.ai/distill-llms/grpo/runs/0t0e0nbx) {3-4B-Base-SFT} — 4B-Base SFT (`sft_4B-Base_1070739`) policy ⚠️ crashed in GRPO, no eval
+- [8B-LoRA-higherLR_KL0_1rms_sequential3x_1074580](https://wandb.ai/distill-llms/policy-evaluation/runs/5irdcj8d) {8B-Base} — Qwen3-8B-Base policy with LoRA
+- [8B-LoRA-policy-4BInstructRM_KL0_1rms_sequential3x_1074475](https://wandb.ai/distill-llms/policy-evaluation/runs/v9qa5abk) {8B-Base} — Qwen3-8B-Base policy with LoRA (run name says "4BInstructRM" but the recorded training RM is the Qwen3-4B `1066927` bank, not 4B-Instruct) ⚠️ eval failed
 
 ### Q: Cross-size pairing — small policy + big RM, or big policy + small RM?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=lxzxactixml)
@@ -282,6 +333,7 @@ Each row uses a different policy *base* — keep that in mind alongside the poli
 - [Qwen3-8B_KL0_1rms_sequential3x_1069470](https://wandb.ai/distill-llms/policy-evaluation/runs/9okigr2v) {0.6B-Base-SFT} -- 0.6B policy with 8B RM
 - [8B-LoRA-higherLR_KL0_1rms_sequential3x_1074580](https://wandb.ai/distill-llms/policy-evaluation/runs/5irdcj8d) {8B-Base} — LoRA, higher lr; 8B LoRA policy with 4B RM
 - [qwen3.5-4b_KL0_1rms_sequential3x_1069471](https://wandb.ai/distill-llms/policy-evaluation/runs/s1fiv1uc) {0.6B-Base-SFT} —  0.6B policy + Qwen3.5-4B RM
+- [4B-Base_KL0_1rms_sequential3x_1069463](https://wandb.ai/distill-llms/policy-evaluation/runs/1soo7lfo) — 
 
 ### Q: 4B-Base SFT — Instruct vs Non-Instruct as the policy?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=rxvlgjdfnyx)
@@ -527,3 +579,11 @@ These don't roll out new policies — they take previously-trained PAR/RRM/qwen-
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=625cxprvarb)
 - [qwen_base_ray_vs_chosen_r1](https://wandb.ai/distill-llms/policy-evaluation/runs/le0m1gea) — policy trained with Ray-Gemma-2B RM
 - [qwen_base_qwen_helpsteer_vs_chosen_r1](https://wandb.ai/distill-llms/policy-evaluation/runs/bd4qyj4a) — policy trained with Qwen-0.6B helpsteer RM
+
+### SFT across model sizes
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=soi2m4bsj8g)
+- [sft-qwen3.5-4B](https://wandb.ai/distill-llms/policy-evaluation/runs/vnyf7yl0) {3.5-4B-SFT}
+- [sft_default_1089122](https://wandb.ai/distill-llms/policy-evaluation/runs/l4cc8kam) {3.5-4B-SFT}
+- [sft_4B-Base_1070739](https://wandb.ai/distill-llms/policy-evaluation/runs/rj0a2f7p) {3-4B-Base-SFT}
+- [sft_1.7B_1070705](https://wandb.ai/distill-llms/policy-evaluation/runs/upl84n76) {1.7B-Base-SFT}
+- [sft_5ep_1060185](https://wandb.ai/distill-llms/policy-evaluation/runs/81fp3ez6) {0.6B-Base-SFT}
