@@ -36,7 +36,7 @@ Also LR sweep on 0.6B-Base SFT:
 **Results:**
 1e-5 works best, smaller doesn't reach same peak, larger diverges.
 
-### Q: Does β > 0 prevent over-optimization with a single-RM 4B-Base policy?
+### Q: Does β > 0 prevent over-optimization with a single-RM 4B-Base?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=jv59wevq0a2)
 Same 4B-3128 RM, sequential3x, lr 1e-5; only β changes.
 - [4B-3128-nokl_KL0_1rms_sequential3x_1066782](https://wandb.ai/distill-llms/policy-evaluation/runs/ba0kul6w) {0.6B-Base-SFT} — β=0
@@ -149,7 +149,9 @@ Disjoint is significantly better: higher peak, less reward hacking even at highe
 ### Q: First-pass mix-strategy granularity (group count × group size)?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=h075lvaicnq)
 β=0 for the 20×5 sibling vs β=0.005 for the others.
-- [mix_2x50_0.005KL_1035193](https://wandb.ai/distill-llms/policy-evaluation/runs/fmbp1t3d) {0.6B-Base-SFT} — 2×50 — 400-series RMs @ ckpt-545
+- [100_sequential_3x_0.005KL_1036533](https://wandb.ai/distill-llms/policy-evaluation/runs/jjp2nkwe) {0.6B-Base-SFT} — 3× sequential, equivalent of mix 1x100 RMs @ checkpoint-545
+- [seqential_100_noKL_1034755](https://wandb.ai/distill-llms/policy-evaluation/runs/x0mzdkip) {0.6B-Base-SFT} — β=0
+- [mix_2x50_0.005KL_1035193](https://wandb.ai/distill-llms/policy-evaluation/runs/fmbp1t3d) {0.6B-Base-SFT} — 2×50 — 400-series RMs @ ckpt-545; ensemble_aggregation="min"
 - [mix_10x10min_disjoint_0.005KL_1036530](https://wandb.ai/distill-llms/policy-evaluation/runs/inyswtrh) {0.6B-Base-SFT} — 10×10 — 400-series RMs @ ckpt-545
 - [mix_20x5min_noKL_1034756](https://wandb.ai/distill-llms/policy-evaluation/runs/5y3ihw7s) {0.6B-Base-SFT} — 20×5, β=0 — 400-series RMs @ ckpt-545
 - [mix_mean_10x10_sliding_noKL_1022182](https://wandb.ai/distill-llms/policy-evaluation/runs/7oh7m4aa) {0.6B-Base-SFT} — 10×10 mean (compare aggregation too) — ⚠️ different RM bank: **100-series @ ckpt-218** (also β=0)
@@ -181,7 +183,6 @@ sequential is much better
 
 ### Q: How much do RMs matter? Are 10 best by eval accuracy out of 100 better? Does training for longer help?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=xw6deu30a07)
-
 - [5ep-rm_10_sequential_3x_0.01KL_1030113](https://wandb.ai/distill-llms/policy-evaluation/runs/8vu591sl) {0.6B-Base-SFT} — sequential3x 5ep
 - [5ep10_min_0.01KL_1030114](https://wandb.ai/distill-llms/policy-evaluation/runs/h6jrd6qs) {0.6B-Base-SFT} — min ensemble 5ep
 - [sequential_10best_3x_0.01KL_1022174](https://wandb.ai/distill-llms/policy-evaluation/runs/45ch0pv2) {0.6B-Base-SFT} — top-10 best, sequential3x — picks from 100-series bank @ ckpt-218 (1ep)
@@ -212,7 +213,7 @@ Min is the only one avoiding reward hacking. Best and mean have higher peak at t
 - [10_2ep-rm_mean_ensemble](https://wandb.ai/distill-llms/policy-evaluation/runs/pxh5rt65) {0.6B-Base} — mean ens at higher LR (prev best)
 - [best-of-10-2ep_rm](https://wandb.ai/distill-llms/policy-evaluation/runs/djvfgf0b) {0.6B-Base} - best rm at lower lr
 
-### Q: KL coefficient sweep with single-RM, ~17-RM sequential, around the GRPO bring-up phase?
+### Q: KL coefficient sweep with single-RM (seed 17)
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=evou9246rny)
 - [0.08kl_1017910](https://wandb.ai/distill-llms/policy-evaluation/runs/wrkc85nm) {0.6B-Base-SFT} — KL=0.08
 - [low-lr_low-temp_0.02-kl_17_1017909](https://wandb.ai/distill-llms/policy-evaluation/runs/obi9q1j6) {0.6B-Base-SFT} — KL=0.02 (also lower lr+temp, confounded)

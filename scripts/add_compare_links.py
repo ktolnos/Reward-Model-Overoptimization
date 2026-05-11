@@ -34,6 +34,11 @@ import wandb_workspaces.workspaces as ws
 
 EXPERIMENTS_MD = Path(__file__).resolve().parent.parent / "EXPERIMENTS.md"
 
+# Default x-axis. Eval runs log a numeric `checkpoint` summary metric so
+# multi-checkpoint sweeps line up across runs; falling back to `Step` plots
+# every run starting from 0 and hides the alignment.
+X_AXIS = "checkpoint"
+
 # Headline metrics for the pinned "Main" section.
 MAIN_METRICS = [
     "gold_rm/win_rate_vs_chosen",
@@ -71,9 +76,10 @@ EXISTING_LINK_RE = re.compile(
 def make_main_section() -> ws.Section:
     return ws.Section(
         name="Main",
-        panels=[wr.LinePlot(title=m, y=[m]) for m in MAIN_METRICS],
+        panels=[wr.LinePlot(title=m, x=X_AXIS, y=[m]) for m in MAIN_METRICS],
         is_open=True,
         pinned=True,
+        panel_settings=ws.SectionPanelSettings(x_axis=X_AXIS),
     )
 
 
@@ -117,6 +123,7 @@ def upsert_workspace(entity_project: str, heading: str, run_ids: list[str],
             auto_generate_panels=True,
             sections=[make_main_section()],
             runset_settings=ws.RunsetSettings(filters=filt),
+            settings=ws.WorkspaceSettings(x_axis=X_AXIS),
         )
     else:
         # Refresh the filter and re-pin Main at the top. `from_url()` builds
@@ -129,6 +136,7 @@ def upsert_workspace(entity_project: str, heading: str, run_ids: list[str],
         workspace.name = name
         workspace.runset_settings = ws.RunsetSettings(filters=filt)
         workspace._auto_generate_panels = True
+        workspace.settings.x_axis = X_AXIS
         sections = [s for s in workspace.sections if s.name != "Main"]
         workspace.sections = [make_main_section()] + sections
 

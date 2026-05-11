@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Download all run metadata from the relevant W&B projects to a local JSON cache.
+"""Download run metadata from the relevant W&B projects to a local JSON cache.
 
 THIS MUST BE RUN MANUALLY before annotate_runs.py — it talks to W&B and is slow.
+
+Default behavior is incremental: any project whose cache file already exists
+is fetched only for IDs not present in the cache (plus any cached entries
+that were saved as `error` placeholders on a prior crash). Use --force to
+re-download every run in the listed projects.
 
 Projects fetched:
   - distill-llms/policy-evaluation  (eval runs)
@@ -70,28 +75,55 @@ def serialize_run(rid, name, created, run):
 
 
 def fetch_project(api, project, save_path, force):
+    existing: list[dict] = []
+    cached_ids: set[str] = set()
     if save_path.exists() and not force:
-        print(f"[skip] {project}: {save_path.name} already exists "
-              f"(use --force to overwrite)", file=sys.stderr)
-        return
-    print(f"[fetch] {project}", file=sys.stderr)
+        try:
+            existing = json.loads(save_path.read_text())
+            # Treat error placeholders as un-cached so they get retried.
+            cached_ids = {r["id"] for r in existing
+                          if isinstance(r, dict) and "id" in r and "error" not in r}
+        except Exception as e:
+            print(f"  warn: couldn't parse {save_path.name}: {e}; "
+                  f"rebuilding from scratch", file=sys.stderr)
+            existing = []
+            cached_ids = set()
+
+    mode = "incremental" if cached_ids else "full"
+    print(f"[fetch] {project} ({mode})", file=sys.stderr)
     runs_iter = api.runs(project, order="-created_at")
     ids = [(r.id, r.name, r.created_at) for r in runs_iter]
-    print(f"  {len(ids)} runs", file=sys.stderr)
-    rows = []
-    for i, (rid, name, created) in enumerate(ids):
+    new_ids = [t for t in ids if t[0] not in cached_ids]
+    print(f"  {len(ids)} remote, {len(cached_ids)} cached, "
+          f"{len(new_ids)} to fetch", file=sys.stderr)
+
+    if not new_ids:
+        return
+
+    new_rows: list[dict] = []
+
+    def save() -> None:
+        # New rows are newest-first (api.runs is ordered by -created_at) and
+        # the existing cache is also newest-first — prepending preserves order.
+        # Drop any existing entry whose id we just refetched (e.g. retried
+        # error placeholders).
+        new_row_ids = {nr.get("id") for nr in new_rows}
+        merged = new_rows + [r for r in existing if r.get("id") not in new_row_ids]
+        save_path.write_text(json.dumps(merged, default=str))
+
+    for i, (rid, name, created) in enumerate(new_ids):
         try:
             run = api.run(f"{project}/{rid}")
-            rows.append(serialize_run(rid, name, created, run))
+            new_rows.append(serialize_run(rid, name, created, run))
         except Exception as e:
             print(f"  ! {rid}: {e}", file=sys.stderr)
-            rows.append({"id": rid, "name": name, "created_at": created,
-                         "error": str(e)})
+            new_rows.append({"id": rid, "name": name, "created_at": created,
+                             "error": str(e)})
         if (i + 1) % 25 == 0:
-            print(f"  {i + 1}/{len(ids)}", file=sys.stderr)
-            save_path.write_text(json.dumps(rows, default=str))
-    save_path.write_text(json.dumps(rows, default=str))
-    print(f"  -> {save_path}", file=sys.stderr)
+            print(f"  {i + 1}/{len(new_ids)}", file=sys.stderr)
+            save()
+    save()
+    print(f"  -> {save_path} (+{len(new_rows)} fetched)", file=sys.stderr)
 
 
 def main() -> int:
@@ -99,7 +131,7 @@ def main() -> int:
     parser.add_argument("--projects", nargs="*", default=PROJECTS,
                         help="Subset of projects to fetch.")
     parser.add_argument("--force", action="store_true",
-                        help="Re-download projects whose cache already exists.")
+                        help="Re-download every run, not just new ones.")
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(exist_ok=True)
