@@ -1,6 +1,15 @@
 No KL - higher peak, KL - less reward hacking
 ensembles are robust across settings, special mitigations tend to break at different models, learning rates, KL, etc.
 
+### Baselines
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=61td52b4fsj)
+- [PAR_vs_chosen_deepseek_v3_judge](https://wandb.ai/distill-llms/policy-evaluation/runs/gdxmbwvs)
+- [RRMvsChosen_Deepseek_v3_judge](https://wandb.ai/distill-llms/policy-evaluation/runs/kpqxh5sc)
+- [qwen06B_with_qwen8B-embedding_RM](https://wandb.ai/distill-llms/policy-evaluation/runs/4ryuk8oo) {0.6B}
+- [AdvRM-step3-qwen06B_with_qwen8B-embedding_RM](https://wandb.ai/distill-llms/policy-evaluation/runs/tbiz9ief) {0.6B}
+**Results**
+All tested methods still reward hack.
+
 ### Q: If we have 100 RMs, what is the best way to use them: mean vs min vs UWO vs sequential-cycling?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=lrenmhanrue)
 Same RM bank, same `mix_ensemble_size=10`, KL=0; only `ensemble_aggregation` differs (commit `0b800c62`).
@@ -100,6 +109,9 @@ When scaling up both we can achieve much better results and it doesn't cost craz
 - [sft_5ep_1060185](https://wandb.ai/distill-llms/policy-evaluation/runs/81fp3ez6) {0.6B-Base-SFT}
 - [0.6Bsft_3.5-9BRM_KL0_1rms_sequential3x_1072946](https://wandb.ai/distill-llms/policy-evaluation/runs/gguolgti) {0.6B-Base-SFT} — best 0.6B GRPO run for comparison
 
+**Results**
+SFT model quality grows with size and recency, but even 0.6B model can outperform 4B SFT with RL.
+
 ### Win rate vs chosen can go up to 70-80% even when you only use the base model for both reward model and the policy.
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=awv127w497v)
 - [qwen3.5-4B-official-human](https://wandb.ai/distill-llms/policy-evaluation/runs/urbm8ngr)
@@ -112,6 +124,9 @@ When scaling up both we can achieve much better results and it doesn't cost craz
 - [dpo_sigmoid_KL0.01_0.01KL_1089542](https://wandb.ai/distill-llms/policy-evaluation/runs/ez0fbzp8) {3.5-4B-SFT} — sigmoid, β=0.01
 - [grpo_5e-6lr_KL0_1rms_sequential3x_1087938](https://wandb.ai/distill-llms/policy-evaluation/runs/dsknetrl) {3.5-4B-SFT} — 5e-6
 
+**Results**
+GRPO can achieve much higher performance.
+
 ### Sequential ensembles for 3.5-4B
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=utftn0w9oca)
 - [same_seed_KL0_8rms_sequential3x_1129482](https://wandb.ai/distill-llms/policy-evaluation/runs/llxyplds) {3.5-4B-SFT} — 8 checkpoints of the same training run, 1 per epoch
@@ -121,3 +136,18 @@ When scaling up both we can achieve much better results and it doesn't cost craz
 **Results:**
 Ensembles didn't prevent reward hacking completely, the peak sc_score and other metrics are not significantly better than baseline. But the decline is much smaller and the final score on some metrics is close to the peak score, while on others it is still much better than baseline.
 
+
+### Effect of learning rate
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=j7duxyvm2jn)
+- [4B-3128-nokl_KL0_1rms_sequential3x_1066782](https://wandb.ai/distill-llms/policy-evaluation/runs/ba0kul6w) {0.6B-Base-SFT}
+- [double_lr_2e-5_KL0_1rms_sequential3x_1069741](https://wandb.ai/distill-llms/policy-evaluation/runs/01vf60lx) {0.6B-Base-SFT}
+- [4B-Base_KL0_1rms_sequential3x_1089357](https://wandb.ai/distill-llms/policy-evaluation/runs/hlct4b7l) {3.5-4B-SFT}
+- [1e-5lr_KL0_1rms_sequential3x_1099071](https://wandb.ai/distill-llms/policy-evaluation/runs/872sf4xt) {3.5-4B-SFT}
+
+### RM training time
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=p1e86bogb5h)
+- [4B-500_KL0.01_1rms_sequential3x_1066641](https://wandb.ai/distill-llms/policy-evaluation/runs/svl94js5) {0.6B-Base-SFT}
+- [4B-3128_KL0.01_1rms_sequential3x_1066642](https://wandb.ai/distill-llms/policy-evaluation/runs/67wp3l1r) {0.6B-Base-SFT}
+- [06b-hs3gold-2_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/jt7pn8us) {0.6B-Base}
+- [06b-hs3gold-5_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/2vr6tb6c) {0.6B-Base}
+- [06b-hs3gold-10_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/pes8ntrx) {0.6B-Base}
