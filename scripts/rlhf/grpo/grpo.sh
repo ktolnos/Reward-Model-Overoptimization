@@ -57,7 +57,7 @@ gpu=0 #,1,2,3
 #reward_base_model="LxzGordon/URM-LLaMa-3.1-8B"
 #reward_base_model="Ray2333/GRM-gemma2-2B-rewardmodel-ft"
 use_lora=false
-base_learning_rate="5e-6"
+base_learning_rate="8e-6"
 lora_lr_multiplier=5  # LoRA typically needs higher LR
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
@@ -351,7 +351,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bt_gradient_accumulation_steps 16 \
     --adversarial_batch_size 2 \
     --preference_batch_size 2 \
-    --rm_switches_multiplier 3 \
+    --rm_switches_multiplier 3 \    
     --rm_switch_strategy "${rm_switch_strategy}" \
     --mix_ensemble_size ${mix_ensemble_size} \
     --mix_strategy "${mix_strategy}" \
