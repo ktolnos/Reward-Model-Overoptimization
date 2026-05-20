@@ -5,7 +5,7 @@ Logic:
 - Fetch all runs from ``distill-llms/policy-evaluation``.
 - Read existing EXPERIMENTS.md (if any) and collect the run IDs that already
   appear anywhere in its text.
-- If the file already has runs, find the oldest one that is still present and
+- If the file already has runs, find the newest one that is still present and
   only consider W&B runs created strictly after that timestamp. This means
   manually-deleted runs do not get re-added.
 - Skip any run whose ID is already somewhere in the file.
@@ -59,14 +59,13 @@ def select_new_runs(runs: Iterable, existing_ids: set[str], cutoff: str | None):
     return selected
 
 
-def oldest_present_created_at(runs_in_order, existing_ids: set[str]) -> str | None:
-    """Walk runs newest->oldest; the last one we see that's still in the file
-    is the oldest still-present run. Returns its created_at or None."""
-    last_seen = None
+def newest_present_created_at(runs_in_order, existing_ids: set[str]) -> str | None:
+    """Walk runs newest->oldest; the first one we see that's still in the file
+    is the newest still-present run. Returns its created_at or None."""
     for run in runs_in_order:
         if run.id in existing_ids:
-            last_seen = run.created_at
-    return last_seen
+            return run.created_at
+    return None
 
 
 def main() -> int:
@@ -97,7 +96,7 @@ def main() -> int:
 
     cutoff: str | None = None
     if existing_ids and not args.no_cutoff:
-        cutoff = oldest_present_created_at(runs, existing_ids)
+        cutoff = newest_present_created_at(runs, existing_ids)
         if cutoff:
             print(f"Cutoff: only adding runs newer than {cutoff}.")
         else:

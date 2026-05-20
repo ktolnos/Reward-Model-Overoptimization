@@ -1,4 +1,18 @@
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+New runs will appear above the line
+Update by 
+python scripts/update_experiments_md.py
+python scripts/add_compare_links.py 
+
+
 ## GRPO with reward-model aggregation strategies
+
+### Effect of LR on Qwen3.5-Base GRPO
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=qyp0ksj9imq)
+- [8e-6lr_KL0_1rms_sequential3x_1138471](https://wandb.ai/distill-llms/policy-evaluation/runs/ksecz4vx)
+- [full_ds_5e-6lr_KL0_1rms_sequential3x_1136572](https://wandb.ai/distill-llms/policy-evaluation/runs/s21qpjll)
+- [full_ds_max1024_KL0_1rms_sequential3x_1132879](https://wandb.ai/distill-llms/policy-evaluation/runs/azmleb76)
 
 ### Q: Does sequentual ensemble training help for Qwen3.5-4B? Does it matter if we use checkpoints from the same run vs different seeds?
 [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=utftn0w9oca)
@@ -18,11 +32,17 @@ Ensembles didn't prevent reward hacking completely, the peak sc_score and other 
 GR3 (commit `9a2dafe4`) divides reward by `(1 + α·len/mean_len)` (sign-aware); DAPO (commit `a0c5c9c3`) subtracts a soft penalty.
 - [gr3_KL0_1rms_sequential3x_1099136](https://wandb.ai/distill-llms/policy-evaluation/runs/ttm7baxh) {3.5-4B-SFT} — GR3 α=0.5
 - [dapo0.5-max1.5_KL0_1rms_sequential3x_1099677](https://wandb.ai/distill-llms/policy-evaluation/runs/v36lynn9) {3.5-4B-SFT} — soft DAPO penalty
+- [full_ds_max2048_KL0_1rms_sequential3x_1132841](https://wandb.ai/distill-llms/policy-evaluation/runs/5no1avym)
+- [full_ds_max1024_KL0_1rms_sequential3x_1132879](https://wandb.ai/distill-llms/policy-evaluation/runs/azmleb76)
+- [group_4_max2048_max_penalty_2_KL0_1rms_sequential3x_1132733](https://wandb.ai/distill-llms/policy-evaluation/runs/oudkd74k)
+- [0.6DAPO_max4_mask_KL0_1rms_sequential3x_1131216](https://wandb.ai/distill-llms/policy-evaluation/runs/8qe50glw)
+- [dapoMax2NoScaleNoSigmoid_KL0_1rms_sequential3x_1130734](https://wandb.ai/distill-llms/policy-evaluation/runs/3xgsxi64)
 
 **Results:**
 - Fancy length penalties do not help.
 - What we really need is to keep the mean length close to sft policy mean length while avoiding overlarge penalties that can destablize training. 
-- DAPO (linear) works fine for that. 
+- DAPO (linear) works fine for that.
+- lower LR helps with stability, longer responses also help although maybe they effectively half the LR through sequence length normalization of advantages 
 
 
 ### GRPO learning-rate sweep on 4B-Base SFT (single-RM, sequential3x, KL=0)
@@ -312,13 +332,13 @@ Same 0.6B-Base SFT policy (`sft_5ep_1060185`, `1060185/checkpoint-740`), same he
 - Bigger RMs don't really reward hack and the performance is much better than 100 smaller reward models
 
 ### Other sft_5ep_1060185 runs
-[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=jn814xaq8dl) [Comparison](https://wandb.ai/distill-llms/huggingface?nw=xws2z9ztare)
+[Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=jn814xaq8dl) [Comparison](https://wandb.ai/distill-llms/huggingface?nw=oedthwbhg12)
 - [4B-sequential-same-run_KL0.01_7rms_sequential3x_1066643](https://wandb.ai/distill-llms/policy-evaluation/runs/89v3h28w) {0.6B-Base-SFT} RM:[1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
 - [4B-3128_KL0.01_1rms_sequential3x_1066642](https://wandb.ai/distill-llms/policy-evaluation/runs/67wp3l1r) {0.6B-Base-SFT} RM: [1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (8.0eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
 - [4B-500_KL0.01_1rms_sequential3x_1066641](https://wandb.ai/distill-llms/policy-evaluation/runs/svl94js5) {0.6B-Base-SFT}  RMs: [1_BT_RM_Qwen/Qwen3-4B-Instruct-2507_1065302_helpsteer3_gold_10k](https://wandb.ai/distill-llms/huggingface/runs/xx97zxeb) <- Qwen3-4B-Instruct-2507 (1.3eps), helpsteer3v2_annotated_Skywork-Skywork-Reward-V2-Llama-3-1-8B
 
 ### Q: GRPO runs that used the 19-seed Qwen3-4B / helpsteer3-10k RM (1066927)?
-[Comparison](https://wandb.ai/distill-llms/huggingface?nw=y8dahfsl3dw) [Comparison](https://wandb.ai/distill-llms/grpo?nw=x1z2nx579j2) [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=pv2xxcfee31)
+[Comparison](https://wandb.ai/distill-llms/huggingface?nw=y8dahfsl3dw) [Comparison](https://wandb.ai/distill-llms/grpo?nw=hly9wd8mtxb) [Comparison](https://wandb.ai/distill-llms/policy-evaluation?nw=iv02t7aph4i)
 RM bank = `19_BT_RM_Qwen/Qwen3-4B_1066927_helpsteer3_gold_10k` (Qwen3-4B base, 19 seeds, helpsteer3-10k, 8 epochs; HF run [`figxkiok`](https://wandb.ai/distill-llms/huggingface/runs/figxkiok)), used as the single training RM. Policy base varies. **All four runs crashed or failed** — included for record-keeping.
 - [4B-4bBaseRMep8_KL0_1rms_sequential3x_1076250](https://wandb.ai/distill-llms/grpo/runs/0t0e0nbx) {3-4B-Base-SFT} — 4B-Base SFT (`sft_4B-Base_1070739`) policy ⚠️ crashed in GRPO, no eval
 - [8B-LoRA-higherLR_KL0_1rms_sequential3x_1074580](https://wandb.ai/distill-llms/policy-evaluation/runs/5irdcj8d) {8B-Base} — Qwen3-8B-Base policy with LoRA
