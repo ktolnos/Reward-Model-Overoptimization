@@ -62,7 +62,8 @@
       "Bash(git clone:*)",
       "Bash(chmod +x /home/eop/Reward-Model-Overoptimization/scripts/recover_on_cluster.sh)",
       "Read(//home/eop/**)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(venv/bin/python -c \"from trl import GRPOConfig; import dataclasses; [print\\(f.name, f.default\\) for f in dataclasses.fields\\(GRPOConfig\\) if 'gener' in f.name.lower\\(\\) or 'iter' in f.name.lower\\(\\) or 'batch' in f.name.lower\\(\\) or 'step' in f.name.lower\\(\\)]\")"
     ]
   },
   "prefersReducedMotion": false

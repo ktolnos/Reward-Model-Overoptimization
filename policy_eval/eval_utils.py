@@ -20,6 +20,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+import wandb
 
 from data_utils import get_generation_stop_token_ids
 
@@ -55,6 +56,74 @@ def list_checkpoints(args) -> Tuple[List[str], Optional[str], str]:
     if args.debug:
         names = names[:1]
     return names, single_path, first_path
+
+
+def fetch_training_history(
+    checkpoints_dir: str, project: Optional[str]
+) -> Optional[pd.DataFrame]:
+    """Fetch the GRPO training run's history for re-logging into the eval run.
+
+    The training run is identified by ``group == checkpoints_dir`` — grpo.sh
+    sets ``WANDB_RUN_GROUP=${log_dir}`` and the eval is invoked with that same
+    dir, so the group lookup is unambiguous for runs launched by the pipeline.
+
+    Returns a DataFrame sorted by ``_step`` with scalar metric columns, or
+    ``None`` if the run can't be found / wandb API fails / history is empty.
+    """
+    if not project or project.lower() == "none":
+        return None
+    try:
+        api = wandb.Api()
+        runs = list(api.runs(path=project, filters={"group": checkpoints_dir}))
+    except Exception as e:
+        print(f"[eval] could not query training runs in '{project}': {e}")
+        return None
+
+    if not runs:
+        print(f"[eval] no training runs with group={checkpoints_dir} in '{project}'")
+        return None
+    if len(runs) > 1:
+        # Pick the most recent. Stale duplicates (e.g. an aborted restart) sort below.
+        runs.sort(key=lambda r: r.created_at, reverse=True)
+        print(f"[eval] {len(runs)} training runs found; using most recent: {runs[0].name}")
+
+    try:
+        df = runs[0].history(samples=10000, pandas=True)
+    except Exception as e:
+        print(f"[eval] failed to fetch training history: {e}")
+        return None
+
+    if df.empty or "_step" not in df.columns:
+        print(f"[eval] training history empty or missing _step")
+        return None
+
+    df = df.dropna(subset=["_step"]).copy()
+    df["_step"] = df["_step"].astype(int)
+    df = df.sort_values("_step").reset_index(drop=True)
+    print(f"[eval] mirroring {len(df.columns) - 1} training metrics from "
+          f"'{runs[0].name}' ({len(df)} rows)")
+    return df
+
+
+def lookup_train_metrics(
+    history_df: Optional[pd.DataFrame], target_step: int
+) -> Dict[str, float]:
+    """Return scalar train metrics at the ``_step`` nearest to ``target_step``.
+
+    Non-scalar columns (tables, histograms, NaNs) and wandb-internal ``_*``
+    fields are dropped so they don't pollute the eval run.
+    """
+    if history_df is None or history_df.empty:
+        return {}
+    idx = (history_df["_step"] - target_step).abs().idxmin()
+    row = history_df.loc[idx]
+    metrics: Dict[str, float] = {}
+    for k, v in row.items():
+        if k.startswith("_"):
+            continue
+        if isinstance(v, (int, float)) and pd.notna(v):
+            metrics[k] = float(v)
+    return metrics
 
 
 def rms_required_by(benchmarks: List[Benchmark]) -> set:

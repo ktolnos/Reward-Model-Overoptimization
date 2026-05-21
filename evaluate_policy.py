@@ -40,7 +40,9 @@ from policy_eval import wandb_utils
 from policy_eval.benchmarks import build_benchmarks
 from policy_eval.eval_utils import (
     chosen_responses_as_generation,
+    fetch_training_history,
     list_checkpoints,
+    lookup_train_metrics,
     make_baseline_responses,
     rms_required_by,
     run_chosen_only,
@@ -223,6 +225,15 @@ class ScriptArguments:
         },
     )
     disable_wandb: Optional[bool] = field(default=False)
+    training_wandb_project: Optional[str] = field(
+        default="grpo",
+        metadata={
+            "help": "Project containing the GRPO training run, used to mirror its "
+            "metrics into this eval run under train/ on the checkpoint axis. "
+            "The training run is found by group=checkpoints_dir. "
+            "Set to 'none' to disable."
+        },
+    )
 
     # ------------------------------------------------------------------
     # Debug / sub-sampling
@@ -290,6 +301,10 @@ def main():
     # ----- Resolve checkpoints + tokenizer ----------------------------------
     checkpoints, single_model_path, first_checkpoint_path = list_checkpoints(args)
     vllm_base = resolve_vllm_base_model(first_checkpoint_path)
+
+    train_history = None
+    if not args.disable_wandb:
+        train_history = fetch_training_history(args.checkpoints_dir, args.training_wandb_project)
 
     print("Loading tokenizer...")
     policy_tokenizer = AutoTokenizer.from_pretrained(
@@ -368,6 +383,8 @@ def main():
                         combined_metrics.update(metrics)
 
                 combined_metrics["checkpoint"] = ckpt_num
+                train_metrics = lookup_train_metrics(train_history, ckpt_num)
+                combined_metrics.update({f"train/{k}": v for k, v in train_metrics.items()})
                 wandb_utils.log_metrics(
                     {k: v for k, v in combined_metrics.items() if k != "checkpoint"},
                     checkpoint_num=ckpt_num,

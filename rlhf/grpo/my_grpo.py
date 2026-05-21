@@ -134,6 +134,20 @@ class MyGRPOTrainer(GRPOTrainer):
         else:
             self._all_stop_token_ids = tuple(int(t) for t in all_ids)
 
+        # Unique prompts the policy sees per global_step — generation cycle
+        # produces generation_batch_size completions covering generation_batch_size
+        # / num_generations unique prompts, spread over steps_per_generation *
+        # num_iterations gradient steps. Lets wandb panels plot any metric vs
+        # data consumed, which stays comparable across num_generations changes.
+        a = self.args
+        self._prompts_per_step = a.generation_batch_size // (
+            a.num_generations * a.steps_per_generation * self.num_iterations
+        )
+
+    def log(self, logs, start_time=None):
+        logs["prompts_consumed"] = self.state.global_step * self._prompts_per_step
+        super().log(logs, start_time)
+
 
 @dataclass
 class MyGRPOScriptArguments:
