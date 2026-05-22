@@ -18,7 +18,7 @@
 #SBATCH --qos=default
 #SBATCH --nodes=1
 #SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
-#SBATCH --gres=gpu:A100-PCI-80GB:1
+#SBATCH --gres=gpu:1
 
 set -euo pipefail
 
