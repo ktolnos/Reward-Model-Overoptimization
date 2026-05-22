@@ -82,10 +82,14 @@ class LoadedRewardModels:
     """
 
     # Maps rm_label -> ScriptArguments attribute that holds the model path/name.
+    # ``sibling_rm`` is used by experiments/checkpoint_selection re-scoring; it is
+    # not wired up in evaluate_policy.py's CLI so the standard eval path never
+    # requests this label.
     _LABEL_TO_ARG = {
         "gold_rm": "gold_rm_name",
         "training_rm": "training_rm_path",
         "secondary_rm": "secondary_rm_name",
+        "sibling_rm": "sibling_rm_path",
     }
 
     def __init__(self, args, labels_needed: set):
