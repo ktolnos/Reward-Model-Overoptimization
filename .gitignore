@@ -8,3 +8,11 @@ convert_venv
 llama-7b-hf
 wandb_runs_dump.json
 wandb_cache
+*.out
+*.json
+*.jsonl
+*.csv
+scripts/rlhf/logs_*
+*.parquet
+wandb/
+
