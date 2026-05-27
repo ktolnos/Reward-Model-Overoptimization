@@ -122,7 +122,7 @@ class MyGRPOTrainer(GRPOTrainer):
         super().__init__(*args, **kwargs)
         all_ids = get_generation_stop_token_ids(self.processing_class)
         if len(all_ids) > 1:
-            primary = self.processing_class.eos_token_id
+            primary = getattr(self.processing_class, "eos_token_id", self.processing_class.tokenizer.eos_token_id)
             if primary not in all_ids:
                 raise ValueError(f"Primary EOS token {primary} not found in stop set {all_ids}")
             self.eos_token_id = _MultiTokenEosId(primary, all_ids)
