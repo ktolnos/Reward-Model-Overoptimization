@@ -20,7 +20,7 @@ Usage (entry point for the sbatch wrapper):
         --eval_root /nas/ucb/eop/Reward-Model-Overoptimization \\
         --output_dir experiments/checkpoint_selection \\
         --rms training_rm,sibling_rm,secondary_rm,gold_rm \\
-        --batch_size 1
+        --batch_size 8
 """
 from __future__ import annotations
 
@@ -190,8 +190,11 @@ def main() -> None:
     parser.add_argument("--rms", default=",".join(M.RM_LOAD_ORDER),
                         help=f"Comma-separated subset of {list(M.RM_PATHS)}. "
                              f"Default: load in M.RM_LOAD_ORDER.")
-    parser.add_argument("--batch_size", type=int, default=1,
-                        help="Per-RM forward batch size.")
+    parser.add_argument("--batch_size", type=int, default=8,
+                        help="Per-RM forward batch size. Must be >=2 to avoid "
+                             "transformers' flash_attention_2 + mrope (Qwen3.5) "
+                             "bug where `_is_packed_sequence` mis-fires for "
+                             "batch_size==1 and 3D position_ids.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--policy_tokenizer", default=M.POLICY_TOKENIZER_NAME,
                         help="Tokenizer used to re-format prompts to match eval-file prompt strings.")

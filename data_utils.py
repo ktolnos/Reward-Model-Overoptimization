@@ -285,10 +285,10 @@ def get_generation_stop_token_ids(tokenizer):
     been re-pointed to a chat turn-end token (e.g. <|im_end|> for Qwen).
     """
     stop_ids = set()
-    _add_token_id(stop_ids, tokenizer.eos_token_id)
-
     # Some wrappers keep the underlying tokenizer on `.tokenizer`.
     raw_tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
+    _add_token_id(stop_ids, raw_tokenizer.eos_token_id)
+
     convert = getattr(raw_tokenizer, "convert_tokens_to_ids", None)
     unk_token_id = getattr(raw_tokenizer, "unk_token_id", None)
     if convert is not None:

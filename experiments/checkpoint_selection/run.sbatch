@@ -46,7 +46,7 @@ export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 EVAL_ROOT="${EVAL_ROOT:-/nas/ucb/eop/Reward-Model-Overoptimization}"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/experiments/checkpoint_selection}"
 RMS="${RMS:-secondary_rm,sibling_rm,training_rm,gold_rm}"
-BATCH_SIZE="${BATCH_SIZE:-1}"
+BATCH_SIZE="${BATCH_SIZE:-8}"
 
 echo "REPO_ROOT=${REPO_ROOT}"
 echo "EVAL_ROOT=${EVAL_ROOT}"
