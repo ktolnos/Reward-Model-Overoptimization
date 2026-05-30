@@ -83,14 +83,24 @@ Frozen rules:
   length is needed ahead of time is **vLLM `max_model_len`**, sized per-model with
   headroom — compute it exactly under the model's tokenizer via `compute_max_prompt_length`
   ([data_utils.py:53](data_utils.py#L53)) if you want it tight, else a fixed generous ceiling (e.g. x2).
-- Frozen, versioned, mutually disjoint splits 🔲 (IDs TBD — to be created &
-  published):
+- Frozen, mutually disjoint four-way split ✅ (built; ratios `train 0.85 / select 0.05 /
+  validation 0.05 / test 0.05`, sum 1.0):
   - `train` — method training (SFT is upstream of this).
   - `select` — held-out **prompts** for the no-peek checkpoint-selection rule.
   - `validation` — held-out **prompts** for the hyperparam sweeps.
   - `test` — held-out prompts for truth evaluation. **Never** used for selection.
-- Contamination check 🔲: `validation`/`select`/`test` prompts disjoint from `train`, from
-  each other, and from ArenaHard/IFEval.
+  Produced by `split_four_way` in
+  [scripts/dataset_pipeline/pipeline_common.py](scripts/dataset_pipeline/pipeline_common.py).
+  Splitting is **by prompt group, not by row**: HelpSteer3 has multiple response-pairs per
+  prompt (~43% of prompts, up to 25 pairs), so all rows sharing a prompt go to the same
+  split — otherwise a prompt would leak across splits and break the no-peek rule. Ratios
+  apply to the prompt-group count, so row counts deviate slightly. Eval selects the split
+  explicitly via `--split` ([evaluate_policy.py](evaluate_policy.py); default `test`, raises
+  if absent).
+- Within-dataset contamination check ✅: `assert_splits_disjoint`
+  ([scripts/dataset_pipeline/pipeline_common.py](scripts/dataset_pipeline/pipeline_common.py))
+  asserts `train`/`select`/`validation`/`test` prompts are pairwise disjoint (run in
+  Stage 2). External cross-check 🔲: prompts disjoint from ArenaHard/IFEval (follow-up).
 
 ---
 
@@ -278,8 +288,10 @@ Out of leaderboard scope (kept as side-studies): online-PET, RRM, CQL/pessimisti
 Ordered. The eval-correctness items (**A1, B1**, B2/C1, B3) and the Gemma-readiness
 check all gate the sweeps — the code is frozen only after they pass.
 
-1. Build frozen splits + contamination check ([§3](#3-datasets--splits)). Filter once
-   with the canonical Qwen3.5 tokenizer (family-agnostic). Modify scripts/dataset_pipeline
+1. ✅ Build frozen four-way splits + within-dataset contamination check
+   ([§3](#3-datasets--splits)) — done via `split_four_way` + `assert_splits_disjoint` in
+   scripts/dataset_pipeline. Filter once with the canonical Qwen3.5 tokenizer
+   (family-agnostic). Remaining 🔲: external contamination cross-check vs ArenaHard/IFEval.
 2. **A1 — Per-example persistence** ([§9](#9-per-example-logging-contract-a1-)). Foundation; do before any
    further benchmark runs or they're wasted. Schema above → wire into every
    evaluator → verify on a `--debug` run.

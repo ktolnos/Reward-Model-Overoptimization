@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
@@ -142,34 +144,98 @@ def validate_apply_chat_template_compatibility(
     )
 
 
-def split_three_way(
+def split_four_way(
     dataset: Dataset,
     *,
     train_ratio: float,
+    select_ratio: float,
+    validation_ratio: float,
     test_ratio: float,
-    heldout_ratio: float,
     seed: int,
 ) -> DatasetDict:
-    ratio_sum = train_ratio + test_ratio + heldout_ratio
+    """Split a dataset into train/select/validation/test (BENCHMARK.md §3).
+
+    - ``train``      — method training (SFT / RM / GRPO).
+    - ``select``     — held-out prompts for the no-peek checkpoint-selection rule.
+    - ``validation`` — held-out prompts for hyperparameter sweeps.
+    - ``test``       — held-out prompts for final truth evaluation (never selection).
+
+    Splitting is **by prompt group**, not by row: preference datasets such as
+    HelpSteer3 contain multiple response-pairs per prompt (here ~43% of prompts,
+    up to 25 pairs each), so a row-level split would leak the same prompt across
+    splits and break the no-peek rule. All rows sharing a prompt are assigned to
+    the same split. Ratios are applied to the prompt-group count; the resulting
+    row counts therefore deviate slightly from the exact ratios. ``test`` absorbs
+    any remainder. Splits are prompt-disjoint by construction.
+    """
+    ratio_sum = train_ratio + select_ratio + validation_ratio + test_ratio
     if abs(ratio_sum - 1.0) > 1e-9:
         raise ValueError(
-            f"Ratios must sum to 1.0, got train+test+heldout={ratio_sum}."
+            "Ratios must sum to 1.0, got "
+            f"train+select+validation+test={ratio_sum}."
         )
 
-    shuffled = dataset.shuffle(seed=seed)
-    total = len(shuffled)
+    # Group row indices by prompt hash, then shuffle the *groups* deterministically.
+    groups: dict[str, list[int]] = {}
+    for idx, ex in enumerate(dataset):
+        groups.setdefault(_prompt_hash(ex), []).append(idx)
 
-    train_end = int(total * train_ratio)
-    test_end = train_end + int(total * test_ratio)
+    import random
 
-    train_split = shuffled.select(range(0, train_end))
-    test_split = shuffled.select(range(train_end, test_end))
-    heldout_split = shuffled.select(range(test_end, total))
+    group_keys = sorted(groups)  # deterministic order before shuffling
+    random.Random(seed).shuffle(group_keys)
+    n_groups = len(group_keys)
+
+    train_end = int(n_groups * train_ratio)
+    select_end = train_end + int(n_groups * select_ratio)
+    validation_end = select_end + int(n_groups * validation_ratio)
+
+    def _rows(keys: list[str]) -> list[int]:
+        return [idx for k in keys for idx in groups[k]]
+
+    train_split = dataset.select(_rows(group_keys[0:train_end]))
+    select_split = dataset.select(_rows(group_keys[train_end:select_end]))
+    validation_split = dataset.select(_rows(group_keys[select_end:validation_end]))
+    test_split = dataset.select(_rows(group_keys[validation_end:n_groups]))
 
     return DatasetDict(
         {
             "train": train_split,
+            "select": select_split,
+            "validation": validation_split,
             "test": test_split,
-            "heldout": heldout_split,
         }
     )
+
+
+def _prompt_hash(example: dict[str, Any]) -> str:
+    """Stable hash of an example's prompt (the conversation minus the final answer)."""
+    prompt = example["chosen"][:-1]
+    blob = json.dumps(prompt, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def assert_splits_disjoint(
+    split_dict: DatasetDict,
+    splits: tuple[str, ...] = ("train", "select", "validation", "test"),
+) -> None:
+    """Raise if any pair of splits shares a prompt (contamination guard).
+
+    Within-dataset disjointness is already guaranteed by construction in
+    ``split_four_way`` (sequential slicing of one shuffle); this is a cheap guard
+    against future refactors or accidental concatenation.
+    """
+    hashes = {
+        name: {_prompt_hash(ex) for ex in split_dict[name]}
+        for name in splits
+        if name in split_dict
+    }
+    names = list(hashes)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            overlap = hashes[names[i]] & hashes[names[j]]
+            if overlap:
+                raise ValueError(
+                    f"Contamination: {len(overlap)} shared prompt(s) between "
+                    f"'{names[i]}' and '{names[j]}'."
+                )

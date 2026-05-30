@@ -46,12 +46,15 @@ from .types import Benchmark, Example, GenerationConfig
 
 def _load_preference_examples(args) -> List[Example]:
     ds = load_dataset(args.dataset_name)
-    split_priority = ("validation", "test", "train")
+    requested = getattr(args, "split", "test")
     if hasattr(ds, "keys"):
-        splits = list(ds.keys())
-        split = next((s for s in split_priority if s in ds), splits[0])
-        print(f"[preference] Using split '{split}' from {splits}")
-        dataset = ds[split]
+        if requested not in ds:
+            raise ValueError(
+                f"Requested split '{requested}' not in dataset {args.dataset_name!r}; "
+                f"available: {list(ds.keys())}."
+            )
+        print(f"[preference] Using split '{requested}' from {list(ds.keys())}")
+        dataset = ds[requested]
     else:
         dataset = ds
 

@@ -89,6 +89,12 @@ class ScriptArguments:
         default="ktolnos/helpsteer3-preference-chosenrrejected",
         metadata={"help": "Name of the preference dataset (for the 'preference' benchmark)"},
     )
+    split: str = field(
+        default="test",
+        metadata={"help": "Preference dataset split to evaluate: 'validation' for "
+                          "hyperparameter sweeps, 'test' for final/truth eval. "
+                          "Raises if the split is absent."},
+    )
 
     # ------------------------------------------------------------------
     # Reward models (shared across evaluators)

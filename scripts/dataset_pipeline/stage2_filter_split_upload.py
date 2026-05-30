@@ -5,7 +5,7 @@ import argparse
 import os
 from collections import Counter
 
-from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
+from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
@@ -17,9 +17,10 @@ from data_utils import (
     tokenize_text_with_special_tokens,
 )
 from scripts.dataset_pipeline.pipeline_common import (
+    assert_splits_disjoint,
     clear_hf_dataset_cache,
     ensure_dataset_dict,
-    split_three_way,
+    split_four_way,
     validate_preference_example_structure,
 )
 
@@ -28,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Stage 2: validate+filter a preference dataset by prompt/response/conversation "
-            "token lengths, split into train/test/heldout, and upload to HF."
+            "token lengths, split into train/select/validation/test, and upload to HF."
         )
     )
     parser.add_argument("--source-dataset", required=True, help="HF source dataset name/path")
@@ -52,9 +53,10 @@ def parse_args() -> argparse.Namespace:
         help="Disable trust_remote_code when loading tokenizer.",
     )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--train-ratio", type=float, default=0.9)
+    parser.add_argument("--train-ratio", type=float, default=0.85)
+    parser.add_argument("--select-ratio", type=float, default=0.05)
+    parser.add_argument("--validation-ratio", type=float, default=0.05)
     parser.add_argument("--test-ratio", type=float, default=0.05)
-    parser.add_argument("--heldout-ratio", type=float, default=0.05)
     _default_cfg = get_length_config("default")
     parser.add_argument("--max-prompt-tokens", type=int, default=_default_cfg["max_prompt_tokens"])
     parser.add_argument("--max-response-tokens", type=int, default=_default_cfg["max_response_tokens"])
@@ -236,67 +238,47 @@ def main() -> None:
             print(f"  - {err}")
         raise SystemExit(1)
 
+    # Carve all four splits from a single base population so the held-out pools
+    # (select/validation/test) are same-distribution and mutually comparable.
+    # When the source has multiple splits, the source "train" is the base; any
+    # other source splits are intentionally dropped (mixing differently-
+    # distributed source splits into validation/test would make them non-comparable).
     if len(filtered_splits) > 1:
         if "train" not in filtered_splits:
             raise ValueError(
                 "Dataset has multiple splits but no 'train' split. "
-                "Expected to derive train/test from 'train' and use others as heldout."
+                "Expected to carve train/select/validation/test from the 'train' split."
             )
-
-        filtered_train = filtered_splits["train"]
-        if len(filtered_train) == 0:
-            raise ValueError("Filtered 'train' split is empty; cannot derive train/test.")
-
-        ratio_sum = args.train_ratio + args.test_ratio
-        if ratio_sum <= 0:
-            raise ValueError(
-                "train_ratio + test_ratio must be > 0 when source dataset has multiple splits."
-            )
-        train_share = args.train_ratio / ratio_sum
-
-        shuffled_train = filtered_train.shuffle(seed=args.seed)
-        train_end = int(len(shuffled_train) * train_share)
-        train_split = shuffled_train.select(range(0, train_end))
-        test_split = shuffled_train.select(range(train_end, len(shuffled_train)))
-
-        heldout_parts = [
-            split_data
-            for split_name, split_data in filtered_splits.items()
-            if split_name != "train" and len(split_data) > 0
-        ]
-        heldout_split = (
-            concatenate_datasets(heldout_parts) if heldout_parts else _empty_like(filtered_train)
-        )
-
-        split_dict = DatasetDict(
-            {
-                "train": train_split,
-                "test": test_split,
-                "heldout": heldout_split,
-            }
-        )
-        if args.heldout_ratio != 0:
+        base = filtered_splits["train"]
+        if len(base) == 0:
+            raise ValueError("Filtered 'train' split is empty; cannot derive splits.")
+        dropped = [name for name in filtered_splits if name != "train"]
+        if dropped:
             print(
-                "Info: source dataset has multiple splits; --heldout-ratio is ignored and "
-                "heldout is built from non-train source splits."
+                f"Info: source dataset has multiple splits; dropping non-train source "
+                f"splits {dropped} and carving all four splits from 'train'."
             )
     else:
-        only_split = next(iter(filtered_splits.values()))
-        if len(only_split) == 0:
+        base = next(iter(filtered_splits.values()))
+        if len(base) == 0:
             raise ValueError("All samples were filtered out; nothing to split/upload.")
-        split_dict = split_three_way(
-            only_split,
-            train_ratio=args.train_ratio,
-            test_ratio=args.test_ratio,
-            heldout_ratio=args.heldout_ratio,
-            seed=args.seed,
-        )
+
+    split_dict = split_four_way(
+        base,
+        train_ratio=args.train_ratio,
+        select_ratio=args.select_ratio,
+        validation_ratio=args.validation_ratio,
+        test_ratio=args.test_ratio,
+        seed=args.seed,
+    )
+    assert_splits_disjoint(split_dict)
 
     print(
         "Split sizes: "
         f"train={len(split_dict['train'])}, "
-        f"test={len(split_dict['test'])}, "
-        f"heldout={len(split_dict['heldout'])}"
+        f"select={len(split_dict['select'])}, "
+        f"validation={len(split_dict['validation'])}, "
+        f"test={len(split_dict['test'])}"
     )
 
     if args.skip_upload:

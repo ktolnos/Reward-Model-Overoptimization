@@ -10,9 +10,10 @@ PREFIX=""
 NAMESPACE=""
 TOKENIZER_NAME="Qwen/Qwen3-0.6B"
 SEED=42
-TRAIN_RATIO=0.9
+TRAIN_RATIO=0.85
+SELECT_RATIO=0.05
+VALIDATION_RATIO=0.05
 TEST_RATIO=0.05
-HELDOUT_RATIO=0.05
 SUBSAMPLE_FRACTION=0.25
 # deliberatly smaller to allow for other tokenizers
 MAX_PROMPT_TOKENS=1000
@@ -35,7 +36,7 @@ Usage: $0 \
   --namespace <hf_user_or_org> \
   [--tokenizer-name <hf_tokenizer>] \
   [--seed <int>] \
-  [--train-ratio <float>] [--test-ratio <float>] [--heldout-ratio <float>] \
+  [--train-ratio <float>] [--select-ratio <float>] [--validation-ratio <float>] [--test-ratio <float>] \
   [--subsample-fraction <float>] \
   [--max-prompt-tokens <int>] [--max-response-tokens <int>] [--max-conversation-tokens <int>] \
   [--max-errors <int>] [--private] [--trust-remote-code] \
@@ -52,8 +53,9 @@ while [[ $# -gt 0 ]]; do
     --tokenizer-name) TOKENIZER_NAME="$2"; shift 2 ;;
     --seed) SEED="$2"; shift 2 ;;
     --train-ratio) TRAIN_RATIO="$2"; shift 2 ;;
+    --select-ratio) SELECT_RATIO="$2"; shift 2 ;;
+    --validation-ratio) VALIDATION_RATIO="$2"; shift 2 ;;
     --test-ratio) TEST_RATIO="$2"; shift 2 ;;
-    --heldout-ratio) HELDOUT_RATIO="$2"; shift 2 ;;
     --subsample-fraction) SUBSAMPLE_FRACTION="$2"; shift 2 ;;
     --max-prompt-tokens) MAX_PROMPT_TOKENS="$2"; shift 2 ;;
     --max-response-tokens) MAX_RESPONSE_TOKENS="$2"; shift 2 ;;
@@ -160,8 +162,9 @@ COMMON_STAGE12_ARGS=(
   --tokenizer-name "${TOKENIZER_NAME}"
   --seed "${SEED}"
   --train-ratio "${TRAIN_RATIO}"
+  --select-ratio "${SELECT_RATIO}"
+  --validation-ratio "${VALIDATION_RATIO}"
   --test-ratio "${TEST_RATIO}"
-  --heldout-ratio "${HELDOUT_RATIO}"
   --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
   --max-response-tokens "${MAX_RESPONSE_TOKENS}"
   --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
