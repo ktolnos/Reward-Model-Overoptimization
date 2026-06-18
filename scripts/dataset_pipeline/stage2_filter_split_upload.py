@@ -5,7 +5,7 @@ import argparse
 import os
 from collections import Counter
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
@@ -77,6 +77,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Do not upload dataset (useful for dry runs)",
+    )
+    parser.add_argument(
+        "--merge-splits",
+        action="store_true",
+        default=False,
+        help=(
+            "For multi-split sources, merge all source splits into one base pool "
+            "before the four-way split, instead of carving from 'train' and dropping "
+            "the rest. Use when the source splits are a row-level partition of one "
+            "population (same distribution), e.g. re-splitting an old three-way "
+            "train/test/heldout dataset, so no datapoints are dropped."
+        ),
     )
     parser.add_argument(
         "--skip-prefix-check",
@@ -243,7 +255,18 @@ def main() -> None:
     # When the source has multiple splits, the source "train" is the base; any
     # other source splits are intentionally dropped (mixing differently-
     # distributed source splits into validation/test would make them non-comparable).
-    if len(filtered_splits) > 1:
+    # Exception: --merge-splits concatenates all source splits into the base pool,
+    # for sources whose splits are a same-distribution row-level partition (e.g.
+    # re-splitting an old three-way train/test/heldout dataset).
+    if args.merge_splits and len(filtered_splits) > 1:
+        base = concatenate_datasets([filtered_splits[name] for name in filtered_splits])
+        if len(base) == 0:
+            raise ValueError("All samples were filtered out; nothing to split/upload.")
+        print(
+            f"Info: --merge-splits set; merged source splits "
+            f"{list(filtered_splits)} into one base pool of {len(base)} rows."
+        )
+    elif len(filtered_splits) > 1:
         if "train" not in filtered_splits:
             raise ValueError(
                 "Dataset has multiple splits but no 'train' split. "

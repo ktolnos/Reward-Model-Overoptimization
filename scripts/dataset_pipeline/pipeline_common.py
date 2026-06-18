@@ -160,13 +160,28 @@ def split_four_way(
     - ``validation`` — held-out prompts for hyperparameter sweeps.
     - ``test``       — held-out prompts for final truth evaluation (never selection).
 
-    Splitting is **by prompt group**, not by row: preference datasets such as
-    HelpSteer3 contain multiple response-pairs per prompt (here ~43% of prompts,
-    up to 25 pairs each), so a row-level split would leak the same prompt across
-    splits and break the no-peek rule. All rows sharing a prompt are assigned to
-    the same split. Ratios are applied to the prompt-group count; the resulting
-    row counts therefore deviate slightly from the exact ratios. ``test`` absorbs
-    any remainder. Splits are prompt-disjoint by construction.
+    Splitting is **by prompt group**, not by row. The dominant reason is
+    duplication: in the official HelpSteer3 (preference) train split, **35% of
+    rows are exact full-row duplicates** (identical context + responses + label +
+    raw annotations; measured directly). 41.6% of prompts appear on >1 row, but
+    most of that is pure duplication rather than genuinely distinct response-pairs
+    (only ~776 prompts carry truly different pairs). The duplicates are confined
+    within a single (domain, language) and occur at a near-uniform rate across
+    subsets — i.e. a systematic row-level artifact, not per-annotator rows
+    (annotators are already aggregated inside each row's ``individual_preference``)
+    nor cross-subset resampling. The exact construction cause is **not documented
+    in the paper** (arxiv 2505.11475 does not address per-prompt multiplicity or
+    dedup); the paper's intended unit is nonetheless one aggregated row per sample.
+    A row-level split would scatter identical rows across train and the held-out
+    splits, leaking the same example and breaking the no-peek rule. Grouping by
+    prompt keeps all copies in one split. Ratios apply to the prompt-group count,
+    so row counts deviate slightly; ``test`` absorbs any remainder. Splits are
+    prompt-disjoint by construction.
+
+    NOTE: this prevents *cross-split* leakage but does NOT remove *within-split*
+    duplication — train still carries the redundant copies and eval metrics still
+    average over them. Exact-row dedup before splitting is the principled fix (see
+    HANDOFF.md); not done here to keep dataset outputs stable.
     """
     ratio_sum = train_ratio + select_ratio + validation_ratio + test_ratio
     if abs(ratio_sum - 1.0) > 1e-9:

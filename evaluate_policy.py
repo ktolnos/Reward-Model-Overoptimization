@@ -100,7 +100,7 @@ class ScriptArguments:
     # Reward models (shared across evaluators)
     # ------------------------------------------------------------------
     training_rm_path: str = field(
-        default="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40",
+        default="",
         metadata={"help": "Path to the reward model used during training"},
     )
     gold_rm_name: str = field(

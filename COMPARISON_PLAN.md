@@ -175,7 +175,7 @@ Also convert:
 
 The converted dataset must go through the standard pipeline:
 - **Stage 1** (`stage1_verify_dataset.py`): Verify chosen/rejected schema, message format
-- **Stage 2** (`stage2_filter_split_upload.py`): Filter by token length, split train/test/heldout
+- **Stage 2** (`stage2_filter_split_upload.py`): Filter by token length, split (by prompt group) into train/select/validation/test
 
 Length limits for the paper comparison (**different from our defaults**):
 - `MAX_PROMPT_TOKENS = 520` (paper's max instruction length)

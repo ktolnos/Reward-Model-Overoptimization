@@ -10,11 +10,14 @@ This document captures practical defaults for RLHF/RLAIF-style projects where da
 - Keep one canonical filtering script so all experiments use the same rules.
 - Log before/after counts and drop reasons for every split.
 
-## 2) Split Strategy (Train/Test/Heldout)
+## 2) Split Strategy (Train/Select/Validation/Test)
 
-- Use `heldout` (or similarly explicit name) for final reporting only.
-- Do not iterate on `heldout`; use `train`/`test` for model selection and ablations.
-- If source datasets have multiple splits, define deterministic mapping rules (for example: source `train` -> train/test, all other source splits -> heldout).
+- Use a four-way split: `train` (method training), `select` (no-peek checkpoint selection), `validation` (hyperparameter sweeps), `test` (final reporting only). See BENCHMARK.md §3 / §6.
+- Use `test` for final reporting only; never iterate on it or use it for checkpoint selection.
+- Split **by prompt group, not by row**: assign all rows sharing a prompt to the same split, so a prompt cannot leak across splits. This is standard grouped-splitting practice (cf. scikit-learn `GroupShuffleSplit`/`GroupKFold`) and matters here because the official HelpSteer3 train split has ~35% exact full-row duplicates (an artifact). Ratios apply to the prompt-group count, so row counts deviate slightly.
+- Dedup exact duplicate rows before (or alongside) splitting where the dataset's design intent is one row per unit — grouping prevents cross-split leakage but not within-split redundancy.
+- Assert splits are pairwise prompt-disjoint after splitting (contamination guard).
+- If source datasets have multiple splits, define deterministic mapping rules (current rule: carve all four splits from source `train`, drop other source splits so held-out pools stay same-distribution).
 - Version the split seed and ratios; never change them silently.
 
 ## 3) One Shared Processing Pipeline
@@ -77,7 +80,7 @@ This document captures practical defaults for RLHF/RLAIF-style projects where da
 
 - Separate:
   - online validation metrics (frequent)
-  - final heldout metrics (rare, final only)
+  - final test-split metrics (rare, final only)
 - Use the same prompt distribution and preprocessing as training unless testing explicit OOD generalization.
 
 ## 10) Easy-To-Forget Pitfalls
