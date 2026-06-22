@@ -21,6 +21,7 @@ from load_eval_datasets import load_eval_dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from reward_utils import extract_reward_tensors_from_model_output
+import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
 
 
 @dataclass

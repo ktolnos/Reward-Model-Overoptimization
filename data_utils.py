@@ -237,9 +237,13 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
     setup_tokenizer(tokenizer, model_name=base_model_name)
 
     model = load_causal_lm(model_name_or_path, trust_remote_code=trust_remote_code)
-    if len(tokenizer) > model.config.vocab_size:
+    # Multimodal configs (e.g. Gemma 4) keep vocab_size/pad_token_id under text_config;
+    # get_text_config() returns the text sub-config for those and the config itself otherwise.
+    text_config = model.config.get_text_config() if hasattr(model.config, "get_text_config") else model.config
+    if len(tokenizer) > text_config.vocab_size:
         model.resize_token_embeddings(len(tokenizer))
     model.config.pad_token_id = tokenizer.pad_token_id
+    text_config.pad_token_id = tokenizer.pad_token_id
     if hasattr(model, "generation_config"):
         model.generation_config.pad_token_id = tokenizer.pad_token_id
         model.generation_config.eos_token_id = get_generation_stop_token_ids(tokenizer)
@@ -285,10 +289,11 @@ def get_generation_stop_token_ids(tokenizer):
     been re-pointed to a chat turn-end token (e.g. <|im_end|> for Qwen).
     """
     stop_ids = set()
-    _add_token_id(stop_ids, tokenizer.eos_token_id)
-
-    # Some wrappers keep the underlying tokenizer on `.tokenizer`.
+    # Some wrappers (e.g. multimodal processors like Gemma4Processor) keep the
+    # underlying tokenizer on `.tokenizer`; unwrap it for token-id lookups.
     raw_tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
+    _add_token_id(stop_ids, raw_tokenizer.eos_token_id)
+
     convert = getattr(raw_tokenizer, "convert_tokens_to_ids", None)
     unk_token_id = getattr(raw_tokenizer, "unk_token_id", None)
     if convert is not None:

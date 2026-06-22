@@ -13,6 +13,7 @@ from transformers import (
     HfArgumentParser,
 )
 from trl import RewardTrainer, RewardConfig
+import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
 from load_datasets import load_train_eval_dataset, build_dataset
 from data_utils import setup_tokenizer, get_length_config, DATASET_LENGTH_CONFIGS
 from utils import (
@@ -116,8 +117,11 @@ print(
 
 
 if len(script_args.attn_implementation):
+    from reward_utils import select_attn_implementation
     model_params = {
-        "attn_implementation": script_args.attn_implementation,
+        "attn_implementation": select_attn_implementation(
+            script_args.base_model, script_args.attn_implementation
+        ),
     }
 else:
     model_params = {}
@@ -131,8 +135,12 @@ model = AutoModelForSequenceClassification.from_pretrained(
 )
 
 if script_args.freeze_pretrained:
+    # Multimodal configs (e.g. Gemma 4) keep hidden_size under text_config.
+    hidden_size = getattr(model.config, "hidden_size", None)
+    if hidden_size is None:
+        hidden_size = model.config.text_config.hidden_size
     mlp_layer = nn.Sequential(
-        nn.Linear(model.config.hidden_size, 1024, dtype=torch.bfloat16),
+        nn.Linear(hidden_size, 1024, dtype=torch.bfloat16),
         nn.ReLU(),
         nn.Linear(1024, 1, dtype=torch.bfloat16),
     )
