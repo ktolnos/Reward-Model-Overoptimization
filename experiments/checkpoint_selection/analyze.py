@@ -286,6 +286,78 @@ def cross_run_selection(tables: Tables) -> Dict[str, dict]:
 
 
 # ---------------------------------------------------------------------------
+# Cross-run top-k analysis
+# ---------------------------------------------------------------------------
+
+def cross_run_top_k(tables: Tables, ks=(1, 3, 5, 10, 20)) -> Dict[str, dict]:
+    """For each selection signal, sort all (run, ckpt) pairs by the signal
+    descending and report:
+      - rank_of_gold_oracle: rank of the gold@test_B argmax pair under this
+        signal's ranking (1 = perfect — the signal's top pick IS the oracle).
+      - top_{k}_mean_gold / top_{k}_mean_regret: if you randomly drew one
+        pair from this signal's top-k, here's the average gold@test_B you'd
+        get and the implied regret vs the oracle.
+      - top_{k}_min_gold / top_{k}_worst_regret: worst-case in top-k —
+        captures "how bad could the random draw from top-k be".
+    """
+    score_A = tables.score_A
+    score_B = tables.score_B
+    if "gold_rm" not in score_B.columns:
+        return {}
+    gold_B = score_B["gold_rm"].dropna()
+    if gold_B.empty:
+        return {}
+    oracle_gold = float(gold_B.max())
+    oracle_pair = gold_B.idxmax()
+
+    out: Dict[str, dict] = {
+        "n_total_pairs": int(len(gold_B)),
+        "oracle_gold_at_test_B": oracle_gold,
+        "oracle_pair": {
+            "grpo_run_idx": int(oracle_pair[0]),
+            "checkpoint": int(oracle_pair[1]),
+        },
+        "strategies": {},
+    }
+
+    signal_sources: Dict[str, pd.Series] = {}
+    for label in ("training_rm", "sibling_rm", "secondary_rm"):
+        if label in score_A.columns:
+            signal_sources[label] = score_A[label].dropna()
+    if "gold_rm" in score_A.columns:
+        signal_sources["gold_at_A"] = score_A["gold_rm"].dropna()
+    tr = tables.train_reward.dropna()
+    if not tr.empty:
+        signal_sources["train_reward"] = tr
+
+    for strat, signal in signal_sources.items():
+        joined = pd.concat(
+            [signal.rename("signal"), gold_B.rename("gold_B")], axis=1
+        ).dropna()
+        if joined.empty:
+            continue
+        order = joined.sort_values("signal", ascending=False)
+        try:
+            rank = int(order.index.get_loc(oracle_pair)) + 1
+        except KeyError:
+            rank = None
+        strat_out: Dict[str, object] = {
+            "n_pairs": int(len(order)),
+            "rank_of_gold_oracle": rank,
+        }
+        for k in ks:
+            if k > len(order):
+                continue
+            topk_gold = order["gold_B"].iloc[:k]
+            strat_out[f"top_{k}_mean_gold"] = float(topk_gold.mean())
+            strat_out[f"top_{k}_mean_regret"] = float(oracle_gold - topk_gold.mean())
+            strat_out[f"top_{k}_min_gold"] = float(topk_gold.min())
+            strat_out[f"top_{k}_worst_regret"] = float(oracle_gold - topk_gold.min())
+        out["strategies"][strat] = strat_out
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Aggregation + plotting
 # ---------------------------------------------------------------------------
 
@@ -372,9 +444,11 @@ def main() -> None:
 
     agg = aggregate(per_run)
     cross = cross_run_selection(tables)
+    cross_topk = cross_run_top_k(tables)
     summary = {
         "per_strategy": agg,
         "cross_run": cross,
+        "cross_run_top_k": cross_topk,
         "checkpoints_per_run": {str(k): v for k, v in tables.checkpoints_per_run.items()},
     }
     json_path = os.path.join(args.output_dir, M.AGGREGATE_FILENAME)

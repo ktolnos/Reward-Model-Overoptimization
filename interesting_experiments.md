@@ -151,3 +151,38 @@ Ensembles didn't prevent reward hacking completely, the peak sc_score and other 
 - [06b-hs3gold-2_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/jt7pn8us) {0.6B-Base}
 - [06b-hs3gold-5_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/2vr6tb6c) {0.6B-Base}
 - [06b-hs3gold-10_rm_epochs](https://wandb.ai/distill-llms/policy-evaluation/runs/pes8ntrx) {0.6B-Base}
+
+
+### Q: How should you pick the best checkpoint — training reward vs same-seed RM vs sibling-seed RM vs different-family RM vs random?
+Code, scores, and plots: `experiments/checkpoint_selection/`. Method: deterministically partition the helpsteer3-qwen35 `test` split in two by `sha256(prompt) % 2` → `test_A` (selection slice) and `test_B` (gold-verdict slice). Re-score every preserved (checkpoint, prompt) policy response with four RMs and evaluate each selection strategy on its gold-RM (`Skywork/Skywork-Reward-V2-Llama-3.1-8B`) score on `test_B`. 8 GRPO runs trained against RM_19 (`19_Qwen3.5-4B-Base_…helpsteer3-qwen35_annotated_human`, ckpt-3144), ~20 checkpoints/run, restricted to the 25pct.test intersection (~367 prompts).
+- [dapo0.5-max1.5_KL0_1rms_sequential3x_1099677](https://wandb.ai/distill-llms/policy-evaluation/runs/6c0fi2ay) {3.5-4B-SFT}
+- [0.6DAPO_squared_max1_KL0_1rms_sequential3x_1109219](https://wandb.ai/distill-llms/policy-evaluation/runs/b6vnyx03) {3.5-4B-SFT}
+- [0.6DAPO_linear_max1_KL0_1rms_sequential3x_1109220](https://wandb.ai/distill-llms/policy-evaluation/runs/jkm4l66t) {3.5-4B-SFT}
+- [linear0.6-max1.5_KL0_1rms_sequential3x_1126524](https://wandb.ai/distill-llms/policy-evaluation/runs/4n3i20ph) {3.5-4B-SFT}
+- [0.6DAPO_max4_mask_KL0_1rms_sequential3x_1131216](https://wandb.ai/distill-llms/policy-evaluation/runs/8qe50glw) {3.5-4B-SFT}
+- [full_ds_max1024_KL0_1rms_sequential3x_1132879](https://wandb.ai/distill-llms/policy-evaluation/runs/azmleb76) {3.5-4B-SFT}
+- [full_ds_5e-6lr_KL0_1rms_sequential3x_1136572](https://wandb.ai/distill-llms/policy-evaluation/runs/s21qpjll) {3.5-4B-SFT}
+- [same_seed_KL0_8rms_sequential3x_1129482](https://wandb.ai/distill-llms/policy-evaluation/runs/llxyplds) {3.5-4B-SFT}
+
+Selectors (all scored on `test_A`): training_rm = RM_19 itself (ckpt-3144), sibling_rm = RM_20 (`20_Qwen3.5-4B-Base_…ckpt-1179`, sibling seed, 3-epoch), secondary_rm = `Ray2333/GRM-Gemma-2B-sftreg` (different family). Oracles: gold_at_A = argmax gold on `test_A` (diagnostic ceiling), gold_at_B = argmax gold on `test_B` (verdict oracle, regret = 0 by construction).
+
+Mean gold@`test_B` across runs (regret vs gold@B oracle in brackets), oracle ≈ 20.65:
+- gold_at_A (oracle on selection slice): **20.49** (regret 0.16, 95% boot CI [0.00, 0.34])
+- **secondary_rm @ test_A**: **19.96** (regret 0.69, CI [0.09, 1.65])
+- **sibling_rm @ test_A**: **19.91** (regret 0.74, CI [0.02, 2.11])
+- first saved checkpoint: 16.30 (regret 4.35, CI [2.70, 5.93])
+- train_reward (wandb `rewards/batch_mean`): 16.30 (regret 4.35) — degenerate, see below
+- random (mean over 1000 seeds/run): 11.88 (regret 8.77, CI [5.22, 12.62])
+- training_rm @ test_A (RM_19 itself): 11.67 (regret 8.98, CI [3.04, 15.75])
+- last checkpoint: 7.49 (regret 13.16, CI [6.01, 21.05])
+
+**Results**
+- A **held-out RM picks essentially the oracle checkpoint**: secondary recovers 96.7 % of the gold range above `first`, sibling recovers 96.5 %. It does not matter much whether the held-out scorer is a sibling-seed RM (same architecture, same dataset) or a totally different family (Gemma-2B).
+- Using the **training RM (RM_19) as the selector is roughly as bad as random** — it systematically picks late checkpoints where reward hacking has driven gold strongly negative (regret 26 on run 2, 23 on run 4, 32 on run 5, last checkpoint gold near −9).
+- `first` is a surprisingly decent cheap baseline (~79 % of oracle) because reward hacking has not yet taken hold at the earliest saved checkpoint.
+- `last` is the worst named strategy — reward hacking is the default outcome of running GRPO to the end of training.
+- The gap between `gold_at_A` and `gold_at_B` (regret 0.16) is small, so the half-half partition is not introducing meaningful sample noise — deployable strategies are genuinely near oracle, not just lucky on the verdict slice.
+- Wandb `rewards/batch_mean` is **degenerate as a selection signal**: the strategy picks the first saved checkpoint in 7 / 8 runs (identical mean to `first`). Two reasons compound — GRPO runs with `--rm_subtract_mean_reward_per_model=True`, which centres rewards per batch and removes the absolute level, and wandb `_step` is logged at a much finer granularity than `save_steps`, so the alignment in `_align_train_reward` collapses every checkpoint of a run to ≈ the same logged value. A useful training-time signal would require either un-centred per-batch rewards or training-time evaluation on a held-out slice (which GRPO does not log here).
+- **Cross-run**: the secondary RM also picks the global oracle — both `gold_at_B` and `secondary_rm @ test_A` pick `(run 5 = 0.6DAPO_max4_mask_…1131216, ckpt 745) → 22.29`. The cross-run training-RM pick is catastrophic: `(run 4, ckpt 2974) → −1.69`.
+
+Bottom line: at GRPO time, save a per-checkpoint score from any reward model that was not used as the training objective (sibling-seed RM or any different-family RM) and pick its argmax. Do not rely on the training RM itself or on `train/reward` as currently logged.
