@@ -115,14 +115,18 @@ def _qwen_format_prompt(prompt_messages: list, tokenizer) -> str:
 
 def build_prompt_messages_index(
     tokenizer,
-    dataset_names: Iterable[str] = (M.DATASET_NAME, M.DATASET_NAME_25PCT),
+    dataset_names: Iterable[str] = (M.DATASET_NAME_25PCT,),
     split: str = "test",
 ) -> Dict[str, list]:
     """Build ``{prompt_hash: prompt_messages}`` from each source dataset.
 
-    Both the full and 25pct datasets are scanned because the eval files were
-    generated against one or the other depending on the run; the 25pct test
-    split is a subset of the full test split so hashes collide naturally.
+    Only the 25pct dataset is indexed by default: the cross-run analysis is
+    restricted to the 25pct.test prompt intersection (per the plan, 367
+    prompts is sufficient). Runs 6/7 were evaluated on the full test split,
+    so their JSONLs contain extra prompts that won't match this index —
+    ``assemble_scoring_inputs`` drops them with a warning. Pass
+    ``dataset_names=(M.DATASET_NAME,)`` to instead score the full test
+    split for those two runs.
     """
     index: Dict[str, list] = {}
     for ds_name in dataset_names:
