@@ -1,8 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 
+# Local, single-process dataset pipeline runner.
+#
+# Runs the stages sequentially in THIS shell (no SLURM, no job dependencies):
+#   Stage 1  verify dataset format
+#   Stage 2  filter + four-way split (train/select/validation/test) + upload
+#   Stage 3  annotate with a reward model + upload   (skipped with --skip-annotation)
+#   Stage 4  subsample + upload
+#
+# Stage 3 annotation needs a GPU large enough for the reward model; the local box
+# may not have one. For a human-preference-only dataset pass --skip-annotation
+# (Stage 2 then writes directly to the annotated repo and Stage 3 is skipped),
+# which needs no GPU. Any stage failure aborts the run (set -e).
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
+
+# Prefer the repo virtualenv locally; fall back to python3 (e.g. on a cluster).
+if [[ -x "${REPO_ROOT}/venv/bin/python" ]]; then
+  PYTHON="${REPO_ROOT}/venv/bin/python"
+else
+  PYTHON="python3"
+fi
+export PYTHONPATH="${REPO_ROOT}/rlhf/grpo:${REPO_ROOT}:${PYTHONPATH:-}"
 
 SOURCE_DATASET=""
 REWARD_MODEL=""
@@ -24,8 +45,10 @@ PRIVATE=0
 TRUST_REMOTE_CODE=0
 SKIP_STAGE12=0
 SKIP_STAGE3=0
+SKIP_STAGE4=0
 SKIP_ANNOTATION=0
 SKIP_PREFIX_CHECK=0
+MERGE_SPLITS=0
 
 usage() {
   cat <<EOF
@@ -40,7 +63,12 @@ Usage: $0 \
   [--subsample-fraction <float>] \
   [--max-prompt-tokens <int>] [--max-response-tokens <int>] [--max-conversation-tokens <int>] \
   [--max-errors <int>] [--private] [--trust-remote-code] \
-  [--skip-stage12] [--skip-stage3] [--skip-annotation] [--skip-prefix-check]
+  [--merge-splits] [--skip-prefix-check] \
+  [--skip-stage12] [--skip-stage3] [--skip-stage4] [--skip-annotation]
+
+Runs locally in a single process (no SLURM). --merge-splits concatenates all
+source splits into one pool before the four-way split (use when re-splitting an
+existing derived dataset whose splits are a row-level partition of one population).
 EOF
 }
 
@@ -63,8 +91,11 @@ while [[ $# -gt 0 ]]; do
     --max-errors) MAX_ERRORS="$2"; shift 2 ;;
     --private) PRIVATE=1; shift ;;
     --trust-remote-code) TRUST_REMOTE_CODE=1; shift ;;
+    --merge-splits) MERGE_SPLITS=1; shift ;;
+    --skip-prefix-check) SKIP_PREFIX_CHECK=1; shift ;;
     --skip-stage12) SKIP_STAGE12=1; shift ;;
     --skip-stage3) SKIP_STAGE3=1; shift ;;
+    --skip-stage4) SKIP_STAGE4=1; shift ;;
     --skip-annotation) SKIP_ANNOTATION=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
@@ -87,7 +118,7 @@ fi
 
 if [[ -z "${HF_TOKEN:-}" && -z "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
   echo "ERROR: HF token is missing in the current shell." >&2
-  echo "Set HF_TOKEN or HUGGINGFACE_HUB_TOKEN before submitting the pipeline." >&2
+  echo "Set HF_TOKEN or HUGGINGFACE_HUB_TOKEN before running the pipeline." >&2
   exit 2
 fi
 
@@ -98,9 +129,6 @@ fi
 if [[ -z "${HF_TOKEN:-}" && -n "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
   export HF_TOKEN="${HUGGINGFACE_HUB_TOKEN}"
 fi
-
-SBATCH_EXPORT="ALL"
-SBATCH_EXPORT+=",HF_TOKEN,HUGGINGFACE_HUB_TOKEN"
 
 sanitize() {
   echo "$1" | sed -e 's#[/:]#-#g' -e 's#[^a-zA-Z0-9_-]#-#g' -e 's#--*#-#g' -e 's#^-##' -e 's#-$##'
@@ -125,155 +153,121 @@ else
   FILTERED_DATASET="${NAMESPACE}/$(sanitize "${PREFIX}")_filtered"
 fi
 
-# Hugging Face SQL (run on the ANNOTATED_DATASET viewer) to check RM agreement accuracy:
-# Overall accuracy across splits:
-# SELECT AVG(CASE WHEN does_gold_agree_with_original THEN 1.0 ELSE 0.0 END) AS rm_accuracy
-# FROM (
-#   SELECT does_gold_agree_with_original FROM train
-#   UNION ALL
-#   SELECT does_gold_agree_with_original FROM test
-#   UNION ALL
-#   SELECT does_gold_agree_with_original FROM heldout
-# );
-#
-# Per-split accuracy:
-# SELECT split, COUNT(*) AS n_examples,
-#        AVG(CASE WHEN does_gold_agree_with_original THEN 1.0 ELSE 0.0 END) AS rm_accuracy
-# FROM (
-#   SELECT 'train' AS split, does_gold_agree_with_original FROM train
-#   UNION ALL
-#   SELECT 'test' AS split, does_gold_agree_with_original FROM test
-#   UNION ALL
-#   SELECT 'heldout' AS split, does_gold_agree_with_original FROM heldout
-# )
-# GROUP BY split
-# ORDER BY split;
-
-echo "Source dataset:     ${SOURCE_DATASET}"
+echo "Python interpreter:  ${PYTHON}"
+echo "Source dataset:      ${SOURCE_DATASET}"
 if [[ "${SKIP_ANNOTATION}" -eq 0 ]]; then
-  echo "Filtered dataset:   ${FILTERED_DATASET}"
+  echo "Filtered dataset:    ${FILTERED_DATASET}"
 fi
-echo "Annotated dataset:  ${ANNOTATED_DATASET}"
-echo "Subsampled dataset: ${SUBSAMPLED_DATASET}"
+echo "Annotated dataset:   ${ANNOTATED_DATASET}"
+echo "Subsampled dataset:  ${SUBSAMPLED_DATASET}"
 
-COMMON_STAGE12_ARGS=(
-  --source-dataset "${SOURCE_DATASET}"
-  --output-dataset "${FILTERED_DATASET}"
-  --tokenizer-name "${TOKENIZER_NAME}"
-  --seed "${SEED}"
-  --train-ratio "${TRAIN_RATIO}"
-  --select-ratio "${SELECT_RATIO}"
-  --validation-ratio "${VALIDATION_RATIO}"
-  --test-ratio "${TEST_RATIO}"
-  --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
-  --max-response-tokens "${MAX_RESPONSE_TOKENS}"
-  --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
-  --max-errors "${MAX_ERRORS}"
-)
-if [[ "${PRIVATE}" -eq 1 ]]; then
-  COMMON_STAGE12_ARGS+=(--private)
-fi
-if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
-  COMMON_STAGE12_ARGS+=(--trust-remote-code)
-fi
-
-JOB1=""
+# ----------------------------------------------------------------------------
+# Stage 1 + 2: verify, then filter / four-way split / upload
+# ----------------------------------------------------------------------------
 if [[ "${SKIP_STAGE12}" -eq 1 ]]; then
-  echo "Skipping Stage 1+2 submission (--skip-stage12)."
-  echo "Expected existing annotated dataset repo: ${ANNOTATED_DATASET}"
+  echo ""
+  echo "Skipping Stage 1+2 (--skip-stage12)."
+  echo "Expected existing dataset repo: ${FILTERED_DATASET}"
 else
-  JOB1="$(sbatch --parsable --export "${SBATCH_EXPORT}" --chdir "${REPO_ROOT}" scripts/dataset_pipeline/stage1_verify_stage2_filter.sbatch "${COMMON_STAGE12_ARGS[@]}")"
-  echo "Submitted Stage 1+2 job: ${JOB1}"
-fi
-
-STAGE3_ARGS=(
-  --source-dataset "${FILTERED_DATASET}"
-  --output-dataset "${ANNOTATED_DATASET}"
-  --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
-  --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
-  --validation-tokenizer-name "${TOKENIZER_NAME}"
-)
-if [[ "${SKIP_ANNOTATION}" -eq 1 ]]; then
-  STAGE3_ARGS+=(--skip-annotation)
-else
-  STAGE3_ARGS+=(--reward-model "${REWARD_MODEL}")
-fi
-if [[ "${PRIVATE}" -eq 1 ]]; then
-  STAGE3_ARGS+=(--private)
-fi
-if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
-  STAGE3_ARGS+=(--trust-remote-code)
-fi
-
-JOB2=""
-if [[ "${SKIP_STAGE3}" -eq 1 ]]; then
-  echo "Skipping Stage 3 submission (--skip-stage3)."
-  echo "Expected existing annotated dataset repo: ${ANNOTATED_DATASET}"
-else
-  STAGE3_SBATCH_ARGS=(
-    --parsable
-    --export "${SBATCH_EXPORT}"
-    --chdir "${REPO_ROOT}"
+  VERIFY_ARGS=(
+    --source-dataset "${SOURCE_DATASET}"
+    --tokenizer-name "${TOKENIZER_NAME}"
+    --max-errors "${MAX_ERRORS}"
   )
-  if [[ -n "${JOB1}" ]]; then
-    STAGE3_SBATCH_ARGS+=(--dependency="afterok:${JOB1}")
+  STAGE2_ARGS=(
+    --source-dataset "${SOURCE_DATASET}"
+    --output-dataset "${FILTERED_DATASET}"
+    --tokenizer-name "${TOKENIZER_NAME}"
+    --seed "${SEED}"
+    --train-ratio "${TRAIN_RATIO}"
+    --select-ratio "${SELECT_RATIO}"
+    --validation-ratio "${VALIDATION_RATIO}"
+    --test-ratio "${TEST_RATIO}"
+    --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
+    --max-response-tokens "${MAX_RESPONSE_TOKENS}"
+    --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
+    --max-errors "${MAX_ERRORS}"
+  )
+  if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
+    VERIFY_ARGS+=(--trust-remote-code)
+    STAGE2_ARGS+=(--trust-remote-code)
+  fi
+  if [[ "${PRIVATE}" -eq 1 ]]; then
+    STAGE2_ARGS+=(--private)
+  fi
+  if [[ "${MERGE_SPLITS}" -eq 1 ]]; then
+    STAGE2_ARGS+=(--merge-splits)
+  fi
+  if [[ "${SKIP_PREFIX_CHECK}" -eq 1 ]]; then
+    STAGE2_ARGS+=(--skip-prefix-check)
   fi
 
-  JOB2="$(sbatch "${STAGE3_SBATCH_ARGS[@]}" experimental/annotate_dataset.sh "${STAGE3_ARGS[@]}")"
-  if [[ -n "${JOB1}" ]]; then
-    echo "Submitted Stage 3 job: ${JOB2} (depends on ${JOB1})"
-  else
-    echo "Submitted Stage 3 job: ${JOB2}"
-  fi
+  echo ""
+  echo "=== Stage 1: verifying ${SOURCE_DATASET} ==="
+  "${PYTHON}" scripts/dataset_pipeline/stage1_verify_dataset.py "${VERIFY_ARGS[@]}"
+
+  echo ""
+  echo "=== Stage 2: filter / split / upload -> ${FILTERED_DATASET} ==="
+  "${PYTHON}" scripts/dataset_pipeline/stage2_filter_split_upload.py "${STAGE2_ARGS[@]}"
 fi
 
-STAGE4_ARGS=(
-  --source-dataset "${ANNOTATED_DATASET}"
-  --output-dataset "${SUBSAMPLED_DATASET}"
-  --fraction "${SUBSAMPLE_FRACTION}"
-  --seed "${SEED}"
-)
-if [[ "${PRIVATE}" -eq 1 ]]; then
-  STAGE4_ARGS+=(--private)
-fi
-
-STAGE4_SBATCH_ARGS=(
-  --parsable
-  --export "${SBATCH_EXPORT}"
-  --chdir "${REPO_ROOT}"
-)
-STAGE4_DEPENDS="${JOB2:-${JOB1}}"
-if [[ -n "${STAGE4_DEPENDS}" ]]; then
-  STAGE4_SBATCH_ARGS+=(--dependency="afterok:${STAGE4_DEPENDS}")
-fi
-
-JOB3="$(sbatch "${STAGE4_SBATCH_ARGS[@]}" scripts/dataset_pipeline/stage4_subsample.sbatch "${STAGE4_ARGS[@]}")"
-if [[ -n "${STAGE4_DEPENDS}" ]]; then
-  echo "Submitted Stage 4 job: ${JOB3} (depends on ${STAGE4_DEPENDS})"
+# ----------------------------------------------------------------------------
+# Stage 3: annotate with reward model + upload (needs GPU; skipped for --skip-annotation)
+# ----------------------------------------------------------------------------
+if [[ "${SKIP_STAGE3}" -eq 1 ]]; then
+  echo ""
+  echo "Skipping Stage 3 (annotation)."
+  echo "Annotated dataset repo: ${ANNOTATED_DATASET}"
 else
-  echo "Submitted Stage 4 job: ${JOB3}"
+  STAGE3_ARGS=(
+    --source-dataset "${FILTERED_DATASET}"
+    --output-dataset "${ANNOTATED_DATASET}"
+    --reward-model "${REWARD_MODEL}"
+    --max-prompt-tokens "${MAX_PROMPT_TOKENS}"
+    --max-conversation-tokens "${MAX_CONVERSATION_TOKENS}"
+    --validation-tokenizer-name "${TOKENIZER_NAME}"
+  )
+  if [[ "${PRIVATE}" -eq 1 ]]; then
+    STAGE3_ARGS+=(--private)
+  fi
+  if [[ "${TRUST_REMOTE_CODE}" -eq 1 ]]; then
+    STAGE3_ARGS+=(--trust-remote-code)
+  fi
+
+  echo ""
+  echo "=== Stage 3: annotate ${FILTERED_DATASET} with ${REWARD_MODEL} -> ${ANNOTATED_DATASET} ==="
+  echo "(annotation requires a GPU large enough for the reward model)"
+  "${PYTHON}" scripts/dataset_pipeline/stage3_annotate_and_upload.py "${STAGE3_ARGS[@]}"
+fi
+
+# ----------------------------------------------------------------------------
+# Stage 4: subsample + upload
+# ----------------------------------------------------------------------------
+if [[ "${SKIP_STAGE4}" -eq 1 ]]; then
+  echo ""
+  echo "Skipping Stage 4 (subsample)."
+else
+  STAGE4_ARGS=(
+    --source-dataset "${ANNOTATED_DATASET}"
+    --output-dataset "${SUBSAMPLED_DATASET}"
+    --fraction "${SUBSAMPLE_FRACTION}"
+    --seed "${SEED}"
+  )
+  if [[ "${PRIVATE}" -eq 1 ]]; then
+    STAGE4_ARGS+=(--private)
+  fi
+
+  echo ""
+  echo "=== Stage 4: subsample ${ANNOTATED_DATASET} -> ${SUBSAMPLED_DATASET} ==="
+  "${PYTHON}" scripts/dataset_pipeline/stage4_subsample_upload.py "${STAGE4_ARGS[@]}"
 fi
 
 echo ""
-echo "Pipeline submitted successfully."
+echo "Pipeline completed successfully."
 if [[ "${SKIP_ANNOTATION}" -eq 0 ]]; then
   echo "Filtered dataset repo:   ${FILTERED_DATASET}"
 fi
 echo "Annotated dataset repo:  ${ANNOTATED_DATASET}"
-echo "Subsampled dataset repo: ${SUBSAMPLED_DATASET}"
-
-JOB_IDS=()
-if [[ -n "${JOB1}" ]]; then
-  JOB_IDS+=("${JOB1}")
-fi
-if [[ -n "${JOB2}" ]]; then
-  JOB_IDS+=("${JOB2}")
-fi
-if [[ -n "${JOB3}" ]]; then
-  JOB_IDS+=("${JOB3}")
-fi
-
-if [[ ${#JOB_IDS[@]} -gt 0 ]]; then
-  JOB_LIST="$(IFS=,; echo "${JOB_IDS[*]}")"
-  echo "Track jobs: squeue -j ${JOB_LIST}"
+if [[ "${SKIP_STAGE4}" -eq 0 ]]; then
+  echo "Subsampled dataset repo: ${SUBSAMPLED_DATASET}"
 fi

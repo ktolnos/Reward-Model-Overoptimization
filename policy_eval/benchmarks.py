@@ -46,7 +46,7 @@ from .types import Benchmark, Example, GenerationConfig
 
 def _load_preference_examples(args) -> List[Example]:
     ds = load_dataset(args.dataset_name)
-    requested = getattr(args, "split", "test")
+    requested = getattr(args, "split", "validation")
     if hasattr(ds, "keys"):
         if requested not in ds:
             raise ValueError(

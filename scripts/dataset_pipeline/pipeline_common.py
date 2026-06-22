@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
+import re
 import shutil
+import string
 from pathlib import Path
 from typing import Any
 
@@ -160,23 +161,33 @@ def split_four_way(
     - ``validation`` — held-out prompts for hyperparameter sweeps.
     - ``test``       — held-out prompts for final truth evaluation (never selection).
 
-    Splitting is **by prompt group**, not by row. The dominant reason is
-    duplication: in the official HelpSteer3 (preference) train split, **35% of
-    rows are exact full-row duplicates** (identical context + responses + label +
-    raw annotations; measured directly). 41.6% of prompts appear on >1 row, but
-    most of that is pure duplication rather than genuinely distinct response-pairs
-    (only ~776 prompts carry truly different pairs). The duplicates are confined
-    within a single (domain, language) and occur at a near-uniform rate across
-    subsets — i.e. a systematic row-level artifact, not per-annotator rows
-    (annotators are already aggregated inside each row's ``individual_preference``)
-    nor cross-subset resampling. The exact construction cause is **not documented
-    in the paper** (arxiv 2505.11475 does not address per-prompt multiplicity or
-    dedup); the paper's intended unit is nonetheless one aggregated row per sample.
-    A row-level split would scatter identical rows across train and the held-out
-    splits, leaking the same example and breaking the no-peek rule. Grouping by
-    prompt keeps all copies in one split. Ratios apply to the prompt-group count,
-    so row counts deviate slightly; ``test`` absorbs any remainder. Splits are
-    prompt-disjoint by construction.
+    Splitting is **by first-message group**, not by row. The grouping key is the
+    first message of the conversation, normalized (lowercased, with whitespace and
+    ASCII punctuation stripped) — see ``_first_message_key``. All rows whose first
+    message normalizes to the same key are forced into the same split.
+
+    Using the *first message* rather than the full prompt is deliberate. An exact
+    full-prompt hash leaks across splits in two ways: (1) rows that share an opening
+    user turn but diverge in later turns hash differently and scatter; (2) rows whose
+    prompts differ only by case/whitespace/punctuation hash differently. Both let the
+    "same" prompt appear in train and a held-out split, breaking the no-peek rule.
+    Normalizing the first message collapses all of these into one group.
+
+    Duplication motivates grouping in the first place: in the official HelpSteer3
+    (preference) train split, **35% of rows are exact full-row duplicates** (identical
+    context + responses + label + raw annotations; measured directly). 41.6% of prompts
+    appear on >1 row, but most of that is pure duplication rather than genuinely distinct
+    response-pairs (only ~776 prompts carry truly different pairs). The duplicates are
+    confined within a single (domain, language) and occur at a near-uniform rate across
+    subsets — i.e. a systematic row-level artifact, not per-annotator rows (annotators are
+    already aggregated inside each row's ``individual_preference``) nor cross-subset
+    resampling. The exact construction cause is **not documented in the paper** (arxiv
+    2505.11475 does not address per-prompt multiplicity or dedup); the paper's intended
+    unit is nonetheless one aggregated row per sample. A row-level split would scatter
+    identical rows across train and the held-out splits, leaking the same example and
+    breaking the no-peek rule. Grouping keeps all copies in one split. Ratios apply to the
+    group count, so row counts deviate slightly; ``test`` absorbs any remainder. Splits
+    are first-message-disjoint by construction.
 
     NOTE: this prevents *cross-split* leakage but does NOT remove *within-split*
     duplication — train still carries the redundant copies and eval metrics still
@@ -190,10 +201,10 @@ def split_four_way(
             f"train+select+validation+test={ratio_sum}."
         )
 
-    # Group row indices by prompt hash, then shuffle the *groups* deterministically.
+    # Group row indices by first-message key, then shuffle the *groups* deterministically.
     groups: dict[str, list[int]] = {}
     for idx, ex in enumerate(dataset):
-        groups.setdefault(_prompt_hash(ex), []).append(idx)
+        groups.setdefault(_first_message_key(ex), []).append(idx)
 
     import random
 
@@ -223,25 +234,39 @@ def split_four_way(
     )
 
 
-def _prompt_hash(example: dict[str, Any]) -> str:
-    """Stable hash of an example's prompt (the conversation minus the final answer)."""
-    prompt = example["chosen"][:-1]
-    blob = json.dumps(prompt, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+_PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_first_message(text: str) -> str:
+    """Lowercase, then strip ASCII punctuation and all whitespace."""
+    return _WHITESPACE_RE.sub("", text.lower().translate(_PUNCT_TABLE))
+
+
+def _first_message_key(example: dict[str, Any]) -> str:
+    """Stable hash of the example's normalized first message.
+
+    All rows whose first message normalizes identically (lowercase, no whitespace,
+    no ASCII punctuation) share a key and are forced into the same split. This is
+    the grouping unit that keeps prompts from leaking across train/select/
+    validation/test.
+    """
+    first = _normalize_first_message(example["chosen"][0]["content"])
+    return hashlib.sha256(first.encode("utf-8")).hexdigest()
 
 
 def assert_splits_disjoint(
     split_dict: DatasetDict,
     splits: tuple[str, ...] = ("train", "select", "validation", "test"),
 ) -> None:
-    """Raise if any pair of splits shares a prompt (contamination guard).
+    """Raise if any pair of splits shares a first message (contamination guard).
 
     Within-dataset disjointness is already guaranteed by construction in
     ``split_four_way`` (sequential slicing of one shuffle); this is a cheap guard
     against future refactors or accidental concatenation.
     """
     hashes = {
-        name: {_prompt_hash(ex) for ex in split_dict[name]}
+        name: {_first_message_key(ex) for ex in split_dict[name]}
         for name in splits
         if name in split_dict
     }
@@ -251,6 +276,6 @@ def assert_splits_disjoint(
             overlap = hashes[names[i]] & hashes[names[j]]
             if overlap:
                 raise ValueError(
-                    f"Contamination: {len(overlap)} shared prompt(s) between "
+                    f"Contamination: {len(overlap)} shared first message(s) between "
                     f"'{names[i]}' and '{names[j]}'."
                 )
