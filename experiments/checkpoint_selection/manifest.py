@@ -18,7 +18,7 @@ CLUSTER_ROOT = "/nas/ucb/eop/Reward-Model-Overoptimization"
 
 DATASET_NAME = "ktolnos/helpsteer3-qwen35_annotated_human"
 DATASET_NAME_25PCT = "ktolnos/helpsteer3-qwen35_annotated_human_25pct"
-POLICY_TOKENIZER_NAME = "Qwen/Qwen3-4B-Base"
+POLICY_TOKENIZER_NAME = "Qwen/Qwen3.5-4B-Base"
 
 # Project under which the GRPO training runs live in wandb.
 WANDB_PROJECT = "grpo"
