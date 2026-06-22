@@ -358,7 +358,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --auto_prompt_length True \
     --skip_length_validation True \
     --penalize_no_eos True \
-    --penalize_no_eos_soft_fraction 0.9 \
+    --penalize_no_eos_soft_fraction 0.8 \
     --penalize_no_eos_max_penalty 2 \
     --penalize_no_eos_power 1.0 \
     --max_grad_norm 1.0 \

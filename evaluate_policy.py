@@ -89,12 +89,18 @@ class ScriptArguments:
         default="ktolnos/helpsteer3-preference-chosenrrejected",
         metadata={"help": "Name of the preference dataset (for the 'preference' benchmark)"},
     )
+    split: str = field(
+        default="test",
+        metadata={"help": "Preference dataset split to evaluate: 'validation' for "
+                          "hyperparameter sweeps, 'test' for final/truth eval. "
+                          "Raises if the split is absent."},
+    )
 
     # ------------------------------------------------------------------
     # Reward models (shared across evaluators)
     # ------------------------------------------------------------------
     training_rm_path: str = field(
-        default="/nas/ucb/eop/Reward-Model-Overoptimization/rlhf/logs_ppo/checkpoint-40",
+        default="",
         metadata={"help": "Path to the reward model used during training"},
     )
     gold_rm_name: str = field(

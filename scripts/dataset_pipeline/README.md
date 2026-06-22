@@ -10,7 +10,7 @@ This folder contains a 4-stage preprocessing pipeline for preference datasets.
 
 2. `stage2_filter_split_upload.py`
 - Filters by prompt/response/conversation token constraints.
-- Splits into `train`, `test`, and `heldout`.
+- Splits **by prompt group** into `train`, `select`, `validation`, and `test` (default ratios `0.85 / 0.05 / 0.05 / 0.05`). All rows sharing a prompt go to the same split — chiefly because the official HelpSteer3 train split contains ~35% exact full-row duplicates (measured directly; a systematic row-level artifact whose construction cause the paper does not document — the intended unit is one aggregated row per sample), so a row-level split would leak identical rows across splits. `assert_splits_disjoint` verifies the splits are pairwise prompt-disjoint. When the source has multiple splits, all four are carved from the source `train` split and other source splits are dropped. See BENCHMARK.md §3 for the split semantics, and HANDOFF.md for the duplication finding and the open dedup question.
 - Uploads filtered dataset to Hugging Face.
 
 3. `stage3_annotate_and_upload.py`
