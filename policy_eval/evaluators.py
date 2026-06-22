@@ -20,6 +20,7 @@ import numpy as np
 import wandb
 
 from .arena_hard_upstream import CATEGORY_BASELINES
+from .judges import LLMBattleDetails, RMBattleDetails
 from .pairwise import compute_pairwise_metrics
 from .rewards import score_responses_with_rm
 from .types import Benchmark, EvalContext, Example, GenerationResult
@@ -69,6 +70,9 @@ class RewardModelEvaluator:
         )
 
         label = self.rm_label
+        # Persist the policy-side score for every response.
+        ctx.recorder.add_response_column(f"score__{self.name}", scores)
+
         out: Dict = {
             benchmark.metric_key(f"{label}/mean"): float(np.mean(scores)),
             benchmark.metric_key(f"{label}/std"): float(np.std(scores)),
@@ -85,6 +89,16 @@ class RewardModelEvaluator:
         has_chosen_metadata = all("chosen_response" in ex.metadata for ex in examples)
         chosen = rms.chosen_scores(label) if (rms and has_chosen_metadata) else None
         if chosen is not None and len(chosen) == len(examples) and len(chosen) > 0:
+            # Persist the reference (chosen) scores for offline win-rate (per-prompt),
+            # plus the reference text once so style-controlled win-rate is recomputable.
+            ctx.recorder.add_prompt_column(
+                f"chosen_or_baseline_score__{label}", list(chosen)
+            )
+            if not ctx.recorder.has_column("reference_response_text"):
+                ctx.recorder.add_prompt_column(
+                    "reference_response_text",
+                    [ex.metadata.get("chosen_response", "") for ex in examples],
+                )
             if n > 1:
                 scores_per_prompt = scores.reshape(-1, n).mean(axis=1)
                 policy_responses_per_prompt = generation.responses[::n]
@@ -183,7 +197,7 @@ class PairwiseEvaluator:
         policy_responses,
         baseline_responses,
         ctx,
-    ) -> Optional[List[List[float]]]:
+    ) -> Optional[tuple]:
         if not all(baseline_responses):
             print(
                 f"[pairwise:{self.judge.name}] slot '{slot_name}' has missing "
@@ -206,28 +220,77 @@ class PairwiseEvaluator:
                 f"{safe_slot}__n{len(baseline_responses)}__"
                 f"{_hash_responses(baseline_responses)}"
             )
-            battles, _ = self.judge.score_pairs(
+            battles, details = self.judge.score_pairs(
                 prompt_messages_list, policy_responses, baseline_responses, ctx,
                 baseline_cache_key=cache_key,
             )
         else:
-            battles, _ = self.judge.score_pairs(
+            battles, details = self.judge.score_pairs(
                 prompt_messages_list, policy_responses, baseline_responses, ctx,
             )
-        return battles
+        return battles, details
+
+    def _record_pairwise(self, recorder, slot_name, indices, battles, details,
+                         baseline_responses) -> None:
+        """Persist per-prompt judge signals into the recorder.
+
+        ``indices`` are the global prompt indices these battles correspond to
+        (the full range in global mode; a category's subset in per-category
+        mode). We store the raw signals that determine the battle outcomes —
+        for RM judges the policy + baseline scores, for LLM judges the two
+        per-game labels — plus the baseline response text, so any pairwise
+        metric (arena_score, sc_score, win-rate vs any reference) can be
+        recomputed offline without re-loading the baseline answer files.
+        """
+        jn = self.judge.name
+        safe = slot_name.replace("/", "_")
+        battle_mean = [float(np.mean(b)) if len(b) else float("nan") for b in battles]
+        recorder.add_sparse_prompt_column(
+            f"battle_mean__{jn}__{safe}", indices, battle_mean, fill=float("nan"),
+        )
+        recorder.add_sparse_prompt_column(
+            f"baseline_response_text__{safe}", indices, list(baseline_responses), fill="",
+        )
+        if isinstance(details, RMBattleDetails):
+            # Policy-side score is independent of the baseline slot; accumulate
+            # it into a single column (sparse-merge handles per-category).
+            recorder.add_sparse_prompt_column(
+                f"score__{jn}", indices, list(details.policy_scores), fill=float("nan"),
+            )
+            recorder.add_sparse_prompt_column(
+                f"chosen_or_baseline_score__{jn}__{safe}", indices,
+                list(details.baseline_scores), fill=float("nan"),
+            )
+        elif isinstance(details, LLMBattleDetails):
+            recorder.add_sparse_prompt_column(
+                f"judge_label_game0__{jn}__{safe}", indices,
+                details.game0_labels, fill=None,
+            )
+            recorder.add_sparse_prompt_column(
+                f"judge_label_game1__{jn}__{safe}", indices,
+                details.game1_labels, fill=None,
+            )
+        else:
+            raise TypeError(
+                f"Unknown judge battle details type: {type(details).__name__}"
+            )
 
     def _eval_global(
         self, examples, prompt_messages_list, policy_responses, ctx,
     ) -> Dict[str, float]:
         out: Dict = {}
+        all_indices = list(range(len(examples)))
         for baseline_name in self.baselines:
             baseline_responses = _get_baseline_responses_for(examples, baseline_name)
-            battles = self._run_judge(
+            result = self._run_judge(
                 baseline_name, prompt_messages_list, policy_responses,
                 baseline_responses, ctx,
             )
-            if battles is None:
+            if result is None:
                 continue
+            battles, details = result
+            self._record_pairwise(ctx.recorder, baseline_name, all_indices, battles,
+                                  details, baseline_responses)
             metrics = compute_pairwise_metrics(battles, policy_responses, baseline_responses)
             for k, v in metrics.items():
                 out[f"{self.judge.name}/{baseline_name}/{k}"] = v
@@ -255,12 +318,16 @@ class PairwiseEvaluator:
             sub_prompts = [prompt_messages_list[i] for i in indices]
             sub_policy = [policy_responses[i] for i in indices]
             sub_baseline = _get_baseline_responses_for(sub_examples, baseline_name)
-            battles = self._run_judge(
+            result = self._run_judge(
                 f"{category}__vs_{baseline_name}",
                 sub_prompts, sub_policy, sub_baseline, ctx,
             )
-            if battles is None:
+            if result is None:
                 continue
+            battles, details = result
+            # Record under the category slot, scattered back to global indices.
+            self._record_pairwise(ctx.recorder, category, indices, battles, details,
+                                  sub_baseline)
             metrics = compute_pairwise_metrics(battles, sub_policy, sub_baseline)
             # Metric slot is the category name (matches upstream's leaderboard format).
             for k, v in metrics.items():
@@ -335,6 +402,14 @@ class IfevalRuleEvaluator:
             prompt_loose.append(out_loose.follow_all_instructions)
             inst_strict_all.extend(out_strict.follow_instruction_list)
             inst_loose_all.extend(out_loose.follow_instruction_list)
+
+        # Persist per-prompt strict/loose follow-all flags.
+        ctx.recorder.add_response_column(
+            "ifeval_prompt_strict", [bool(x) for x in prompt_strict]
+        )
+        ctx.recorder.add_response_column(
+            "ifeval_prompt_loose", [bool(x) for x in prompt_loose]
+        )
 
         n_truncated = sum(1 for fr in generation.finish_reasons if fr == "length")
         if n_truncated:
@@ -424,6 +499,15 @@ class KLEvaluator:
             diff = ref - pol
             per_token = np.exp(diff) - diff - 1
             kl_grpo_per_sample.append(np.mean(per_token) if len(per_token) else 0.0)
+
+        # Persist per-response KL + logprobs so KL can be recomputed (and
+        # re-aggregated) without re-running the base model.
+        ctx.recorder.add_response_column("kl__k1", kl_per_sample)
+        ctx.recorder.add_response_column("kl__grpo", kl_grpo_per_sample)
+        ctx.recorder.add_response_column(
+            "policy_mean_logprob", generation.policy_mean_logprobs
+        )
+        ctx.recorder.add_response_column("base_mean_logprob", base_mean_lp)
 
         k = benchmark.metric_key
         return {

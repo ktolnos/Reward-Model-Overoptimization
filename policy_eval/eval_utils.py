@@ -189,11 +189,17 @@ def chosen_responses_as_generation(examples: List[Example]) -> GenerationResult:
         raw_responses=responses,
         finish_reasons=["stop"] * len(responses),
         n_responses_per_example=1,
+        response_token_lens=[None] * len(responses),
     )
 
 
-def run_chosen_only(args, benchmarks, bench_examples, loaded_rms) -> None:
+def run_chosen_only(args, benchmarks, bench_examples, loaded_rms,
+                    *, per_example_dir: str) -> None:
     """Score dataset chosen responses directly. No generation, single step=0."""
+    from .persistence import (
+        PerExampleRecorder, init_base_columns, write_recorder,
+    )
+
     preference_bench = next((b for b in benchmarks if b.name == "preference"), None)
     if preference_bench is None:
         raise ValueError("--evaluate_chosen_responses requires the 'preference' benchmark")
@@ -201,10 +207,17 @@ def run_chosen_only(args, benchmarks, bench_examples, loaded_rms) -> None:
     examples = bench_examples["preference"]
     generation = chosen_responses_as_generation(examples)
 
+    recorder = PerExampleRecorder(
+        benchmark_name="preference", checkpoint_num=0,
+        n_responses_per_example=1, n_examples=len(examples),
+    )
+    init_base_columns(recorder, examples, generation,
+                      response_token_budget=args.response_token_budget)
+
     ctx = EvalContext(
         args=args, checkpoint_num=0, checkpoint_path=None,
         llm=None, policy_tokenizer=None, loaded_rms=loaded_rms,
-        baseline_responses=None,
+        baseline_responses=None, recorder=recorder,
     )
     combined: Dict = {}
     for ev in preference_bench.online_evaluators:
@@ -215,6 +228,8 @@ def run_chosen_only(args, benchmarks, bench_examples, loaded_rms) -> None:
             print(f"[chosen-only] skipping {ev.name} (judge needs baseline)")
             continue
         combined.update(ev.evaluate(preference_bench, examples, generation, ctx))
+
+    write_recorder(recorder, per_example_dir, fmt=args.per_example_format)
 
     wandb_utils.log_metrics(combined, checkpoint_num=0)
     if args.output_file:

@@ -54,6 +54,13 @@ from policy_eval.generation import (
     update_vllm_weights,
     vllm_session,
 )
+from policy_eval.persistence import (
+    PerExampleRecorder,
+    init_base_columns,
+    resolve_per_example_dir,
+    write_manifest,
+    write_recorder,
+)
 from policy_eval.rewards import LoadedRewardModels
 from policy_eval.types import Benchmark, EvalContext, Example, GenerationResult
 
@@ -213,6 +220,25 @@ class ScriptArguments:
         default=None,
         metadata={"help": "Save per-checkpoint responses to this jsonl path"},
     )
+    per_example_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "Directory for per-example logs. One parquet/jsonl per "
+                          "(benchmark, checkpoint), one row per (prompt, response), holding "
+                          "every raw NN output (responses, RM scores, judge verdicts, KL) so "
+                          "aggregates can be recomputed after checkpoints are deleted. "
+                          "Persistence is always on; this only chooses the location. "
+                          "Default: '<output_file_stem>_per_example'."},
+    )
+    per_example_format: Optional[str] = field(
+        default="parquet",
+        metadata={"help": "Per-example log format: 'parquet' (default) or 'jsonl'."},
+    )
+    response_token_budget: Optional[int] = field(
+        default=1024,
+        metadata={"help": "Response-token budget for the over_budget flag in per-example "
+                          "logs. A response is over-budget if truncated (finish_reason=='length') "
+                          "or longer than this. Set <=0 to flag truncation only."},
+    )
     base_model_name: Optional[str] = field(
         default=None, metadata={"help": "Base model for LoRA checkpoints"},
     )
@@ -277,6 +303,11 @@ def main():
     for b in benchmarks:
         print(f"  - {b.name}: evaluators={[e.name for e in b.evaluators]}")
 
+    # ----- Per-example persistence (always on) ------------------------------
+    per_example_dir = resolve_per_example_dir(args)
+    print(f"Per-example logs -> {per_example_dir}/ (format={args.per_example_format})")
+    write_manifest(per_example_dir, args, benchmarks)
+
     # ----- Lazily load the reward models actually used by evaluators --------
     loaded_rms: Optional[LoadedRewardModels] = None
     rm_labels_needed = rms_required_by(benchmarks)
@@ -302,7 +333,10 @@ def main():
 
     # ----- Chosen-responses-only path (no vLLM) -----------------------------
     if args.evaluate_chosen_responses:
-        return run_chosen_only(args, benchmarks, bench_examples, loaded_rms)
+        return run_chosen_only(
+            args, benchmarks, bench_examples, loaded_rms,
+            per_example_dir=per_example_dir,
+        )
 
     # ----- Resolve checkpoints + tokenizer ----------------------------------
     checkpoints, single_model_path, first_checkpoint_path = list_checkpoints(args)
@@ -384,9 +418,27 @@ def main():
                             for p, r in zip(prompts, generation.responses)
                         ]
 
+                    # Per-example log for this (benchmark, checkpoint): base
+                    # columns now, evaluator score columns as they run.
+                    recorder = PerExampleRecorder(
+                        benchmark_name=bench.name,
+                        checkpoint_num=ckpt_num,
+                        n_responses_per_example=generation.n_responses_per_example,
+                        n_examples=len(examples),
+                    )
+                    init_base_columns(
+                        recorder, examples, generation,
+                        response_token_budget=args.response_token_budget,
+                    )
+                    ctx.recorder = recorder
+
                     for ev in bench.online_evaluators:
                         metrics = ev.evaluate(bench, examples, generation, ctx)
                         combined_metrics.update(metrics)
+
+                    write_recorder(recorder, per_example_dir,
+                                   fmt=args.per_example_format)
+                    ctx.recorder = None
 
                 combined_metrics["checkpoint"] = ckpt_num
                 train_metrics = lookup_train_metrics(train_history, ckpt_num)

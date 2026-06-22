@@ -22,12 +22,34 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
 import requests
 
 from .rewards import score_responses_with_rm
+
+
+@dataclass
+class RMBattleDetails:
+    """Per-prompt reward-model scores behind each RM-judge battle.
+
+    ``policy_scores``/``baseline_scores`` are aligned to the prompts passed to
+    ``score_pairs`` (answer_a = policy, answer_b = baseline)."""
+    policy_scores: np.ndarray
+    baseline_scores: np.ndarray
+
+
+@dataclass
+class LLMBattleDetails:
+    """Per-prompt position-swapped game labels behind each LLM-judge battle.
+
+    ``game0_labels`` is the A=baseline/B=policy game, ``game1_labels`` the
+    A=policy/B=baseline game; entries are ``None`` when a game failed to parse."""
+    game0_labels: List[Optional[str]]
+    game1_labels: List[Optional[str]]
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +137,7 @@ class RMJudge:
         ctx,
         *,
         baseline_cache_key: Optional[str] = None,
-    ) -> Tuple[List[List[float]], Dict[str, np.ndarray]]:
+    ) -> Tuple[List[List[float]], RMBattleDetails]:
         rms = ctx.loaded_rms
         entry = rms.get(self.rm_label) if rms else None
         if entry is None:
@@ -151,7 +173,7 @@ class RMJudge:
                 battles.append([0.5])
             else:
                 battles.append([0.0])
-        return battles, {"scores_a": scores_a, "scores_b": scores_b}
+        return battles, RMBattleDetails(policy_scores=scores_a, baseline_scores=scores_b)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +273,7 @@ class LLMAPIJudge:
         answers_a: List[str],
         answers_b: List[str],
         ctx,
-    ) -> Tuple[List[List[float]], Dict[str, Any]]:
+    ) -> Tuple[List[List[float]], LLMBattleDetails]:
         import concurrent.futures as cf
         label_score = _label_to_score(self.weight)
 
@@ -299,6 +321,6 @@ class LLMAPIJudge:
             print(
                 f"[LLMAPIJudge] dropped {dropped}/{n} prompts due to parse/API failure"
             )
-        return battles_per_prompt, {
-            "game0_labels": game0_labels, "game1_labels": game1_labels,
-        }
+        return battles_per_prompt, LLMBattleDetails(
+            game0_labels=game0_labels, game1_labels=game1_labels,
+        )

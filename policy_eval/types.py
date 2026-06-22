@@ -50,6 +50,9 @@ class GenerationResult:
     raw_responses: List[str]        # pre-strip responses as returned by vLLM
     finish_reasons: List[str]
     n_responses_per_example: int = 1
+    # Generated token count per response (len of vLLM completion.token_ids),
+    # always populated — used for length/verbosity gating + over-budget accounting.
+    response_token_lens: Optional[List[int]] = None
     # Populated only when collect_logprobs=True:
     full_ids_list: Optional[List[List[int]]] = None
     prompt_lens_list: Optional[List[int]] = None
@@ -72,6 +75,11 @@ class EvalContext:
     policy_tokenizer: Optional[Any]
     loaded_rms: Optional[Any]               # LoadedRewardModels
     baseline_responses: Optional[List[str]] = None
+    # Per-example log sink (policy_eval.persistence.PerExampleRecorder) for this
+    # (benchmark, checkpoint). Online evaluators add their per-example score
+    # columns to it. Always set during the online and chosen-only phases; None
+    # in the deferred phase (no per-example evaluators run there yet).
+    recorder: Optional[Any] = None
 
 
 class Evaluator(Protocol):

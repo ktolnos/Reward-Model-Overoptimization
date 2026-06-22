@@ -134,6 +134,7 @@ def generate_responses_vllm(
     raw_responses: List[str] = []
     responses: List[str] = []
     finish_reasons: List[str] = []
+    response_token_lens: List[int] = []
     full_ids_list: List[List[int]] = []
     prompt_lens_list: List[int] = []
     policy_mean_logprobs: List[float] = []
@@ -145,6 +146,7 @@ def generate_responses_vllm(
             raw_responses.append(raw)
             responses.append(_strip_thinking(raw) if strip_thinking else raw)
             finish_reasons.append(completion.finish_reason)
+            response_token_lens.append(len(completion.token_ids))
 
             if gen_config.collect_logprobs:
                 prompt_ids = list(output.prompt_token_ids)
@@ -171,6 +173,7 @@ def generate_responses_vllm(
         raw_responses=raw_responses,
         finish_reasons=finish_reasons,
         n_responses_per_example=gen_config.n_responses_per_example,
+        response_token_lens=response_token_lens,
     )
     if gen_config.collect_logprobs:
         result.full_ids_list = full_ids_list

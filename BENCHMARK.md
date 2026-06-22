@@ -192,7 +192,7 @@ for ranking.
 
 ---
 
-## 9. Per-example logging contract (A1) ⏳
+## 9. Per-example logging contract (A1) ✅
 
 **The single most important storage rule.** Because the headline metric is
 deferred and checkpoint storage is finite, every eval **must persist per-example
@@ -212,6 +212,22 @@ per `(benchmark, checkpoint)` with one row per `(prompt, response)`:
 From this you can compute, post-hoc and for free: panel mean, panel min,
 win-rate vs **any** reference, style-controlled (`sc_score`), and length-controlled
 variants.
+
+**Implementation** ([policy_eval/persistence.py](policy_eval/persistence.py)):
+`PerExampleRecorder` accumulates one row per `(prompt, response)`; the eval main
+loop writes one file per `(benchmark, checkpoint)` to
+`<output_file_stem>_per_example/<benchmark>__checkpoint-<n>.parquet` (override the
+location with `--per_example_dir`, switch to jsonl with `--per_example_format
+jsonl`). Persistence is always on — there is no disable flag. Each evaluator contributes its per-example
+columns through `EvalContext.recorder`: RM evaluators write `score__rm_<label>`
+and `chosen_or_baseline_score__<label>`; the pairwise judge writes the raw
+signals that determine each battle (RM judge → policy + baseline scores; LLM
+judge → both per-game labels) plus `battle_mean__<judge>__<slot>`; KL writes
+`kl__k1`/`kl__grpo` + policy/base mean-logprobs; IFEval writes per-prompt
+strict/loose flags. `over_budget = finish_reason=='length' or
+response_token_len > --response_token_budget` (default 1024). A `_manifest.json`
+records dataset/split/RM identities/budgets so the scores' provenance survives
+checkpoint deletion.
 
 ---
 
@@ -292,9 +308,12 @@ check all gate the sweeps — the code is frozen only after they pass.
    ([§3](#3-datasets--splits)) — done via `split_four_way` + `assert_splits_disjoint` in
    scripts/dataset_pipeline. Filter once with the canonical Qwen3.5 tokenizer
    (family-agnostic). Remaining 🔲: external contamination cross-check vs ArenaHard/IFEval.
-2. **A1 — Per-example persistence** ([§9](#9-per-example-logging-contract-a1-)). Foundation; do before any
-   further benchmark runs or they're wasted. Schema above → wire into every
-   evaluator → verify on a `--debug` run.
+2. ✅ **A1 — Per-example persistence** ([§9](#9-per-example-logging-contract-a1-)). Foundation; do before any
+   further benchmark runs or they're wasted. Done via `PerExampleRecorder`
+   ([policy_eval/persistence.py](policy_eval/persistence.py)), wired into every
+   evaluator through `EvalContext.recorder`. Remaining 🔲: deferred-phase
+   (vLLM judge) verdicts append once [B1](#11-implementation-roadmap) lands;
+   verify on a `--debug` run before the first sweep.
 3. **B1 — Open-weight vLLM judge** ([§5](#5-evaluators)). Implement
    `LLMJudgeVLLMEvaluator` (deferred, loads judge vLLM once) reusing
    `LLMAPIJudge`'s Arena-Hard 2-game-swap + parse logic; pick the open-weight
@@ -334,12 +353,12 @@ check all gate the sweeps — the code is frozen only after they pass.
 
 From the eval audit of `policy_eval/` (severity tagged):
 
-- 🔴 **A1** Per-example scores not persisted — [evaluators.py:71-77](policy_eval/evaluators.py#L71-L77) logs only mean/std/lossy-histogram + aggregate win-rate. Blocks deferred metric choice.
+- ✅ **A1** Per-example scores now persisted — `PerExampleRecorder` ([policy_eval/persistence.py](policy_eval/persistence.py)) writes one parquet/jsonl per `(benchmark, checkpoint)` (one row per `(prompt, response)`) with responses, token lengths, finish reasons, every RM/judge score, KL, and `over_budget`. Aggregation can be recomputed offline. (Was: [evaluators.py](policy_eval/evaluators.py) logged only mean/std/lossy-histogram + aggregate win-rate.)
 - 🟠 **B1** Open-weight judge unimplemented — [evaluators.py:489-516](policy_eval/evaluators.py#L489-L516) is a `NotImplementedError` scaffold; preference API judge disabled by a prompt-corruption bug ([evaluators.py:471-482](policy_eval/evaluators.py#L471-L482)). Only the closed-model OpenRouter judge works.
 - 🟠 **B2** Eval bypasses length guard — `skip_validation=True` everywhere ([rewards.py:55-62](policy_eval/rewards.py#L55-L62), [benchmarks.py:86-94](policy_eval/benchmarks.py#L86-L94)); BT scoring doesn't truncate → over-budget fed past RM context, biasing the longest (most-hacked) responses.
 - 🟠 **B3** Decoding config not frozen — [benchmarks.py:127-136](policy_eval/benchmarks.py#L127-L136) flips temp 0→0.7 when a judge is attached.
 - 🟡 **B4** Win-rate reference is dataset `chosen`, not SFT ([evaluators.py:96-106](policy_eval/evaluators.py#L96-L106)) — fine under human-primary but must be declared; becomes a reporting choice once A1 lands.
-- 🟡 **C1** Response length/finish_reason not logged on RM paths.
+- ✅ **C1** Response length/finish_reason now logged on all paths — `response_token_len` + `finish_reason` + `over_budget` are per-example columns (A1). (B2's actual length *guard* on the RM scoring path is still open.)
 - 🟡 **C2** `n>1` inconsistency: arena/judge use only `responses[::n]` (first sample); harmless at n=1.
 - 🟡 **C3** Bootstrap `n_bootstrap=100` — bump to ~1000 for final CIs.
 - ⚪ Legacy [rm_eval/load_eval_datasets.py](rm_eval/load_eval_datasets.py) uses `truncation=True` + double length-filter — stale, off the policy path; quarantine/delete.
@@ -348,3 +367,6 @@ Confirmed **correct** (no action): BT RM scoring tokenization (BOS-strip +
 `add_special_tokens=True` + left-pad, no truncation, via `tokenize_for_rm`); KL
 evaluator (k1 + k3 estimators vs configurable SFT base); Arena-Hard API judge
 upstream-compatibility.
+
+
+Proposed LLM judge: google/gemma-4-31B-it
