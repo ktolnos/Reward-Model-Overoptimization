@@ -86,6 +86,39 @@ def _patch_grm_device_mismatch(model):
         model.v_head.to(base_device)
 
 
+# Architectures whose attention flash-attn 2.x cannot run (e.g. Gemma 4's text
+# backbone trips "FlashAttention forward only supports head dimension at most 256").
+# We transparently downgrade flash_attention_2 -> sdpa for these.
+_FA2_INCOMPATIBLE_MODEL_TYPES = {"gemma4", "gemma4_text"}
+
+
+def select_attn_implementation(model_name, requested="flash_attention_2", *, trust_remote_code=True):
+    """Return an attention implementation safe to load ``model_name`` with.
+
+    Keeps ``requested`` as-is unless it is ``flash_attention_2`` and the model is a
+    known flash-attn-incompatible architecture (currently Gemma 4), in which case it
+    falls back to ``sdpa``. Multimodal configs nest the text arch under ``text_config``.
+    """
+    if requested != "flash_attention_2":
+        return requested
+    try:
+        from transformers import AutoConfig
+        cfg = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        model_types = {getattr(cfg, "model_type", "")}
+        text_cfg = getattr(cfg, "text_config", None)
+        if text_cfg is not None:
+            model_types.add(getattr(text_cfg, "model_type", ""))
+        if model_types & _FA2_INCOMPATIBLE_MODEL_TYPES:
+            print(
+                f"[attn] {model_name} ({model_types & _FA2_INCOMPATIBLE_MODEL_TYPES}) is "
+                "incompatible with flash_attention_2 (head_dim > 256); using sdpa instead."
+            )
+            return "sdpa"
+    except Exception as e:  # config load failures shouldn't block model loading
+        print(f"[attn] could not introspect {model_name} for attn selection ({e}); keeping {requested}")
+    return requested
+
+
 def _infer_num_labels(model_name: str) -> int:
     """Infer num_labels from the checkpoint's score.weight shape.
 
@@ -144,6 +177,7 @@ def load_reward_model(
         AutoModelForSequenceClassification,
         AutoTokenizer,
     )
+    import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
     from data_utils import setup_tokenizer, setup_alpacafarm_gold_chat_template
     from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
@@ -198,7 +232,9 @@ def load_reward_model(
 
     kwargs = {
         "torch_dtype": torch.bfloat16,
-        "attn_implementation": "flash_attention_2",
+        "attn_implementation": select_attn_implementation(
+            model_name, "flash_attention_2", trust_remote_code=trust_remote_code
+        ),
         "trust_remote_code": trust_remote_code,
     }
     if use_device_map:
