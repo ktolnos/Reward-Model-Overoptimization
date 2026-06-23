@@ -52,7 +52,7 @@ def _load_preference_split(args, requested: str) -> List[Example]:
                 f"Requested split '{requested}' not in dataset {args.dataset_name!r}; "
                 f"available: {list(ds.keys())}."
             )
-        print(f"[{requested}] Using split '{requested}' from {list(ds.keys())}")
+        print(f"[preference] Using split '{requested}' from {list(ds.keys())}")
         dataset = ds[requested]
     else:
         dataset = ds
@@ -61,7 +61,7 @@ def _load_preference_split(args, requested: str) -> List[Example]:
         dataset = dataset.select(range(min(100, len(dataset))))
     elif args.subsample_n is not None and args.subsample_n < len(dataset):
         dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
-        print(f"[{requested}] Subsampling to {args.subsample_n} prompts.")
+        print(f"[preference] Subsampling to {args.subsample_n} prompts.")
 
     if "chosen" not in dataset.column_names:
         raise ValueError("Preference dataset must have a 'chosen' column.")
