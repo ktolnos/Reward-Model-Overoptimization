@@ -42,6 +42,11 @@ CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_gr
 TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #TRAINING_RM_PATH="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 
+# Sibling RM: an independently-seeded RM from the training RM's base model, used
+# by the 'select' benchmark to pick the best checkpoint (scored on the dataset's
+# 'select' split). Validated as a near-oracle checkpoint selector.
+SIBLING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/20_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+
 # Name of the gold reward model
 #GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 #GOLD_RM_NAME="LxzGordon/URM-LLaMa-3.1-8B"
@@ -66,7 +71,7 @@ WANDB_PROJECT="policy-evaluation"
 WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 
 SKIP_VALIDATION=1
-BENCHMARKS="preference,ifeval,arena_hard"
+BENCHMARKS="select,preference,ifeval,arena_hard"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -94,6 +99,7 @@ done
 echo "Running evaluation with the following settings:"
 echo "Checkpoints Directory: $CHECKPOINTS_DIR"
 echo "Training RM Path: $TRAINING_RM_PATH"
+echo "Sibling RM Path: $SIBLING_RM_PATH"
 echo "Gold RM Name: $GOLD_RM_NAME"
 echo "Dataset Name: $DATASET_NAME"
 echo "Output File: $OUTPUT_FILE"
@@ -108,6 +114,7 @@ export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 python evaluate_policy.py \
     --checkpoints_dir "$CHECKPOINTS_DIR" \
     --training_rm_path "$TRAINING_RM_PATH" \
+    --sibling_rm_path "$SIBLING_RM_PATH" \
     --gold_rm_name "$GOLD_RM_NAME" \
     --dataset_name "$DATASET_NAME" \
     --output_file "$OUTPUT_FILE" \

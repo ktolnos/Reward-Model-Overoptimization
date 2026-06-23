@@ -44,16 +44,15 @@ from .types import Benchmark, Example, GenerationConfig
 # Preference benchmark (HelpSteer-style dataset with chosen/rejected)
 # ---------------------------------------------------------------------------
 
-def _load_preference_examples(args) -> List[Example]:
+def _load_preference_split(args, requested: str) -> List[Example]:
     ds = load_dataset(args.dataset_name)
-    requested = getattr(args, "split", "validation")
     if hasattr(ds, "keys"):
         if requested not in ds:
             raise ValueError(
                 f"Requested split '{requested}' not in dataset {args.dataset_name!r}; "
                 f"available: {list(ds.keys())}."
             )
-        print(f"[preference] Using split '{requested}' from {list(ds.keys())}")
+        print(f"[{requested}] Using split '{requested}' from {list(ds.keys())}")
         dataset = ds[requested]
     else:
         dataset = ds
@@ -62,7 +61,7 @@ def _load_preference_examples(args) -> List[Example]:
         dataset = dataset.select(range(min(100, len(dataset))))
     elif args.subsample_n is not None and args.subsample_n < len(dataset):
         dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
-        print(f"[preference] Subsampling to {args.subsample_n} prompts.")
+        print(f"[{requested}] Subsampling to {args.subsample_n} prompts.")
 
     if "chosen" not in dataset.column_names:
         raise ValueError("Preference dataset must have a 'chosen' column.")
@@ -78,8 +77,16 @@ def _load_preference_examples(args) -> List[Example]:
                 "rejected_messages": ex.get("rejected"),
             },
         ))
-    print(f"[preference] Loaded {len(examples)} examples")
+    print(f"[{requested}] Loaded {len(examples)} examples")
     return examples
+
+
+def _load_preference_examples(args) -> List[Example]:
+    return _load_preference_split(args, getattr(args, "split", "validation"))
+
+
+def _load_select_examples(args) -> List[Example]:
+    return _load_preference_split(args, args.selection_split)
 
 
 def _format_preference_prompt(example: Example, tokenizer, thinking: bool) -> str:
@@ -153,6 +160,50 @@ def build_preference_benchmark(args) -> Benchmark:
         # layout (e.g. ``gold_rm/mean``, ``kl/grpo_mean``), so wandb charts
         # from existing runs stay valid when resuming via --wandb_run_id.
         metric_prefix="",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Select benchmark (checkpoint selection via a held-out sibling RM)
+#
+# Generates policy responses on the dataset's selection split and scores them
+# with the sibling RM only. The per-checkpoint ``select/sibling_rm/mean`` is the
+# selection signal: argmax over checkpoints picks the deployed checkpoint. The
+# sibling RM is an independently-seeded RM from the same base model as the
+# training RM, validated as a near-oracle checkpoint selector (see
+# interesting_experiments.md). Kept separate from the preference benchmark so it
+# runs on its own split and never contaminates the reported main metrics.
+# ---------------------------------------------------------------------------
+
+def build_select_benchmark(args) -> Benchmark:
+    if not args.sibling_rm_path or args.sibling_rm_path.lower() == "none":
+        raise ValueError(
+            "The 'select' benchmark requires --sibling_rm_path (an independently-seeded "
+            "RM from the training RM's base model). Set it, or drop 'select' from "
+            "--benchmarks."
+        )
+    # Mirror the preference benchmark's generation (thinking on, greedy) so the
+    # selection signal reflects the same decoding the policy is judged under.
+    sampling_params = SamplingParams(
+        temperature=0,
+        top_p=1.0,
+        max_tokens=args.max_new_tokens,
+        n=1,
+        stop_token_ids=None,
+    )
+    gen_config = GenerationConfig(
+        sampling_params=sampling_params,
+        thinking=True,
+        n_responses_per_example=1,
+        collect_logprobs=False,
+    )
+    return Benchmark(
+        name="select",
+        load_examples=_load_select_examples,
+        format_prompt=_format_preference_prompt,
+        generation_config=gen_config,
+        evaluators=[RewardModelEvaluator("sibling_rm")],
+        metric_prefix="select",
     )
 
 
@@ -459,6 +510,7 @@ def build_arena_hard_benchmark(args) -> Benchmark:
 # ---------------------------------------------------------------------------
 
 BENCHMARK_BUILDERS: Dict[str, Callable] = {
+    "select": build_select_benchmark,
     "preference": build_preference_benchmark,
     "ifeval": build_ifeval_benchmark,
     "arena_hard": build_arena_hard_benchmark,

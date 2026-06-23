@@ -62,6 +62,7 @@ from policy_eval.persistence import (
     write_recorder,
 )
 from policy_eval.rewards import LoadedRewardModels
+from policy_eval.selection import compute_aggregate_metrics, report_selection
 from policy_eval.types import Benchmark, EvalContext, Example, GenerationResult
 
 
@@ -118,6 +119,13 @@ class ScriptArguments:
         default="Ray2333/GRM-Gemma-2B-sftreg",
         metadata={"help": "Secondary reward model for cross-validation. Set to 'none' to disable."},
     )
+    sibling_rm_path: Optional[str] = field(
+        default="",
+        metadata={"help": "Sibling reward model: an independently-seeded RM from the "
+                          "same base model as the training RM, used by the 'select' "
+                          "benchmark to pick the best checkpoint. Required when 'select' "
+                          "is in --benchmarks."},
+    )
     evaluate_with_training_rm: Optional[bool] = field(
         default=True,
         metadata={"help": "Attach the training RM evaluator to the preference benchmark"},
@@ -127,8 +135,13 @@ class ScriptArguments:
     # Benchmark selection
     # ------------------------------------------------------------------
     benchmarks: str = field(
-        default="preference,ifeval,arena_hard",
+        default="select,preference,ifeval,arena_hard",
         metadata={"help": "Comma-separated list of benchmarks to run."},
+    )
+    selection_split: str = field(
+        default="select",
+        metadata={"help": "Preference dataset split used by the 'select' benchmark to "
+                          "score checkpoints with the sibling RM for checkpoint selection."},
     )
     # Legacy flag: disable IFEval if False (equivalent to dropping it from --benchmarks).
     evaluate_ifeval: Optional[bool] = field(
@@ -440,6 +453,10 @@ def main():
                                    fmt=args.per_example_format)
                     ctx.recorder = None
 
+                # Derived combined headline scores (arena-hard macro sc_score,
+                # ifeval strict aggregate) so every checkpoint logs them.
+                combined_metrics.update(compute_aggregate_metrics(combined_metrics, args))
+
                 combined_metrics["checkpoint"] = ckpt_num
                 train_metrics = lookup_train_metrics(train_history, ckpt_num)
                 combined_metrics.update({f"train/{k}": v for k, v in train_metrics.items()})
@@ -479,6 +496,11 @@ def main():
                             **row,
                         }) + "\n")
         print(f"Full evaluation data saved to {args.save_eval_dataset_path}")
+
+    # ----- Checkpoint selection: pick the sibling-RM argmax checkpoint and ---
+    # report its main metrics (computed on the validation/test split).
+    if results_rows:
+        report_selection(results_rows, args)
 
     wandb_utils.finish()
 

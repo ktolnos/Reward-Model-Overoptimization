@@ -17,9 +17,14 @@ on a real run is wired below.
 ```bash
 # Small, fast smoke run (writes to <stem>_debug_per_example/)
 python evaluate_policy.py --checkpoints_dir <CKPTS> --debug \
-    --benchmarks preference,ifeval,arena_hard \
+    --benchmarks select,preference,ifeval,arena_hard \
+    --sibling_rm_path <SIBLING_RM> \
     --kl_base_model_path <SFT_CKPT> ...
 ```
+
+`select` is in the default `--benchmarks`; it requires `--sibling_rm_path` (the
+run errors out early otherwise). Drop `select` from `--benchmarks` to skip
+checkpoint selection entirely.
 
 Artifacts land in `<output_file_stem>_per_example/` (or `<stem>_debug_...` for
 `--debug`). Persistence is always on — there is no disable flag.
@@ -30,8 +35,9 @@ Artifacts land in `<output_file_stem>_per_example/` (or `<stem>_debug_...` for
 
 - [ ] `<stem>_per_example/_manifest.json` exists.
 - [ ] One `*.parquet` per `(benchmark, checkpoint)`:
-      `preference__checkpoint-<n>.parquet`, `ifeval__checkpoint-<n>.parquet`,
-      `arena_hard__checkpoint-<n>.parquet` for **every** checkpoint evaluated.
+      `select__checkpoint-<n>.parquet`, `preference__checkpoint-<n>.parquet`,
+      `ifeval__checkpoint-<n>.parquet`, `arena_hard__checkpoint-<n>.parquet`
+      for **every** checkpoint evaluated.
 - [ ] `_manifest.json` has:
   - `git.commit` (40-char SHA), `git.branch`, `git.dirty`, `git.available == true`.
   - `args` — the **full** `ScriptArguments` (every flag, not a subset).
@@ -56,6 +62,9 @@ response_text, response_raw_text, response_token_len, finish_reason, over_budget
       `chosen_or_baseline_score__<label>`, `reference_response_text`; KL columns
       `kl__k1, kl__grpo, policy_mean_logprob, base_mean_logprob` (if
       `--kl_base_model_path` set).
+- [ ] **select**: `score__rm_sibling_rm` (one per response). The selection
+      split carries `chosen_response` metadata, but win-rate columns are absent
+      (no chosen-score cache for this split) — only the mean signal is used.
 - [ ] **ifeval**: `ifeval_prompt_strict`, `ifeval_prompt_loose`;
       `score__rm_gold_rm` (if `--ifeval_use_gold_rm`).
 - [ ] **arena_hard** (RM judge): `score__rm_gold_rm`,
@@ -171,3 +180,63 @@ assert (abs(scores - df["score__rm_gold_rm"].values) < 1e-3).all()
   text — re-parsing under a changed regex would need a re-run.
 - Confirm per-file parquet size is reasonable (Arena baseline text is duplicated
   per checkpoint; acceptable vs checkpoint size, but watch total footprint).
+
+---
+
+## 9. ⭐ Checkpoint selection (sibling RM) & aggregate headline metrics
+
+The `select` benchmark scores every checkpoint with the sibling RM on the
+`--selection_split` (default `select`); the argmax over checkpoints picks the
+deployed one. Its main metrics — computed on `--split` (validation/test), a
+**different** split than selection — are reported as the run's headline.
+
+**Per-checkpoint (CSV + wandb history):**
+- [ ] `select/sibling_rm/mean` is logged for **every** checkpoint.
+- [ ] `arena_hard/aggregate/sc_score` is present and equals the macro-average of
+      the per-category style-controlled scores
+      (`arena_hard/rm_gold_rm/{hard_prompt,coding,math,creative_writing}/sc_score`).
+- [ ] `ifeval/aggregate/strict_acc` equals `mean(ifeval/prompt_strict_acc,
+      ifeval/inst_strict_acc)`.
+
+```python
+import pandas as pd, numpy as np
+df = pd.read_csv("<output_file>.csv")
+J = "rm_gold_rm"
+cats = [f"arena_hard/{J}/{c}/sc_score"
+        for c in ("hard_prompt","coding","math","creative_writing")]
+cats = [c for c in cats if c in df.columns]
+assert np.allclose(df["arena_hard/aggregate/sc_score"], df[cats].mean(axis=1))
+assert np.allclose(df["ifeval/aggregate/strict_acc"],
+                   df[["ifeval/prompt_strict_acc","ifeval/inst_strict_acc"]].mean(axis=1))
+```
+
+**Selection summary (`<stem>_selected_summary.json`):**
+- [ ] File exists; `selected_checkpoint` == argmax of `select/sibling_rm/mean`
+      over the CSV rows.
+- [ ] Every value in `metrics` matches that checkpoint's row in the CSV
+      (arena per-category win_rate/sc_score for hard_prompt + creative_writing,
+      `arena_hard/aggregate/sc_score`, the two ifeval strict accs +
+      `ifeval/aggregate/strict_acc`, and `{secondary_rm,gold_rm}/{sc_score,
+      win_rate_vs_chosen}`).
+- [ ] `split` != `selection_split` (selection and reporting use different splits).
+
+```python
+import json, pandas as pd
+s = json.load(open("<stem>_selected_summary.json"))
+df = pd.read_csv("<output_file>.csv")
+assert s["selected_checkpoint"] == int(df.loc[df["select/sibling_rm/mean"].idxmax(), "checkpoint"])
+row = df[df["checkpoint"] == s["selected_checkpoint"]].iloc[0]
+for k, v in s["metrics"].items():
+    assert abs(row[k] - v) < 1e-9, k
+```
+
+**wandb run summary (cross-run comparison):**
+- [ ] `selected/checkpoint`, `selected/select/sibling_rm/mean`, and one
+      `selected/<metric>` per summary key appear in the run's summary (visible as
+      runs-table columns; usable in a cross-run Bar Chart panel).
+
+**Selector wiring:**
+- [ ] `--benchmarks` containing `select` with `--sibling_rm_path` unset/`none`
+      fails fast with a clear error (selection is a hard default).
+- [ ] `--only_ifeval` / `--only_arena_hard` / `--only_preference` drop `select`
+      and the run completes without a selection summary (prints a skip note).
