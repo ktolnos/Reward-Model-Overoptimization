@@ -238,5 +238,9 @@ for k, v in s["metrics"].items():
 **Selector wiring:**
 - [ ] `--benchmarks` containing `select` with `--sibling_rm_path` unset/`none`
       fails fast with a clear error (selection is a hard default).
+- [ ] Sibling/training base mismatch fails fast: a `--sibling_rm_path` whose base
+      model differs from `--training_rm_path` (different family or hidden
+      size/layers/vocab) raises before any model loads. A same-base, different-seed
+      sibling passes (prints `sibling/training base match OK`).
 - [ ] `--only_ifeval` / `--only_arena_hard` / `--only_preference` drop `select`
       and the run completes without a selection summary (prints a skip note).

@@ -28,6 +28,61 @@ SELECTION_METRIC = "select/sibling_rm/mean"
 _HEADLINE_CATEGORIES = ["hard_prompt", "creative_writing"]
 
 
+def _base_fingerprint(config) -> Dict[str, object]:
+    """Structural fingerprint of a (reward) model's base, from its HF config.
+
+    Two checkpoints that are different-seed siblings of the same base model share
+    all of these; a different base (e.g. 0.6B vs 4B, or a different family) does
+    not. The classifier head / exact weights are intentionally ignored.
+    """
+    sub = getattr(config, "text_config", None) or config
+    return {
+        "model_type": getattr(config, "model_type", None),
+        "hidden_size": getattr(sub, "hidden_size", getattr(config, "hidden_size", None)),
+        "num_hidden_layers": getattr(sub, "num_hidden_layers",
+                                     getattr(config, "num_hidden_layers", None)),
+        "num_attention_heads": getattr(sub, "num_attention_heads",
+                                       getattr(config, "num_attention_heads", None)),
+        "vocab_size": getattr(sub, "vocab_size", getattr(config, "vocab_size", None)),
+    }
+
+
+def assert_sibling_base_matches_training(args) -> None:
+    """Fail fast unless the sibling RM shares the training RM's base model.
+
+    The sibling RM must be an independently-seeded RM of the *same* base model as
+    the training RM, so comparing on the same split is meaningful. This catches
+    the common footgun of leaving the sibling path at a default that belongs to a
+    different base than the training RM actually used.
+
+    No-op when the training RM path is unset (nothing to compare against).
+    """
+    from transformers import AutoConfig
+
+    training_path = getattr(args, "training_rm_path", "")
+    sibling_path = getattr(args, "sibling_rm_path", "")
+    if not training_path or training_path.lower() == "none":
+        print("[selection] --training_rm_path unset; skipping sibling/training "
+              "base-model compatibility check.")
+        return
+
+    train_cfg = AutoConfig.from_pretrained(training_path, trust_remote_code=True)
+    sib_cfg = AutoConfig.from_pretrained(sibling_path, trust_remote_code=True)
+    train_fp = _base_fingerprint(train_cfg)
+    sib_fp = _base_fingerprint(sib_cfg)
+    if train_fp != sib_fp:
+        raise ValueError(
+            "Sibling RM base model does not match the training RM base model — the "
+            "sibling must be a different-seed counterpart of the same base.\n"
+            f"  training_rm ({training_path}): {train_fp}\n"
+            f"  sibling_rm  ({sibling_path}): {sib_fp}\n"
+            "Set --sibling_rm_path to the same-base, different-seed RM (or drop "
+            "'select' from --benchmarks)."
+        )
+    print(f"[selection] sibling/training base match OK ({train_fp['model_type']}, "
+          f"hidden_size={train_fp['hidden_size']}, layers={train_fp['num_hidden_layers']}).")
+
+
 def _first_rm_judge_label(args) -> str:
     """Metric-key label for the first reward-model Arena-Hard judge.
 

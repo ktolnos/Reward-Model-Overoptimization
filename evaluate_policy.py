@@ -62,7 +62,11 @@ from policy_eval.persistence import (
     write_recorder,
 )
 from policy_eval.rewards import LoadedRewardModels
-from policy_eval.selection import compute_aggregate_metrics, report_selection
+from policy_eval.selection import (
+    assert_sibling_base_matches_training,
+    compute_aggregate_metrics,
+    report_selection,
+)
 from policy_eval.types import Benchmark, EvalContext, Example, GenerationResult
 
 
@@ -315,6 +319,10 @@ def main():
     print(f"Benchmarks: {[b.name for b in benchmarks]}")
     for b in benchmarks:
         print(f"  - {b.name}: evaluators={[e.name for e in b.evaluators]}")
+
+    # Selection requires the sibling RM to share the training RM's base model.
+    if any(b.name == "select" for b in benchmarks):
+        assert_sibling_base_matches_training(args)
 
     # ----- Per-example persistence (always on) ------------------------------
     per_example_dir = resolve_per_example_dir(args)
