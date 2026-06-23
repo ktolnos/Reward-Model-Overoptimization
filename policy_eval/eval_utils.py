@@ -16,6 +16,8 @@ and these helpers testable in isolation.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -142,25 +144,75 @@ def rms_required_by(benchmarks: List[Benchmark]) -> set:
     return labels
 
 
+# Fail the run if more than this fraction of generated baseline responses are
+# truncated — a cut-off baseline answer corrupts every judge comparison.
+_BASELINE_TRUNCATION_TOLERANCE = 0.10
+
+
+def judge_baseline_label(args) -> str:
+    """The judge's baseline slot/model name. ``"chosen"`` when comparing against
+    the dataset response, else a filesystem-safe slug of ``--baseline_model_path``.
+
+    Used both to inject the baseline responses into example metadata and to tell
+    the judge which slot to read, so the two always agree."""
+    if args.use_dataset_response_as_baseline:
+        return "chosen"
+    if not args.baseline_model_path:
+        raise ValueError(
+            "--baseline_model_path or --use_dataset_response_as_baseline required for LLM judge"
+        )
+    return (
+        args.baseline_model_path.replace("/", "_").replace("\\", "_").replace(":", "_")
+    )
+
+
+def _baseline_cache_key(prompts: List[str], max_new_tokens: int) -> str:
+    h = hashlib.sha256()
+    h.update(str(max_new_tokens).encode())
+    h.update(b"\x00")
+    for p in prompts:
+        h.update(p.encode("utf-8", "replace"))
+        h.update(b"\x01")
+    return h.hexdigest()[:16]
+
+
 def make_baseline_responses(
     args,
     preference_bench: Benchmark,
     examples: List[Example],
     tokenizer,
-) -> Optional[List[str]]:
-    """Generate (or pluck from dataset) baseline responses for the LLM judge."""
-    if not args.evaluate_with_llm_judge:
-        return None
+) -> Tuple[str, List[str]]:
+    """Return ``(baseline_label, responses)`` — the judge's reference answers.
+
+    ``--use_dataset_response_as_baseline`` plucks the dataset 'chosen' answers
+    (label ``"chosen"``). Otherwise responses are generated from
+    ``--baseline_model_path``: cached on disk (keyed on model + prompts +
+    max_new_tokens) so re-runs don't regenerate, and the run fails early if more
+    than 10% are truncated (a cut-off baseline corrupts the comparison)."""
+    label = judge_baseline_label(args)
     if args.use_dataset_response_as_baseline:
         print("[judge] using dataset 'chosen' as baseline")
-        return [ex.metadata.get("chosen_response", "") for ex in examples]
-    if not args.baseline_model_path:
-        raise ValueError(
-            "--baseline_model_path or --use_dataset_response_as_baseline required for LLM judge"
-        )
-    # Spin up a disposable vLLM for the baseline. This follows the original
-    # script: it's wasteful per-invocation but avoids swapping weights on the
-    # policy vLLM and then having to re-load the first checkpoint.
+        return label, [ex.metadata.get("chosen_response", "") for ex in examples]
+
+    prompts = [preference_bench.format_prompt(ex, tokenizer, thinking=True) for ex in examples]
+    # Run-independent cache: responses are deterministic (temperature 0) given
+    # (model, prompts, max_new_tokens), so share the cache across all runs.
+    cache_dir = args.baseline_cache_dir
+    cache_file = os.path.join(
+        cache_dir, f"{label}__{_baseline_cache_key(prompts, args.max_new_tokens)}.json"
+    )
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file) as f:
+                cached = json.load(f)
+            if cached.get("num_samples") == len(prompts) and "responses" in cached:
+                print(f"[judge] loaded {len(prompts)} cached baseline responses from {cache_file}")
+                return label, cached["responses"]
+        except Exception as e:
+            print(f"[judge] failed to read baseline cache {cache_file}: {e}")
+
+    # Spin up a disposable vLLM for the baseline. Called before the policy engine
+    # is initialized, so the two never run concurrently.
     from vllm import LLM, SamplingParams
     print(f"[judge] generating baseline responses from {args.baseline_model_path}")
     baseline_llm = LLM(
@@ -174,11 +226,36 @@ def make_baseline_responses(
         temperature=0, max_tokens=args.max_new_tokens, n=1,
         stop_token_ids=get_generation_stop_token_ids(tokenizer),
     )
-    prompts = [preference_bench.format_prompt(ex, tokenizer, thinking=True) for ex in examples]
     outputs = baseline_llm.generate(prompts, sampling)
     responses = [o.outputs[0].text for o in outputs]
+    n_truncated = sum(1 for o in outputs if o.outputs[0].finish_reason == "length")
     teardown_vllm(baseline_llm)
-    return responses
+
+    frac = n_truncated / len(responses) if responses else 0.0
+    if frac > _BASELINE_TRUNCATION_TOLERANCE:
+        raise ValueError(
+            f"{n_truncated}/{len(responses)} ({frac:.0%}) baseline responses from "
+            f"{args.baseline_model_path} were truncated at max_new_tokens="
+            f"{args.max_new_tokens}; raise --max_new_tokens. A truncated baseline "
+            f"corrupts the judge comparison."
+        )
+    if n_truncated:
+        print(f"[judge] warning: {n_truncated}/{len(responses)} ({frac:.0%}) baseline responses truncated")
+
+    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        with open(cache_file, "w") as f:
+            json.dump({
+                "baseline_model": args.baseline_model_path,
+                "max_new_tokens": args.max_new_tokens,
+                "num_samples": len(responses),
+                "num_truncated": n_truncated,
+                "responses": responses,
+            }, f)
+        print(f"[judge] cached baseline responses to {cache_file}")
+    except Exception as e:
+        print(f"[judge] failed to write baseline cache {cache_file}: {e}")
+    return label, responses
 
 
 def chosen_responses_as_generation(examples: List[Example]) -> GenerationResult:
@@ -217,7 +294,7 @@ def run_chosen_only(args, benchmarks, bench_examples, loaded_rms,
     ctx = EvalContext(
         args=args, checkpoint_num=0, checkpoint_path=None,
         llm=None, policy_tokenizer=None, loaded_rms=loaded_rms,
-        baseline_responses=None, recorder=recorder,
+        recorder=recorder,
     )
     combined: Dict = {}
     for ev in preference_bench.online_evaluators:
@@ -245,17 +322,42 @@ def run_deferred_phase(
     args,
     loaded_rms,
 ) -> None:
-    """Run deferred evaluators (e.g. vLLM judge) across all checkpoints."""
-    for bench in benchmarks:
-        for ev in bench.deferred_evaluators:
-            print(f"[deferred] running {ev.name} on benchmark '{bench.name}'")
-            for (bname, ckpt_num), gen in sorted(deferred_cache.items()):
-                if bname != bench.name:
-                    continue
-                ctx = EvalContext(
-                    args=args, checkpoint_num=ckpt_num, checkpoint_path=None,
-                    llm=None, policy_tokenizer=None, loaded_rms=loaded_rms,
-                    baseline_responses=None,
-                )
-                metrics = ev.evaluate(bench, bench_examples[bench.name], gen, ctx)
-                wandb_utils.log_metrics(metrics, checkpoint_num=ckpt_num)
+    """Run deferred evaluators (e.g. the vLLM LLM judge) across all checkpoints.
+
+    A deferred evaluator that holds a GPU model (the vLLM judge) loads it lazily
+    on its first ``evaluate`` and reuses it across checkpoints. Evaluators that
+    share one backend (e.g. the preference and arena_hard judges naming the same
+    model) load that model once: the shared backend is freed only after the last
+    evaluator using it finishes, so different judges never sit in GPU memory at
+    the same time and the same judge isn't reloaded per benchmark.
+    """
+    from collections import Counter
+
+    pairs = [(bench, ev) for bench in benchmarks for ev in bench.deferred_evaluators]
+
+    def _resource(ev):
+        # The GPU resource to free is the judge's backend (shared across judges
+        # naming the same model); fall back to the evaluator itself.
+        backend = getattr(getattr(ev, "judge", None), "backend", None)
+        if backend is not None and hasattr(backend, "teardown"):
+            return backend
+        return ev if hasattr(ev, "teardown") else None
+
+    remaining = Counter(id(_resource(ev)) for _, ev in pairs if _resource(ev) is not None)
+
+    for bench, ev in pairs:
+        print(f"[deferred] running {ev.name} on benchmark '{bench.name}'")
+        for (bname, ckpt_num), gen in sorted(deferred_cache.items()):
+            if bname != bench.name:
+                continue
+            ctx = EvalContext(
+                args=args, checkpoint_num=ckpt_num, checkpoint_path=None,
+                llm=None, policy_tokenizer=None, loaded_rms=loaded_rms,
+            )
+            metrics = ev.evaluate(bench, bench_examples[bench.name], gen, ctx)
+            wandb_utils.log_metrics(metrics, checkpoint_num=ckpt_num)
+        res = _resource(ev)
+        if res is not None:
+            remaining[id(res)] -= 1
+            if remaining[id(res)] == 0:
+                res.teardown()

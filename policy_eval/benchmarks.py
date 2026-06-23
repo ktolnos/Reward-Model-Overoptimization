@@ -29,14 +29,20 @@ from data_utils import (
 )
 
 from .arena_hard_upstream import CATEGORY_BASELINES
+from .eval_utils import judge_baseline_label
 from .evaluators import (
     IfevalRuleEvaluator,
     KLEvaluator,
-    LLMJudgeVLLMEvaluator,
     PairwiseEvaluator,
     RewardModelEvaluator,
 )
-from .judges import LLMAPIJudge, RMJudge
+from .judges import (
+    JudgeGenParams,
+    LLMJudge,
+    OpenRouterBackend,
+    RMJudge,
+    VLLMBackend,
+)
 from .types import Benchmark, Example, GenerationConfig
 
 
@@ -105,6 +111,57 @@ def _format_preference_prompt(example: Example, tokenizer, thinking: bool) -> st
     return prompt_text
 
 
+def _judge_gen_params(args) -> JudgeGenParams:
+    """Build the LLM-judge generation params from config (the single source of
+    these defaults — the ``--llm_judge_*`` flags). Shared by every judge so the
+    values can't drift between call sites."""
+    return JudgeGenParams(
+        temperature=args.llm_judge_temperature,
+        top_p=args.llm_judge_top_p,
+        max_tokens=args.llm_judge_max_new_tokens,
+        enable_thinking=args.llm_judge_enable_thinking,
+    )
+
+
+# Process-level cache so judges naming the same model (e.g. the preference judge
+# and the arena_hard ``llm:`` judge) share ONE backend instance — hence one vLLM
+# load in the deferred phase instead of one per benchmark. Cleared per
+# ``build_benchmarks`` call.
+_JUDGE_BACKEND_CACHE: Dict[tuple, object] = {}
+
+
+def _make_judge_backend(args, model_name: str):
+    """Build (or reuse) the judge generation backend for ``--llm_judge_backend``.
+
+    Cached by ``(backend, model)`` so the preference and arena_hard judges that
+    name the same model share a single backend (one model load). The vLLM
+    ``max_model_len`` is sized generously to fit the larger arena_hard prompts/
+    answers as well, so the shared backend serves both benchmarks."""
+    key = (args.llm_judge_backend, model_name)
+    cached = _JUDGE_BACKEND_CACHE.get(key)
+    if cached is not None:
+        return cached
+    if args.llm_judge_backend == "api":
+        backend = OpenRouterBackend(model_name, api_key=args.openrouter_api_key)
+    elif args.llm_judge_backend == "vllm":
+        # Judge prompt = question + both answers + its own (possibly thinking)
+        # generation; size to the larger of the preference / arena_hard budgets.
+        judge_max_model_len = (
+            max(args.max_length, _ARENA_HARD_PROMPT_BUDGET)
+            + 2 * max(args.max_new_tokens, _ARENA_HARD_MAX_NEW_TOKENS)
+            + args.llm_judge_max_new_tokens + 1024
+        )
+        backend = VLLMBackend(
+            model_name,
+            max_model_len=judge_max_model_len,
+            gpu_memory_utilization=args.llm_judge_gpu_memory_utilization,
+        )
+    else:
+        raise ValueError(f"Unknown llm_judge_backend: {args.llm_judge_backend}")
+    _JUDGE_BACKEND_CACHE[key] = backend
+    return backend
+
+
 def build_preference_benchmark(args) -> Benchmark:
     evaluators: List = [RewardModelEvaluator("gold_rm")]
     if args.evaluate_with_training_rm:
@@ -114,40 +171,40 @@ def build_preference_benchmark(args) -> Benchmark:
     if args.kl_base_model_path:
         evaluators.append(KLEvaluator(args.kl_base_model_path))
     if args.evaluate_with_llm_judge:
-        if args.llm_judge_backend == "api":
-            # Route API judges through the unified PairwiseEvaluator against
-            # the dataset's ``chosen`` response. Produces the same Arena-style
-            # metrics (arena_score, sc_score, CIs) as arena_hard — directly
-            # comparable across benchmarks.
-            evaluators.append(PairwiseEvaluator(
-                judge=LLMAPIJudge(
-                    args.llm_judge_model_name,
-                    max_tokens=args.llm_judge_max_new_tokens,
-                ),
-                baselines=["chosen"],
-            ))
-        elif args.llm_judge_backend == "vllm":
-            evaluators.append(LLMJudgeVLLMEvaluator(
-                judge_model_path=args.llm_judge_model_name,
-                max_new_tokens=args.llm_judge_max_new_tokens,
-            ))
-        else:
-            raise ValueError(f"Unknown llm_judge_backend: {args.llm_judge_backend}")
+        # One LLMJudge + one PairwiseEvaluator regardless of backend. Generation
+        # params are set identically; only the backend (remote API vs local vLLM)
+        # differs. Always scored against the dataset's ``chosen`` response, giving
+        # the same Arena-style metrics (arena_score, sc_score, CIs) as arena_hard.
+        backend = _make_judge_backend(args, args.llm_judge_model_name)
+        # Baseline slot the judge reads: 'chosen' (dataset response) or the
+        # baseline-model slug. ``make_baseline_responses`` injects the matching
+        # responses into example metadata under the same label.
+        evaluators.append(PairwiseEvaluator(
+            judge=LLMJudge(backend, gen_params=_judge_gen_params(args)),
+            baselines=[judge_baseline_label(args)],
+        ))
 
-    # Temperature 0 by default; LLM judge needs diversity, so bump to 0.7 if attached.
-    has_judge = any(e.name.startswith(("pairwise_llm", "llm_judge")) for e in evaluators)
+    # Frozen eval decoding config (BENCHMARK.md §8): greedy, temperature=0,
+    # top_p=1.0, single sample. The LLM judge compares fixed greedy answers, so it
+    # needs no sampling diversity — keeping decoding identical whether or not a
+    # judge is attached is what makes judge-runs and no-judge-runs comparable.
+    if (args.num_responses_per_prompt or 1) != 1:
+        raise ValueError(
+            "The frozen eval is single-sample greedy (BENCHMARK.md §8); "
+            "--num_responses_per_prompt must be 1."
+        )
     sampling_params = SamplingParams(
-        temperature=0.7 if has_judge else 0,
-        top_p=0.9 if has_judge else 1.0,
+        temperature=0,
+        top_p=1.0,
         max_tokens=args.max_new_tokens,
-        n=args.num_responses_per_prompt or 1,
+        n=1,
         logprobs=1 if any(e.requires_logprobs for e in evaluators) else None,
         stop_token_ids=None,  # filled in by generate_responses_vllm
     )
     gen_config = GenerationConfig(
         sampling_params=sampling_params,
         thinking=True,  # preference benchmark keeps thinking (matches original behavior)
-        n_responses_per_example=args.num_responses_per_prompt or 1,
+        n_responses_per_example=1,
         collect_logprobs=any(e.requires_logprobs for e in evaluators),
     )
     return Benchmark(
@@ -451,15 +508,22 @@ def _build_judges(args) -> list:
 
     Syntax: comma-separated tokens.
       - ``rm:<label>``  → RMJudge using a loaded RM ("gold_rm", "training_rm", ...)
-      - ``llm:<model>`` → LLMAPIJudge (OpenRouter) with Arena-Hard prompt template.
-                          e.g. "llm:openai/gpt-4.1". Default temp 0, max_tokens 16000.
+      - ``llm:<model>`` → LLMJudge with the Arena-Hard prompt template, using the
+                          backend from ``--llm_judge_backend`` (vLLM or OpenRouter
+                          API) and generation params from the shared
+                          ``--llm_judge_*`` config. e.g. "llm:openai/gpt-4.1".
+                          Naming the same model as the preference judge shares one
+                          backend (single vLLM load).
     """
     out = []
     for tok in (t.strip() for t in args.arena_hard_judges.split(",") if t.strip()):
         if tok.startswith("rm:"):
             out.append(RMJudge(tok[3:]))
         elif tok.startswith("llm:"):
-            out.append(LLMAPIJudge(tok[4:]))
+            out.append(LLMJudge(
+                _make_judge_backend(args, tok[4:]),
+                gen_params=_judge_gen_params(args),
+            ))
         else:
             raise ValueError(
                 f"Unknown judge spec '{tok}'. Use 'rm:<label>' or 'llm:<model>'."
@@ -519,6 +583,8 @@ BENCHMARK_BUILDERS: Dict[str, Callable] = {
 
 def build_benchmarks(args) -> List[Benchmark]:
     names = args.selected_benchmarks()
+    # Fresh per build so judges sharing a model get one shared backend instance.
+    _JUDGE_BACKEND_CACHE.clear()
     out = []
     for n in names:
         if n not in BENCHMARK_BUILDERS:

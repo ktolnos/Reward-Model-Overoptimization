@@ -136,10 +136,10 @@ spots are the failure mode).
 | Skywork-Reward-V2-Qwen3-8B | Qwen | cross-family robustness check |
 | Ray2333/GRM-Gemma2-2B-rewardmodel-ft | Gemma | size-efficient |
 | Schrieffer/Llama-SARM-4B | Llama | (Llama-correlated — don't over-weight) |
-| Open-weight LLM judge ⏳🔲 | TBD | pairwise win-rate; reproducible. Candidates: DeepSeek V4 Flash, Qwen3.6 27B, zai-org/GLM-4.7-Flash 31B; select whichever we can run in vllm with reasonable tps |
+| Open-weight LLM judge ✅ (model 🔲) | configurable via `--llm_judge_model_name` | pairwise win-rate via the Arena-Hard-Auto v2.0 protocol, served in-process by vLLM in the deferred phase. Model proposal `google/gemma-4-31B-it`; other candidates: DeepSeek V4 Flash, Qwen3.6 27B, zai-org/GLM-4.7-Flash 31B — pick whichever runs in vLLM at reasonable tps. |
 | IFEval rule-based | — | verifiable, **RM-unhackable** truth anchor |
 
-For the LLM judge we need to pick a good prompt. Candidates: there are promts in Deepseek R1 paper (check the newer ones too), Deepseek GRM, Kimi k2.5;  check arenahard2 prompt (maybe the best and most justifiable).
+LLM judge prompt ✅: uses the **Arena-Hard-Auto v2.0** prompt/template (5-point graded verdict `[[A>>B]]`…`[[B>>A]]`, mapped to weighted battles exactly as upstream `show_result.py`) — the most justifiable / reproducible option of the candidates (Deepseek R1, Deepseek GRM, Kimi). Implemented in [policy_eval/judges.py](policy_eval/judges.py) as `LLMJudge` with a pluggable backend (`VLLMBackend` for open-weight / `OpenRouterBackend` for API).
 
 ### SELECTION set (used only by the no-peek rule)
 | Evaluator | Notes |
@@ -173,7 +173,7 @@ SELECTION RM is trained from the same sft.
 | Tier | Source | Scored by |
 |---|---|---|
 | In-distribution | held-out HelpSteer3 (`test` split) | TRUTH RM panel + judge |
-| OOD, judged | ArenaHard 2.0 | open-weight judge, win-rate vs baseline |
+| OOD, judged | ArenaHard 2.0 | open-weight LLM judge **and** gold RM, win-rate vs baseline |
 | OOD, **verifiable** | IFEval | rule-based strict/loose (the incorruptible anchor) |
 | Capability retention 🔲 | small fixed general benchmark (e.g. GSM8K subset) | rule-based; catches alignment-tax / forgetting |
 
@@ -186,7 +186,7 @@ across all methods, checkpoints, and benchmarks. Deterministic eval means all
 run-to-run variance comes from *training* seeds, not decoding — the clean basis
 for ranking.
 
-- **Remove the judge-coupled temperature bump** ([benchmarks.py:127-136](policy_eval/benchmarks.py#L127-L136) currently flips 0→0.7 when a judge is attached → makes judge-runs and no-judge-runs incomparable). See [B3](#b3-decoding-config-not-frozen).
+- ✅ **Judge-coupled temperature bump removed** — `build_preference_benchmark` no longer flips 0→0.7 / top_p 1.0→0.9 when a judge is attached; decoding is greedy regardless, so judge-runs and no-judge-runs are comparable. The frozen config is also enforced single-sample: `--num_responses_per_prompt != 1` is a hard error, and the pairwise/RM-win-rate paths assert `n==1` instead of silently judging `responses[::n]`. See [B3](#b3-decoding-config-not-frozen) / [C2](#c2-n1-inconsistency).
 - Thinking-mode handling stays per-benchmark as currently implemented; the
   thinking span is stripped before RM scoring.
 
@@ -311,17 +311,21 @@ check all gate the sweeps — the code is frozen only after they pass.
 2. ✅ **A1 — Per-example persistence** ([§9](#9-per-example-logging-contract-a1-)). Foundation; do before any
    further benchmark runs or they're wasted. Done via `PerExampleRecorder`
    ([policy_eval/persistence.py](policy_eval/persistence.py)), wired into every
-   evaluator through `EvalContext.recorder`. Remaining 🔲: deferred-phase
-   (vLLM judge) verdicts append once [B1](#11-implementation-roadmap) lands;
-   verify on a `--debug` run before the first sweep.
-3. **B1 — Open-weight vLLM judge** ([§5](#5-evaluators)). Implement
-   `LLMJudgeVLLMEvaluator` (deferred, loads judge vLLM once) reusing
-   `LLMAPIJudge`'s Arena-Hard 2-game-swap + parse logic; pick the open-weight
-   judge model; persist verdicts per-prompt (A1).
+   evaluator through `EvalContext.recorder`. The deferred vLLM judge persists
+   per-prompt verdicts to its own per-`(benchmark, checkpoint)` file (both
+   swapped-game raw texts + labels + battle outcome). Remaining 🔲: verify on a
+   `--debug` run before the first sweep.
+3. ✅ **B1 — Open-weight vLLM judge** ([§5](#5-evaluators)). Done: a single
+   `LLMJudge` (Arena-Hard 2-game-swap + parse) with a pluggable backend —
+   `VLLMBackend` (deferred; loads the judge vLLM once and shares it across the
+   preference + arena_hard benchmarks) or `OpenRouterBackend` (API), selected by
+   `--llm_judge_backend`. Generation params unified via `--llm_judge_*`;
+   per-prompt verdicts persisted (A1); generation/truncation/parse failures
+   counted to wandb. Judge model still to finalize (proposal `google/gemma-4-31B-it`).
 4. **B2 + C1 — Length guard + length logging.** Count/flag over-budget samples;
    log `response_token_len` + `finish_reason` on RM paths (folds into A1).
-5. **B3 — Freeze decoding config.** Remove the judge-coupled temperature flip
-   ([§8](#8-frozen-eval-decoding-config-)). Use both orders for comparisons.
+5. ✅ **B3 — Decoding config frozen.** Judge-coupled temperature flip removed;
+   decoding is greedy single-sample regardless of judge ([§8](#8-frozen-eval-decoding-config-)).
 6. Capability-retention benchmark ([§7](#7-eval-prompt-sets-)).
 7. **Cross-family (Gemma) readiness → code freeze.** Before any sweeps, verify the
    *full* pipeline (SFT → RM train → GRPO/DPO → eval) runs end-to-end on a **Gemma**
@@ -354,13 +358,13 @@ check all gate the sweeps — the code is frozen only after they pass.
 From the eval audit of `policy_eval/` (severity tagged):
 
 - ✅ **A1** Per-example scores now persisted — `PerExampleRecorder` ([policy_eval/persistence.py](policy_eval/persistence.py)) writes one parquet/jsonl per `(benchmark, checkpoint)` (one row per `(prompt, response)`) with responses, token lengths, finish reasons, every RM/judge score, KL, and `over_budget`. Aggregation can be recomputed offline. (Was: [evaluators.py](policy_eval/evaluators.py) logged only mean/std/lossy-histogram + aggregate win-rate.)
-- 🟠 **B1** Open-weight judge unimplemented — [evaluators.py:489-516](policy_eval/evaluators.py#L489-L516) is a `NotImplementedError` scaffold; preference API judge disabled by a prompt-corruption bug ([evaluators.py:471-482](policy_eval/evaluators.py#L471-L482)). Only the closed-model OpenRouter judge works.
+- ✅ **B1** Open-weight judge implemented — a single `LLMJudge` ([policy_eval/judges.py](policy_eval/judges.py)) runs the Arena-Hard 2-game-swap + parse protocol over a pluggable backend: `VLLMBackend` (in-process vLLM, deferred, loaded once and shared across preference + arena_hard) or `OpenRouterBackend` (API). Verdicts persisted per-prompt; generation/truncation/parse failures counted to wandb. The old prompt-corruption API scaffold was removed.
 - 🟠 **B2** Eval bypasses length guard — `skip_validation=True` everywhere ([rewards.py:55-62](policy_eval/rewards.py#L55-L62), [benchmarks.py:86-94](policy_eval/benchmarks.py#L86-L94)); BT scoring doesn't truncate → over-budget fed past RM context, biasing the longest (most-hacked) responses.
-- 🟠 **B3** Decoding config not frozen — [benchmarks.py:127-136](policy_eval/benchmarks.py#L127-L136) flips temp 0→0.7 when a judge is attached.
+- ✅ **B3** Decoding config frozen — `build_preference_benchmark` no longer flips temp 0→0.7 / top_p 1.0→0.9 when a judge is attached; decoding is greedy (`temperature=0`, `top_p=1.0`, `n=1`) whether or not a judge is present, so judge-runs and no-judge-runs are comparable.
 - 🟡 **B4** Win-rate reference is dataset `chosen`, not SFT ([evaluators.py:96-106](policy_eval/evaluators.py#L96-L106)) — fine under human-primary but must be declared; becomes a reporting choice once A1 lands.
 - ✅ **C1** Response length/finish_reason now logged on all paths — `response_token_len` + `finish_reason` + `over_budget` are per-example columns (A1). (B2's actual length *guard* on the RM scoring path is still open.)
-- 🟡 **C2** `n>1` inconsistency: arena/judge use only `responses[::n]` (first sample); harmless at n=1.
-- 🟡 **C3** Bootstrap `n_bootstrap=100` — bump to ~1000 for final CIs.
+- ✅ **C2** `n>1` inconsistency resolved — the frozen eval is single-sample (enforced at benchmark build), and the pairwise + RM-win-rate paths now assert `n==1` instead of silently judging only `responses[::n]` (the first sample), which previously diverged from the RM `/mean` that averaged all samples.
+- ✅ **C3** Bootstrap rounds bumped to `n_bootstrap=1000` (was 100) for the arena/pairwise CIs ([pairwise.py](policy_eval/pairwise.py)), applied to both the arena-score battle-level bootstrap and the style-controlled BT bootstrap.
 - ⚪ Legacy [rm_eval/load_eval_datasets.py](rm_eval/load_eval_datasets.py) uses `truncation=True` + double length-filter — stale, off the policy path; quarantine/delete.
 
 Confirmed **correct** (no action): BT RM scoring tokenization (BOS-strip +
@@ -369,4 +373,4 @@ evaluator (k1 + k3 estimators vs configurable SFT base); Arena-Hard API judge
 upstream-compatibility.
 
 
-Proposed LLM judge: google/gemma-4-31B-it
+Proposed LLM judge: google/gemma-4-31B-it.

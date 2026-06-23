@@ -53,6 +53,12 @@ SIBLING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/2
 #GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Qwen3-8B"
 GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 
+# Open-weight LLM judge (deferred vLLM backend). Used for the preference
+# benchmark and, together with the gold RM, for arena_hard — enabled by
+# --with_llm_judge. The same model serves both benchmarks (loaded once).
+LLM_JUDGE_BACKEND="vllm"
+LLM_JUDGE_MODEL="google/gemma-4-31B-it"
+
 # Dataset name
 #DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
 # DATASET_NAME="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
@@ -96,6 +102,13 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# arena_hard is scored by the gold RM, plus the open-weight LLM judge when
+# --with_llm_judge is passed (both judges run on the same arena_hard responses).
+ARENA_HARD_JUDGES="rm:gold_rm"
+if [ -n "${WITH_LLM_JUDGE:-}" ]; then
+    ARENA_HARD_JUDGES="rm:gold_rm,llm:${LLM_JUDGE_MODEL}"
+fi
+
 echo "Running evaluation with the following settings:"
 echo "Checkpoints Directory: $CHECKPOINTS_DIR"
 echo "Training RM Path: $TRAINING_RM_PATH"
@@ -107,6 +120,8 @@ echo "WandB Project: $WANDB_PROJECT"
 echo "WandB Run Name: $WANDB_RUN_NAME"
 echo "WandB Run ID (resume): ${WANDB_RUN_ID:-<new run>}"
 echo "Benchmarks: $BENCHMARKS"
+echo "Arena-Hard judges: $ARENA_HARD_JUDGES"
+echo "LLM judge: ${WITH_LLM_JUDGE:+enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL)}${WITH_LLM_JUDGE:-disabled}"
 
 export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 
@@ -126,10 +141,12 @@ python evaluate_policy.py \
     --benchmarks "$BENCHMARKS" \
     --evaluate_with_training_rm "$([ -n "${WITH_TRAINING_RM:-}" ] && echo True || echo False)" \
     --evaluate_with_llm_judge "$([ -n "${WITH_LLM_JUDGE:-}" ] && echo True || echo False)" \
-    --llm_judge_model_name "tngtech/deepseek-r1t2-chimera:free" \
+    --llm_judge_backend "$LLM_JUDGE_BACKEND" \
+    --llm_judge_model_name "$LLM_JUDGE_MODEL" \
+    --arena_hard_judges "$ARENA_HARD_JUDGES" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
     --kl_base_model_path "${KL_BASE_MODEL_PATH:-/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260106_012931_1016814/checkpoint-158}" \
-    --use_dataset_response_as_baseline False \
+    --use_dataset_response_as_baseline True \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jsonl" \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \

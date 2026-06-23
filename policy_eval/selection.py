@@ -167,15 +167,37 @@ def _summary_keys(args) -> List[str]:
     return keys
 
 
+# Headline LLM-judge metrics surfaced for the selected checkpoint.
+_JUDGE_SUMMARY_METRICS = ("arena_score", "sc_score", "win_rate")
+
+
+def _judge_metric_keys(row: dict) -> List[str]:
+    """Headline LLM-judge metric keys present in a checkpoint's row.
+
+    Matches the preference judge (``llm_<judge>/<slot>/<metric>``) and the
+    arena_hard LLM judge (``arena_hard/llm_<judge>/<cat>/<metric>``) by detecting
+    a path segment starting with ``llm_`` and a headline final metric, so it
+    works regardless of the judge model/backend in use.
+    """
+    keys = []
+    for k in row:
+        parts = k.split("/")
+        if parts[-1] in _JUDGE_SUMMARY_METRICS and any(p.startswith("llm_") for p in parts):
+            keys.append(k)
+    return sorted(keys)
+
+
 def build_selected_summary(row: dict, args) -> Dict[str, float]:
     """Lift the headline main metrics out of a single checkpoint's metric row.
 
     Pure key-extraction — the aggregates are already in ``row`` (computed in the
-    main loop). Missing metrics are simply absent (their benchmark wasn't run).
+    main loop). Includes the RM-panel metrics, IFEval, Arena-Hard, and any LLM
+    judge metrics present. Missing metrics are simply absent (benchmark not run).
     """
+    keys = list(dict.fromkeys(_summary_keys(args) + _judge_metric_keys(row)))
     return {
         k: float(row[k])
-        for k in _summary_keys(args)
+        for k in keys
         if k in row and row[k] is not None
     }
 

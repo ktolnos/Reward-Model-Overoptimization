@@ -74,7 +74,6 @@ class EvalContext:
     llm: Optional[Any]                      # vllm.LLM when online, None when deferred
     policy_tokenizer: Optional[Any]
     loaded_rms: Optional[Any]               # LoadedRewardModels
-    baseline_responses: Optional[List[str]] = None
     # Per-example log sink (policy_eval.persistence.PerExampleRecorder) for this
     # (benchmark, checkpoint). Online evaluators add their per-example score
     # columns to it. Always set during the online and chosen-only phases; None

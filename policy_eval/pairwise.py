@@ -34,7 +34,7 @@ def compute_pairwise_metrics(
     policy_responses: Sequence[str],
     baseline_responses: Sequence[str],
     *,
-    n_bootstrap: int = 100,
+    n_bootstrap: int = 1000,
     seed: int = 0,
 ) -> Dict[str, float]:
     """Aggregate per-prompt battle lists into Arena-Hard-compatible metrics.

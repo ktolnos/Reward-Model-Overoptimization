@@ -194,10 +194,34 @@ class ScriptArguments:
         default=None, metadata={"help": "Path to the baseline model for judge comparison"},
     )
     use_dataset_response_as_baseline: Optional[bool] = field(
-        default=False, metadata={"help": "Use the dataset 'chosen' column as baseline"},
+        default=True, metadata={"help": "Use the dataset 'chosen' column as baseline"},
+    )
+    baseline_cache_dir: str = field(
+        default=os.path.expanduser("~/.cache/reward_model_overoptimization/baseline_responses"),
+        metadata={"help": "Run-independent directory for cached baseline responses. They are "
+                          "deterministic (temperature 0) given (model, prompts, max_new_tokens), "
+                          "so the cache is shared across all runs."},
     )
     llm_judge_max_new_tokens: Optional[int] = field(
         default=2048, metadata={"help": "Max new tokens for the LLM judge"},
+    )
+    llm_judge_enable_thinking: bool = field(
+        default=True,
+        metadata={"help": "Enable the judge model's reasoning trace. vLLM backend: applied via "
+                          "the chat template, and when False the assistant turn is prefilled "
+                          "with 'My final verdict ' to commit directly. API backend: forwarded "
+                          "via OpenRouter's reasoning toggle when False (best-effort)."},
+    )
+    llm_judge_temperature: float = field(
+        default=0.0, metadata={"help": "LLM judge sampling temperature (0 = greedy). Applies to both backends."},
+    )
+    llm_judge_top_p: float = field(
+        default=1.0, metadata={"help": "LLM judge nucleus sampling top_p. Applies to both backends."},
+    )
+    llm_judge_gpu_memory_utilization: float = field(
+        default=0.8,
+        metadata={"help": "vLLM judge GPU memory utilization. The judge loads in the deferred "
+                          "phase after the policy vLLM and the reward models are freed."},
     )
 
     # ------------------------------------------------------------------
@@ -214,7 +238,7 @@ class ScriptArguments:
     max_length: Optional[int] = field(default=1024, metadata={"help": "Max prompt length"})
     max_new_tokens: Optional[int] = field(default=1024, metadata={"help": "Max new tokens"})
     num_responses_per_prompt: Optional[int] = field(
-        default=1, metadata={"help": "Samples per prompt (LLM judge)"},
+        default=1, metadata={"help": "Frozen eval is single-sample greedy (BENCHMARK.md §8); must be 1."},
     )
     gpu_memory_utilization: float = field(
         default=0.3, metadata={"help": "vLLM GPU memory utilization"},
@@ -385,19 +409,25 @@ def main():
     full_eval_data: Dict[str, Dict[int, list]] = {b.name: {} for b in benchmarks}
 
     try:
+        # Resolve the judge's baseline responses BEFORE any other vLLM engine is
+        # initialized, so the disposable baseline engine never runs concurrently
+        # with the policy (or, later, the deferred judge) engine. The same code
+        # path handles both modes: 'chosen' (dataset response) or generated from
+        # --baseline_model_path. Responses are written into each example's
+        # metadata under the baseline label, which the judge then reads.
+        if preference_bench is not None and args.evaluate_with_llm_judge:
+            baseline_label, baseline_responses = make_baseline_responses(
+                args, preference_bench, bench_examples["preference"], policy_tokenizer,
+            )
+            for ex, resp in zip(bench_examples["preference"], baseline_responses):
+                ex.metadata.setdefault("baselines", {})[baseline_label] = resp
+
         with vllm_session(
             base_model_path=vllm_base,
             initial_checkpoint_path=first_checkpoint_path,
             max_model_len=max_model_len,
             gpu_memory_utilization=args.gpu_memory_utilization,
         ) as llm:
-
-            baseline_responses = None
-            if preference_bench is not None:
-                baseline_responses = make_baseline_responses(
-                    args, preference_bench, bench_examples["preference"],
-                    policy_tokenizer,
-                )
 
             for idx, ckpt_name in enumerate(tqdm(checkpoints, desc="Checkpoints")):
                 ckpt_path = single_model_path or os.path.join(args.checkpoints_dir, ckpt_name)
@@ -413,7 +443,6 @@ def main():
                     llm=llm,
                     policy_tokenizer=policy_tokenizer,
                     loaded_rms=loaded_rms,
-                    baseline_responses=baseline_responses,
                 )
 
                 combined_metrics: dict = {}
@@ -478,6 +507,12 @@ def main():
                 })
 
         # ----- Deferred phase (policy vLLM is torn down) --------------------
+        # Free the reward models' GPU memory first: no deferred evaluator uses
+        # them, and the judge needs the GPU to load its own (possibly large) model.
+        if loaded_rms is not None:
+            loaded_rms.unload()
+            loaded_rms = None
+
         if deferred_cache:
             run_deferred_phase(benchmarks, bench_examples, deferred_cache, args, loaded_rms)
 

@@ -5,12 +5,12 @@ Two implementations:
 
     - ``RMJudge``: score each answer with a reward model; winner has the higher
       score. One battle per prompt.
-    - ``LLMAPIJudge``: ask an LLM (e.g. gpt-4.1 via OpenRouter) using the
-      Arena-Hard-Auto v2.0 prompt template. Runs 2 games per prompt with
-      position swap; each game's label is mapped (with weighting) to one or
-      more {0.0, 0.5, 1.0} battles, matching ``show_result.py`` exactly so
-      that scores produced here match the official leaderboard when the same
-      judge/baseline are used.
+    - ``LLMJudge``: ask an LLM (local vLLM via ``VLLMBackend`` or a remote API via
+      ``OpenRouterBackend``) using the Arena-Hard-Auto v2.0 prompt template. Runs
+      2 games per prompt with position swap; each game's label is mapped (with
+      weighting) to one or more {0.0, 0.5, 1.0} battles, matching ``show_result.py``
+      exactly so that scores produced here match the official leaderboard when the
+      same judge/baseline are used.
 
 Both return ``(battles_per_prompt, extras)`` where ``battles_per_prompt`` is a
 list of lists: ``battles_per_prompt[i]`` = battle scores for prompt ``i`` from
@@ -47,9 +47,33 @@ class LLMBattleDetails:
     """Per-prompt position-swapped game labels behind each LLM-judge battle.
 
     ``game0_labels`` is the A=baseline/B=policy game, ``game1_labels`` the
-    A=policy/B=baseline game; entries are ``None`` when a game failed to parse."""
+    A=policy/B=baseline game; entries are ``None`` when a game failed to parse.
+    ``game0_texts``/``game1_texts`` hold the raw judge generations when the judge
+    captures them (both backends do).
+
+    Failure counts are over the ``2 * n_prompts`` games unless noted:
+    ``n_generation_failures`` = empty judge output (API HTTP failure after retries,
+    or an empty local generation); ``n_parse_failures`` = non-empty output with no
+    parsable verdict; ``n_dropped_prompts`` = prompts excluded from metrics because
+    at least one of their two games had no usable verdict."""
     game0_labels: List[Optional[str]]
     game1_labels: List[Optional[str]]
+    game0_texts: Optional[List[str]] = None
+    game1_texts: Optional[List[str]] = None
+    n_generation_failures: int = 0
+    n_truncation_failures: int = 0
+    n_parse_failures: int = 0
+    n_dropped_prompts: int = 0
+
+
+@dataclass
+class JudgeGeneration:
+    """One judge completion: the raw ``text`` and whether it hit the token limit.
+
+    ``truncated`` lets the judge attribute an unparsable verdict to truncation
+    (the model ran out of tokens) rather than a genuine parse failure."""
+    text: str
+    truncated: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +136,37 @@ def _label_to_score(weight: int = 3) -> Dict[str, List[float]]:
         "B<<A": [1.0] * weight,
         "B<A":  [1.0],
     }
+
+
+def battles_from_game_labels(
+    game0_labels: List[Optional[str]],
+    game1_labels: List[Optional[str]],
+    *,
+    weight: int = 3,
+) -> Tuple[List[List[float]], int]:
+    """Apply the Arena-Hard ``show_result.py`` formula to two swapped games.
+
+    ``game0`` is the A=baseline/B=policy game, ``game1`` the A=policy/B=baseline
+    game. Returns ``(battles_per_prompt, dropped)`` where each per-prompt entry is
+    a list of battle scores in {0.0, 0.5, 1.0} from the policy's perspective
+    (decisive verdicts expand to ``weight`` copies); an empty list marks a prompt
+    where either game failed to parse. Mirrors:
+
+        scores = label_to_score[game1] + [1 - s for s in label_to_score[game0]]
+    """
+    label_score = _label_to_score(weight)
+    battles: List[List[float]] = []
+    dropped = 0
+    for lbl0, lbl1 in zip(game0_labels, game1_labels):
+        if (lbl0 is None or lbl1 is None
+                or lbl0 not in label_score or lbl1 not in label_score):
+            dropped += 1
+            battles.append([])
+            continue
+        ms1 = label_score[lbl1]
+        ms0 = [1.0 - s for s in label_score[lbl0]]
+        battles.append(ms1 + ms0)
+    return battles, dropped
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +232,14 @@ class RMJudge:
 
 
 # ---------------------------------------------------------------------------
-# LLM API judge (Arena-Hard-Auto v2.0 compatible)
+# Generative LLM judge (Arena-Hard-Auto v2.0 compatible)
+#
+# One judge, pluggable generation backend. ``LLMJudge`` owns everything that is
+# backend-independent (prompt construction, the two position-swapped games, label
+# parsing, weighted battle scoring). A backend only turns chat conversations +
+# shared ``JudgeGenParams`` into completion strings, so switching between a remote
+# API and a local vLLM model changes only the backend — not the protocol, the
+# metrics, or how generation params are set.
 # ---------------------------------------------------------------------------
 
 def _parse_arena_label(text: str, patterns: List[str]) -> Optional[str]:
@@ -191,81 +253,251 @@ def _parse_arena_label(text: str, patterns: List[str]) -> Optional[str]:
     return None
 
 
-class LLMAPIJudge:
-    """Arena-Hard-Auto-compatible pairwise LLM judge (OpenRouter API).
+@dataclass
+class JudgeGenParams:
+    """Generation controls applied identically across judge backends.
 
-    For each prompt runs two games (position-swapped) and maps each 5-category
-    label through ``label_to_score`` with ``weight`` (default 3). Score output
-    matches ``show_result.py`` in the upstream repo: the returned per-prompt
-    battle list is ``label_to_score[game1] + [1 - s for s in label_to_score[game0]]``.
+    Fields are required (no defaults) on purpose: the canonical default values
+    live in ``ScriptArguments`` (the ``--llm_judge_*`` flags), and callers build
+    this from there, so a default can't drift between config and code.
+
+    ``enable_thinking`` is honored in full by the local vLLM backend (chat
+    template + ``"My final verdict "`` prefill); the OpenRouter backend forwards
+    it via OpenRouter's native ``reasoning`` toggle when disabling thinking.
     """
-    kind = "llm_api"
+    temperature: float
+    top_p: float
+    max_tokens: int
+    enable_thinking: bool
+
+
+class OpenRouterBackend:
+    """Generate judge completions via the OpenRouter chat-completions API."""
+    phase = "online"
 
     def __init__(
         self,
         model_name: str = "openai/gpt-4.1",
-        system_prompt: str = ARENA_HARD_SYSTEM_PROMPT,
-        prompt_template: str = ARENA_HARD_PROMPT_TEMPLATE,
-        regex_patterns: Optional[List[str]] = None,
-        weight: int = 3,
-        temperature: float = 0.0,
-        max_tokens: int = 16000,
-        max_parallel: int = 8,
+        *,
+        api_key: Optional[str] = None,
         api_key_env: str = "OPENROUTER_API_KEY",
+        max_parallel: int = 8,
+        max_retries: int = 5,
+        timeout: int = 300,
+        base_url: str = "https://openrouter.ai/api/v1/chat/completions",
     ):
         self.model_name = model_name
-        self.system_prompt = system_prompt
-        self.prompt_template = prompt_template
-        self.regex_patterns = regex_patterns or ARENA_HARD_REGEX_PATTERNS
-        self.weight = weight
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.max_parallel = max_parallel
+        self.label = model_name.replace("/", "_")
+        self._api_key = api_key
         self.api_key_env = api_key_env
-        self.name = f"llm_{model_name.replace('/', '_')}"
+        self.max_parallel = max_parallel
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.base_url = base_url
 
-    def _one_game(self, question: str, answer_a: str, answer_b: str, ctx) -> Optional[str]:
-        """Single call; returns the parsed label or None on failure."""
-        user_prompt = self.prompt_template.format(
-            QUESTION=question, ANSWER_A=answer_a, ANSWER_B=answer_b
-        )
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        api_key = getattr(ctx.args, "openrouter_api_key", None) or os.environ.get(self.api_key_env)
-        if not api_key:
+    def _resolve_key(self) -> str:
+        key = self._api_key or os.environ.get(self.api_key_env)
+        if not key:
             raise RuntimeError(
-                f"LLMAPIJudge needs an API key (env {self.api_key_env} or --openrouter_api_key)"
+                f"OpenRouter judge needs an API key (--openrouter_api_key or env {self.api_key_env})"
             )
+        return key
 
-        # Retry with exponential backoff on transient errors.
+    def _one(self, messages: List[dict], params: "JudgeGenParams", api_key: str) -> "JudgeGeneration":
+        body = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": params.temperature,
+            "top_p": params.top_p,
+            "max_tokens": params.max_tokens,
+        }
+        # Only deviate from the model's default reasoning behavior when thinking
+        # is explicitly disabled (OpenRouter-native toggle; no-op for models that
+        # don't support it). Keeps the default path byte-for-byte as before.
+        if not params.enable_thinking:
+            body["reasoning"] = {"enabled": False}
+
         last_err = None
-        for attempt in range(5):
+        for attempt in range(self.max_retries):
             try:
                 r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
+                    self.base_url,
                     headers={
                         "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": self.model_name,
-                        "messages": messages,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                    },
-                    timeout=300,
+                    json=body,
+                    timeout=self.timeout,
                 )
                 r.raise_for_status()
-                out = r.json()
-                text = out["choices"][0]["message"]["content"]
-                return _parse_arena_label(text, self.regex_patterns)
+                choice = r.json()["choices"][0]
+                return JudgeGeneration(
+                    text=choice["message"]["content"],
+                    truncated=choice.get("finish_reason") == "length",
+                )
             except Exception as e:
                 last_err = e
                 time.sleep(2 ** attempt)
-        print(f"[LLMAPIJudge] giving up after retries: {last_err}")
-        return None
+        print(f"[OpenRouterBackend] giving up after {self.max_retries} retries: {last_err}")
+        return JudgeGeneration(text="", truncated=False)
+
+    def generate(self, conversations: List[List[dict]], params: "JudgeGenParams") -> List["JudgeGeneration"]:
+        import concurrent.futures as cf
+
+        api_key = self._resolve_key()
+        gens: List[Optional[JudgeGeneration]] = [None] * len(conversations)
+        with cf.ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
+            futs = {
+                pool.submit(self._one, conv, params, api_key): i
+                for i, conv in enumerate(conversations)
+            }
+            for fut in cf.as_completed(futs):
+                gens[futs[fut]] = fut.result()
+        return gens
+
+
+class VLLMBackend:
+    """Generate judge completions from a local open-weight model via vLLM.
+
+    Deferred: the model loads lazily on the first ``generate`` (after the policy
+    vLLM is torn down so the GPU is free) and is reused across checkpoints, then
+    released by ``teardown``. Applies the chat template locally so it can honor
+    ``enable_thinking`` and prefill ``"My final verdict "`` when thinking is off.
+    """
+    phase = "deferred"
+    PREFILL = "My final verdict "
+
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        max_model_len: int,
+        gpu_memory_utilization: float,
+    ):
+        self.model_name = model_name
+        self.label = f"vllm_{model_name.replace('/', '_')}"
+        self.max_model_len = max_model_len
+        self.gpu_memory_utilization = gpu_memory_utilization
+        self._llm = None
+        self._tokenizer = None
+
+    def _ensure(self) -> None:
+        if self._llm is not None:
+            return
+        import torch
+        from transformers import AutoTokenizer
+        from vllm import LLM
+
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, trust_remote_code=True,
+        )
+        print(
+            f"[VLLMBackend] loading judge {self.model_name} "
+            f"(max_model_len={self.max_model_len}, "
+            f"gpu_memory_utilization={self.gpu_memory_utilization})"
+        )
+        self._llm = LLM(
+            model=self.model_name,
+            tokenizer=self.model_name,
+            dtype="bfloat16",
+            tensor_parallel_size=torch.cuda.device_count(),
+            gpu_memory_utilization=self.gpu_memory_utilization,
+            max_model_len=self.max_model_len,
+            trust_remote_code=True,
+            language_model_only=True,
+        )
+
+    def teardown(self) -> None:
+        from .generation import teardown_vllm
+        teardown_vllm(self._llm)
+        self._llm = None
+        self._tokenizer = None
+
+    def _render(self, messages: List[dict], enable_thinking: bool) -> str:
+        try:
+            text = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+            )
+        except TypeError:
+            # Chat template doesn't accept the enable_thinking kwarg.
+            text = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+        if not enable_thinking:
+            text += self.PREFILL
+        return text
+
+    def generate(self, conversations: List[List[dict]], params: "JudgeGenParams") -> List["JudgeGeneration"]:
+        from vllm import SamplingParams
+        from data_utils import get_generation_stop_token_ids
+
+        self._ensure()
+        prompts = [self._render(c, params.enable_thinking) for c in conversations]
+        sampling = SamplingParams(
+            temperature=params.temperature,
+            top_p=params.top_p,
+            max_tokens=params.max_tokens,
+            n=1,
+            stop_token_ids=get_generation_stop_token_ids(self._tokenizer),
+        )
+        outputs = self._llm.generate(prompts, sampling)
+        gens = []
+        for o in outputs:
+            comp = o.outputs[0]
+            text = comp.text
+            # Restore the prefill so saved text and the parser see the full verdict.
+            if not params.enable_thinking:
+                text = self.PREFILL + text
+            gens.append(JudgeGeneration(text=text, truncated=comp.finish_reason == "length"))
+        return gens
+
+
+class LLMJudge:
+    """Arena-Hard-Auto-compatible pairwise judge with a pluggable generation backend.
+
+    Backend-independent: builds the system+user judge prompt, runs the two
+    position-swapped games per prompt, parses the 5-point verdict, and maps the
+    labels to weighted battles via ``battles_from_game_labels`` (matching
+    ``show_result.py``). The ``backend`` (``OpenRouterBackend`` or
+    ``VLLMBackend``) only turns chat conversations + ``JudgeGenParams`` into
+    completion strings, so switching API <-> local vLLM leaves the protocol,
+    metrics, and generation-param handling unchanged. ``phase`` is inherited from
+    the backend so deferred (GPU-loading) backends run after the policy vLLM.
+    """
+    kind = "llm"
+
+    def __init__(
+        self,
+        backend,
+        *,
+        gen_params: JudgeGenParams,
+        system_prompt: str = ARENA_HARD_SYSTEM_PROMPT,
+        prompt_template: str = ARENA_HARD_PROMPT_TEMPLATE,
+        regex_patterns: Optional[List[str]] = None,
+        weight: int = 3,
+    ):
+        self.backend = backend
+        self.system_prompt = system_prompt
+        self.prompt_template = prompt_template
+        self.regex_patterns = regex_patterns or ARENA_HARD_REGEX_PATTERNS
+        self.weight = weight
+        self.gen_params = gen_params
+        self.phase = getattr(backend, "phase", "online")
+        self.name = f"llm_{backend.label}"
+
+    def teardown(self) -> None:
+        if hasattr(self.backend, "teardown"):
+            self.backend.teardown()
+
+    def _conversation(self, question: str, answer_a: str, answer_b: str) -> List[dict]:
+        user_prompt = self.prompt_template.format(
+            QUESTION=question, ANSWER_A=answer_a, ANSWER_B=answer_b,
+        )
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
 
     def score_pairs(
         self,
@@ -274,53 +506,58 @@ class LLMAPIJudge:
         answers_b: List[str],
         ctx,
     ) -> Tuple[List[List[float]], LLMBattleDetails]:
-        import concurrent.futures as cf
-        label_score = _label_to_score(self.weight)
-
-        # Each prompt generates 2 games (A=a,B=b) and (A=b,B=a).
         n = len(answers_a)
-        game0_labels: List[Optional[str]] = [None] * n
-        game1_labels: List[Optional[str]] = [None] * n
+        questions = [m[-1]["content"] if m else "" for m in prompts_messages]
 
-        def _q(msgs):
-            return msgs[-1]["content"] if msgs else ""
+        # Two position-swapped games per prompt, flattened [p0/g0, p0/g1, ...].
+        # game0 = A:baseline/B:policy, game1 = A:policy/B:baseline (upstream swap).
+        conversations: List[List[dict]] = []
+        for i in range(n):
+            conversations.append(self._conversation(questions[i], answers_b[i], answers_a[i]))
+            conversations.append(self._conversation(questions[i], answers_a[i], answers_b[i]))
 
-        def _run(i, game_idx, aa, bb):
-            return i, game_idx, self._one_game(_q(prompts_messages[i]), aa, bb, ctx)
+        gens = self.backend.generate(conversations, self.gen_params)
+        game0_gens = [gens[2 * i] for i in range(n)]
+        game1_gens = [gens[2 * i + 1] for i in range(n)]
+        game0_texts = [g.text for g in game0_gens]
+        game1_texts = [g.text for g in game1_gens]
+        game0_labels = [_parse_arena_label(t, self.regex_patterns) for t in game0_texts]
+        game1_labels = [_parse_arena_label(t, self.regex_patterns) for t in game1_texts]
 
-        with cf.ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
-            futures = []
-            for i in range(n):
-                # game 0: A = baseline (answers_b), B = policy (answers_a)  ← match upstream swap
-                futures.append(pool.submit(_run, i, 0, answers_b[i], answers_a[i]))
-                # game 1: A = policy (answers_a), B = baseline (answers_b)
-                futures.append(pool.submit(_run, i, 1, answers_a[i], answers_b[i]))
-            for fut in cf.as_completed(futures):
-                i, game_idx, label = fut.result()
-                if game_idx == 0:
-                    game0_labels[i] = label
-                else:
-                    game1_labels[i] = label
+        battles, dropped = battles_from_game_labels(
+            game0_labels, game1_labels, weight=self.weight,
+        )
 
-        # Apply show_result.py formula:
-        #   scores = label_to_score[game1] + [1 - s for s in label_to_score[game0]]
-        # game1 is A=policy,B=baseline so its label_to_score is already from
-        # policy's perspective. game0 is A=baseline,B=policy so we flip (1-s).
-        battles_per_prompt: List[List[float]] = []
-        dropped = 0
-        for lbl0, lbl1 in zip(game0_labels, game1_labels):
-            if lbl0 is None or lbl1 is None or lbl0 not in label_score or lbl1 not in label_score:
-                dropped += 1
-                battles_per_prompt.append([])  # empty → PairwiseEvaluator will skip
+        # Attribute each unparsable game (label is None) to a single cause, in
+        # priority order, so the reason for any drops is visible in wandb:
+        #   empty output -> generation failure (API HTTP failure / empty gen)
+        #   truncated    -> truncation failure (ran out of tokens before verdict)
+        #   otherwise    -> parse failure (had output, no recognizable verdict)
+        all_gens = game0_gens + game1_gens
+        all_labels = game0_labels + game1_labels
+        n_generation_failures = n_truncation_failures = n_parse_failures = 0
+        for g, lbl in zip(all_gens, all_labels):
+            if lbl is not None:
                 continue
-            ms1 = label_score[lbl1]
-            ms0 = [1.0 - s for s in label_score[lbl0]]
-            battles_per_prompt.append(ms1 + ms0)
-
+            if g.text == "":
+                n_generation_failures += 1
+            elif g.truncated:
+                n_truncation_failures += 1
+            else:
+                n_parse_failures += 1
         if dropped:
             print(
-                f"[LLMAPIJudge] dropped {dropped}/{n} prompts due to parse/API failure"
+                f"[LLMJudge:{self.name}] dropped {dropped}/{n} prompts "
+                f"({n_generation_failures} generation, {n_truncation_failures} truncation, "
+                f"{n_parse_failures} parse failures over {2 * n} games)"
             )
-        return battles_per_prompt, LLMBattleDetails(
+        return battles, LLMBattleDetails(
             game0_labels=game0_labels, game1_labels=game1_labels,
+            game0_texts=game0_texts, game1_texts=game1_texts,
+            n_generation_failures=n_generation_failures,
+            n_truncation_failures=n_truncation_failures,
+            n_parse_failures=n_parse_failures,
+            n_dropped_prompts=dropped,
         )
+
+

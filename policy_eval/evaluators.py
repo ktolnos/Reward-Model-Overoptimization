@@ -4,7 +4,8 @@ Each class conforms to the ``Evaluator`` protocol in ``types.py``:
     - ``name``: metric prefix
     - ``phase``: "online" (runs while policy vLLM is loaded) or "deferred"
       (runs after the policy vLLM is torn down; used by evaluators that load
-      their own vLLM models, e.g. LLMJudgeVLLMEvaluator).
+      their own vLLM models, e.g. ``PairwiseEvaluator`` with an ``LLMJudge`` over
+      a ``VLLMBackend``, whose phase is derived from the judge).
     - ``requires_logprobs``: if True, forces ``collect_logprobs=True`` on the
       benchmark's generation config.
 
@@ -99,12 +100,12 @@ class RewardModelEvaluator:
                     "reference_response_text",
                     [ex.metadata.get("chosen_response", "") for ex in examples],
                 )
-            if n > 1:
-                scores_per_prompt = scores.reshape(-1, n).mean(axis=1)
-                policy_responses_per_prompt = generation.responses[::n]
-            else:
-                scores_per_prompt = scores
-                policy_responses_per_prompt = generation.responses
+            # Frozen eval is single-sample (BENCHMARK.md §8); guard here so the
+            # win-rate scores and the response texts feeding style control stay
+            # aligned to the same sample (no silent first-sample slicing).
+            assert n == 1, "win-rate vs chosen requires n_responses_per_example=1"
+            scores_per_prompt = scores
+            policy_responses_per_prompt = generation.responses
             chosen_responses = [ex.metadata["chosen_response"] for ex in examples]
             chosen_arr = np.asarray(chosen)
             battles_per_prompt = [
@@ -155,16 +156,28 @@ def _get_baseline_responses_for(examples: List[Example], baseline_name: str) -> 
     return [ex.metadata.get("baselines", {}).get(baseline_name, "") for ex in examples]
 
 
+def _judge_failure_metrics(details) -> Dict[str, int]:
+    """Per-judge failure counts for wandb (empty for non-generative judges)."""
+    if not isinstance(details, LLMBattleDetails):
+        return {}
+    return {
+        "n_generation_failures": details.n_generation_failures,
+        "n_truncation_failures": details.n_truncation_failures,
+        "n_parse_failures": details.n_parse_failures,
+        "n_dropped_prompts": details.n_dropped_prompts,
+    }
+
+
 class PairwiseEvaluator:
     """Compute Arena-Hard-style pairwise win metrics against one or more baselines.
 
-    Pluggable via ``judge`` (``RMJudge`` or ``LLMAPIJudge``). Same metric keys
-    regardless of judge, so swapping backends keeps charts comparable.
+    Pluggable via ``judge`` (``RMJudge`` or ``LLMJudge``). Same metric keys
+    regardless of judge, so swapping judges/backends keeps charts comparable.
 
     Caching: for ``RMJudge`` only, the baseline-side RM scores are cached on
     disk per (RM, baseline slot, n, content hash) — independent of the policy
     being evaluated, since baseline responses don't change. The policy side is
-    always re-scored. Generative judges (``LLMAPIJudge``) skip the cache; their
+    always re-scored. Generative judges (``LLMJudge``) skip the cache; their
     verdicts depend on the current policy responses.
 
     Two modes:
@@ -176,7 +189,6 @@ class PairwiseEvaluator:
         ``{judge}/{category}/{metric}``. Any baselines in ``baselines`` that
         aren't referenced by ``CATEGORY_BASELINES`` are silently ignored.
     """
-    phase = "online"
     requires_logprobs = False
 
     def __init__(
@@ -189,6 +201,14 @@ class PairwiseEvaluator:
         self.baselines = baselines
         self.per_category = per_category
         self.name = f"pairwise_{judge.name}"
+        # A judge that loads its own GPU model (LLMJudge over a VLLMBackend) runs
+        # deferred, after the policy vLLM is torn down; API/RM judges run online.
+        self.phase = getattr(judge, "phase", "online")
+
+    def teardown(self) -> None:
+        """Release judge-held resources (e.g. a deferred vLLM model)."""
+        if hasattr(self.judge, "teardown"):
+            self.judge.teardown()
 
     def _run_judge(
         self,
@@ -213,7 +233,7 @@ class PairwiseEvaluator:
         # Cache strategy:
         #   - RMJudge: cache the baseline-side scores. Pure function of
         #     (RM, baseline content), so safe to reuse across runs.
-        #   - LLMAPIJudge etc.: no cache; the verdict depends on the policy.
+        #   - LLMJudge etc.: no cache; the verdict depends on the policy.
         if getattr(self.judge, "kind", None) == "rm":
             safe_slot = slot_name.replace("/", "_")
             cache_key = (
@@ -275,8 +295,75 @@ class PairwiseEvaluator:
                 f"Unknown judge battle details type: {type(details).__name__}"
             )
 
+    def _persist_pairwise(self, ctx, benchmark, examples, slot_name, indices,
+                          battles, details, policy_responses, baseline_responses) -> None:
+        """Persist per-prompt judge signals.
+
+        Online judges have a ``ctx.recorder`` and stream columns into the shared
+        per-example log. Deferred judges (vLLM) run after that log is written, so
+        their raw verdicts go to a dedicated judge file instead.
+        """
+        if ctx.recorder is not None:
+            self._record_pairwise(ctx.recorder, slot_name, indices, battles,
+                                  details, baseline_responses)
+        else:
+            self._write_deferred_judge_file(
+                ctx, benchmark, examples, slot_name, battles, details,
+                policy_responses, baseline_responses,
+            )
+
+    def _write_deferred_judge_file(self, ctx, benchmark, examples, slot_name,
+                                   battles, details, policy_responses,
+                                   baseline_responses) -> None:
+        """Write one row per prompt (question, both answers, both swapped-game
+        raw judge texts + labels, battle outcomes) to a parquet/jsonl file next
+        to the per-example logs, joinable via ``prompt_uid``."""
+        import os
+        import pandas as pd
+        from .persistence import example_uid, resolve_per_example_dir
+
+        g0_labels = getattr(details, "game0_labels", None)
+        g1_labels = getattr(details, "game1_labels", None)
+        g0_texts = getattr(details, "game0_texts", None)
+        g1_texts = getattr(details, "game1_texts", None)
+        rows = []
+        for k, ex in enumerate(examples):
+            b = battles[k]
+            rows.append({
+                "benchmark": benchmark.name,
+                "checkpoint": ctx.checkpoint_num,
+                "prompt_uid": example_uid(ex),
+                "slot": slot_name,
+                "question": ex.prompt_messages[-1]["content"] if ex.prompt_messages else "",
+                "policy_response": policy_responses[k],
+                "baseline_response": baseline_responses[k],
+                "game0_label": g0_labels[k] if g0_labels else None,
+                "game1_label": g1_labels[k] if g1_labels else None,
+                "game0_text": g0_texts[k] if g0_texts else None,
+                "game1_text": g1_texts[k] if g1_texts else None,
+                "battle_mean": float(np.mean(b)) if len(b) else float("nan"),
+                "n_battles": len(b),
+            })
+
+        per_example_dir = resolve_per_example_dir(ctx.args)
+        os.makedirs(per_example_dir, exist_ok=True)
+        fmt = ctx.args.per_example_format
+        ext = "jsonl" if fmt == "jsonl" else "parquet"
+        safe_bench = benchmark.name.replace("/", "_")
+        safe_slot = slot_name.replace("/", "_")
+        path = os.path.join(
+            per_example_dir,
+            f"{safe_bench}__checkpoint-{ctx.checkpoint_num}__{self.name}__{safe_slot}.{ext}",
+        )
+        df = pd.DataFrame(rows)
+        if fmt == "jsonl":
+            df.to_json(path, orient="records", lines=True, force_ascii=False)
+        else:
+            df.to_parquet(path, index=False)
+        print(f"[{self.name}] wrote {len(df)} judge rows -> {path}")
+
     def _eval_global(
-        self, examples, prompt_messages_list, policy_responses, ctx,
+        self, benchmark, examples, prompt_messages_list, policy_responses, ctx,
     ) -> Dict[str, float]:
         out: Dict = {}
         all_indices = list(range(len(examples)))
@@ -289,15 +376,16 @@ class PairwiseEvaluator:
             if result is None:
                 continue
             battles, details = result
-            self._record_pairwise(ctx.recorder, baseline_name, all_indices, battles,
-                                  details, baseline_responses)
+            self._persist_pairwise(ctx, benchmark, examples, baseline_name, all_indices,
+                                   battles, details, policy_responses, baseline_responses)
             metrics = compute_pairwise_metrics(battles, policy_responses, baseline_responses)
+            metrics.update(_judge_failure_metrics(details))
             for k, v in metrics.items():
                 out[f"{self.judge.name}/{baseline_name}/{k}"] = v
         return out
 
     def _eval_per_category(
-        self, examples, prompt_messages_list, policy_responses, ctx,
+        self, benchmark, examples, prompt_messages_list, policy_responses, ctx,
     ) -> Dict[str, float]:
         """For each category, filter to its prompts and compare vs the upstream
         baseline for that category (CATEGORY_BASELINES)."""
@@ -326,9 +414,10 @@ class PairwiseEvaluator:
                 continue
             battles, details = result
             # Record under the category slot, scattered back to global indices.
-            self._record_pairwise(ctx.recorder, category, indices, battles, details,
-                                  sub_baseline)
+            self._persist_pairwise(ctx, benchmark, sub_examples, category, indices,
+                                   battles, details, sub_policy, sub_baseline)
             metrics = compute_pairwise_metrics(battles, sub_policy, sub_baseline)
+            metrics.update(_judge_failure_metrics(details))
             # Metric slot is the category name (matches upstream's leaderboard format).
             for k, v in metrics.items():
                 out[f"{self.judge.name}/{category}/{k}"] = v
@@ -344,13 +433,17 @@ class PairwiseEvaluator:
         ctx: EvalContext,
     ) -> dict:
         n = generation.n_responses_per_example
-        policy_responses = generation.responses[::n] if n > 1 else generation.responses
+        # Frozen eval is single-sample (BENCHMARK.md §8). Assert rather than
+        # silently judging only responses[::n] (the first sample per prompt),
+        # which previously diverged from the RM /mean that averages all samples.
+        assert n == 1, "PairwiseEvaluator requires n_responses_per_example=1 (frozen eval)"
+        policy_responses = generation.responses
         prompt_messages_list = [ex.prompt_messages for ex in examples]
 
         if self.per_category:
-            raw = self._eval_per_category(examples, prompt_messages_list, policy_responses, ctx)
+            raw = self._eval_per_category(benchmark, examples, prompt_messages_list, policy_responses, ctx)
         else:
-            raw = self._eval_global(examples, prompt_messages_list, policy_responses, ctx)
+            raw = self._eval_global(benchmark, examples, prompt_messages_list, policy_responses, ctx)
 
         return {benchmark.metric_key(k): v for k, v in raw.items()}
 
@@ -517,102 +610,3 @@ class KLEvaluator:
             k("kl/grpo_std"): float(np.std(kl_grpo_per_sample)),
         }
 
-
-# =============================================================================
-# LLM-as-judge (API backend: OpenRouter)
-# =============================================================================
-
-class LLMJudgeAPIEvaluator:
-    """Pairwise LLM judge via OpenRouter API.
-
-    Expects ``ctx.baseline_responses`` (one per example) set by the preference
-    benchmark. Uses the Skywork judge template.
-
-    NOTE: The original implementation has an unresolved bug around how
-    chat-template-formatted prompts are plugged into the judge template. Kept
-    raising NotImplementedError until that's fixed; structure preserved so the
-    fix can land without changing wiring.
-    """
-    phase = "online"
-    requires_logprobs = False
-    name = "llm_judge_api"
-
-    def __init__(self, model_name: str, max_new_tokens: int = 2048):
-        self.model_name = model_name
-        self.max_new_tokens = max_new_tokens
-
-    def evaluate(self, benchmark, examples, generation, ctx):
-        if ctx.baseline_responses is None:
-            raise ValueError("LLMJudgeAPIEvaluator needs ctx.baseline_responses")
-        verdicts, judge_responses = _openrouter_judge(
-            examples, generation.responses, ctx.baseline_responses,
-            args=ctx.args, model_name=self.model_name,
-            max_new_tokens=self.max_new_tokens,
-        )
-        return _verdict_metrics(verdicts, benchmark)
-
-
-def _openrouter_judge(examples, policy_responses, baseline_responses, *, args, model_name, max_new_tokens):
-    from reward_utils import (
-        Skywork_PROMPT, Skywork_SYSTEM_PROMPT, Skywork_ASSISTANT_PROMPT,
-        extract_reward_from_response,
-    )
-    raise NotImplementedError(
-        "LLM judge API evaluation is not currently supported. "
-        "Known issue: `prompts` passed here are chat-template-formatted strings "
-        "(e.g. containing <|im_start|> tokens) but get plugged into the Skywork "
-        "judge template as the raw 'question', corrupting judge input. "
-        "Fix: extract raw user question from examples[i].prompt_messages[-1]['content']."
-    )
-
-
-# =============================================================================
-# LLM-as-judge (vLLM backend: deferred, loads its own model)
-# =============================================================================
-
-class LLMJudgeVLLMEvaluator:
-    """Pairwise LLM judge via a separately-loaded vLLM instance.
-
-    This is a **deferred** evaluator: it runs after the policy vLLM is torn
-    down. The main loop caches per-checkpoint responses and feeds them back in
-    at the deferred phase, so the judge loads exactly once.
-
-    Unimplemented stub for now — the abstraction is in place so this can be
-    filled in without changing the main loop. Recipe:
-        1. Load vLLM(judge_model_path).
-        2. Build Skywork prompts from (prompt, policy_response, baseline_response).
-        3. Call llm.generate(...) and parse the preference from each generation.
-        4. Emit win/loss/tie metrics per checkpoint via log_metrics(...).
-    """
-    phase = "deferred"
-    requires_logprobs = False
-    name = "llm_judge_vllm"
-
-    def __init__(self, judge_model_path: str, max_new_tokens: int = 2048):
-        self.judge_model_path = judge_model_path
-        self.max_new_tokens = max_new_tokens
-
-    def evaluate(self, benchmark, examples, generation, ctx):
-        raise NotImplementedError(
-            "LLMJudgeVLLMEvaluator is a scaffold. Implement with a deferred "
-            "entry point that receives {checkpoint_num: GenerationResult} and "
-            "loads the judge vLLM exactly once."
-        )
-
-
-def _verdict_metrics(verdicts: List[int], benchmark: Benchmark) -> dict:
-    wins = verdicts.count(1)
-    losses = verdicts.count(-1)
-    ties = verdicts.count(0)
-    total = len(verdicts) or 1
-    k = benchmark.metric_key
-    return {
-        k("llm_judge/win_rate"): wins / total,
-        k("llm_judge/loss_rate"): losses / total,
-        k("llm_judge/tie_rate"): ties / total,
-        k("llm_judge/mean"): float(np.mean(verdicts)) if verdicts else 0.0,
-        k("llm_judge/mean_no_tie"): (
-            (wins - losses) / (wins + losses) if (wins + losses) > 0 else 0.0
-        ),
-        k("llm_judge/total_comparisons"): total,
-    }
