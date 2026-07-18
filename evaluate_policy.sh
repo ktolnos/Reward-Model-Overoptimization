@@ -3,9 +3,10 @@
 #SBATCH --job-name=evaluate_policy
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16gb
-#SBATCH --gres=gpu:A100-PCI-80GB:1
+#SBATCH --gres=gpu:1
+#SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
 #SBATCH --time=5:00:00
-#SBATCH --qos=default
+#SBATCH --qos=high
 
 # =============================================================================
 # Usage
