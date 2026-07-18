@@ -4,13 +4,15 @@ Splits the old ``vllm_responses_provider`` into three pieces so the new main
 loop can mix-and-match:
 
 - ``initialize_vllm``: create the engine once, with the correct max_model_len.
-- ``update_vllm_weights``: hot-swap in checkpoint weights.
+- ``update_vllm_weights``: hot-swap in checkpoint weights (+ prefix-cache reset).
 - ``generate_responses_vllm``: one generation pass for a batch of prompts.
 - ``teardown_vllm``: release GPU memory.
 
-Logprob collection: callers that need KL or similar pass ``collect_logprobs=True``
-and read ``full_ids_list`` / ``policy_mean_logprobs`` / ``policy_token_logprobs``
-off the returned ``GenerationResult``.
+KL support: callers pass ``collect_logprobs=True`` to record token ids
+(``full_ids_list`` / ``prompt_lens_list``) on the ``GenerationResult``;
+``teacher_forced_response_logprobs`` then scores those ids under whichever
+weights are currently loaded, so policy and base logprobs come from the same
+engine and kernels without a second copy of the model in memory.
 """
 from __future__ import annotations
 
@@ -65,6 +67,11 @@ def initialize_vllm(
 def update_vllm_weights(llm: LLM, model_path: str) -> None:
     print(f"Updating vLLM weights from {model_path}")
     llm.collective_rpc("load_weights_from_path", args=(model_path,))
+    # KV blocks cached under the previous weights are wrong for the new ones;
+    # prefix caching is on by default and would silently serve stale KV for
+    # repeated prompt prefixes (same prompts every checkpoint, and the
+    # teacher-forced KL passes share the full prompt+response prefix).
+    llm.reset_prefix_cache()
 
 
 def teardown_vllm(llm: Optional[LLM]) -> None:
@@ -137,8 +144,6 @@ def generate_responses_vllm(
     response_token_lens: List[int] = []
     full_ids_list: List[List[int]] = []
     prompt_lens_list: List[int] = []
-    policy_mean_logprobs: List[float] = []
-    policy_token_logprobs: List[List[float]] = []
 
     for output in outputs:
         for completion in output.outputs:
@@ -150,23 +155,8 @@ def generate_responses_vllm(
 
             if gen_config.collect_logprobs:
                 prompt_ids = list(output.prompt_token_ids)
-                response_ids = list(completion.token_ids)
-                full_ids_list.append(prompt_ids + response_ids)
+                full_ids_list.append(prompt_ids + list(completion.token_ids))
                 prompt_lens_list.append(len(prompt_ids))
-
-                seq_lp = completion.logprobs
-                tok_lps: List[float] = []
-                if seq_lp:
-                    for lp, t_id in zip(seq_lp, response_ids):
-                        if not lp:
-                            continue
-                        entry = lp.get(t_id)
-                        if entry is None:
-                            continue
-                        tok_lps.append(entry.logprob)
-                mean_lp = float(sum(tok_lps) / len(tok_lps)) if tok_lps else 0.0
-                policy_mean_logprobs.append(mean_lp)
-                policy_token_logprobs.append(tok_lps)
 
     result = GenerationResult(
         responses=responses,
@@ -178,93 +168,87 @@ def generate_responses_vllm(
     if gen_config.collect_logprobs:
         result.full_ids_list = full_ids_list
         result.prompt_lens_list = prompt_lens_list
-        result.policy_mean_logprobs = np.array(policy_mean_logprobs)
-        result.policy_token_logprobs = policy_token_logprobs
     return result
 
 
-def default_sampling_params(
-    tokenizer,
-    max_new_tokens: int,
-    *,
-    temperature: float = 0,
-    top_p: float = 1.0,
-    n: int = 1,
-    collect_logprobs: bool = False,
-) -> SamplingParams:
-    """SamplingParams with the repo's stop tokens pre-filled."""
-    return SamplingParams(
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_new_tokens,
-        n=n,
-        logprobs=1 if collect_logprobs else None,
-        stop_token_ids=get_generation_stop_token_ids(tokenizer),
-    )
-
-
 # ---------------------------------------------------------------------------
-# Base-policy KL helper — kept here because it's a generation-adjacent utility.
+# Teacher-forced logprobs + KL estimators — generation-adjacent utilities.
 # ---------------------------------------------------------------------------
 
-def get_log_probs_from_ids(model, full_ids_list, prompt_lens_list, device, batch_size=4):
-    """Compute per-token log probabilities directly from token IDs.
+def teacher_forced_response_logprobs(llm: LLM, full_ids_list, prompt_lens_list):
+    """Per-token logprobs of each response segment under the engine's current
+    weights.
 
-    See the original ``evaluate_policy.get_log_probs_from_ids`` for semantics.
+    Teacher-forces each recorded (prompt + response) token sequence through a
+    ``prompt_logprobs`` pass, so every response token gets a logprob at its
+    position (no gaps) from the same engine/kernels — for whichever weights
+    are loaded: the policy checkpoint, or the KL base model after
+    ``update_vllm_weights``. This is what lets KL use one engine instead of a
+    second HF copy of the model in GPU memory.
+
+    Sequences that already fill the engine's ``max_model_len`` are fed without
+    their final token (vLLM requires room for one generated token); that
+    token is dropped identically for the policy and base passes, so the two
+    sides stay positionally aligned.
+
+    Returns ``(mean_logprobs, token_logprobs_list)``.
     """
-    all_sum_log_probs = []
-    all_mean_log_probs = []
-    all_token_log_probs = []
+    from vllm.inputs import TokensPrompt
 
-    for i in range(0, len(full_ids_list), batch_size):
-        batch_full_ids = full_ids_list[i:i + batch_size]
-        batch_prompt_lens = prompt_lens_list[i:i + batch_size]
+    max_model_len = llm.llm_engine.model_config.max_model_len
+    sampling = SamplingParams(
+        temperature=0, max_tokens=1, prompt_logprobs=0, detokenize=False,
+    )
+    prompts = []
+    fed_lens: List[int] = []
+    for ids in full_ids_list:
+        fed = ids if len(ids) < max_model_len else ids[: max_model_len - 1]
+        fed_lens.append(len(fed))
+        prompts.append(TokensPrompt(prompt_token_ids=list(fed)))
 
-        max_len = max(len(ids) for ids in batch_full_ids)
-        padded_ids = []
-        attention_masks = []
-        for ids in batch_full_ids:
-            pad_len = max_len - len(ids)
-            padded = [model.config.pad_token_id] * pad_len + list(ids)
-            mask = [0] * pad_len + [1] * len(ids)
-            padded_ids.append(padded)
-            attention_masks.append(mask)
+    outputs = llm.generate(prompts, sampling)
 
-        input_ids = torch.tensor(padded_ids, device=device)
-        attention_mask = torch.tensor(attention_masks, device=device)
+    mean_logprobs: List[float] = []
+    token_logprobs_list: List[List[float]] = []
+    for output, ids, prompt_len, fed_len in zip(
+        outputs, full_ids_list, prompt_lens_list, fed_lens, strict=True,
+    ):
+        prompt_logprobs = output.prompt_logprobs
+        # prompt_logprobs[pos] holds the logprob of token ``pos`` given the
+        # prefix (None at pos 0); missing entries raise rather than skew KL.
+        tok_lps = [
+            prompt_logprobs[pos][ids[pos]].logprob
+            for pos in range(prompt_len, fed_len)
+        ]
+        token_logprobs_list.append(tok_lps)
+        mean_logprobs.append(float(np.mean(tok_lps)) if tok_lps else 0.0)
+    return mean_logprobs, token_logprobs_list
 
-        with torch.no_grad():
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits
 
-        shift_labels = input_ids[:, 1:]
-        token_log_probs_list = []
-        for j in range(input_ids.size(0)):
-            seq_logits = logits[j, :-1, :]
-            seq_labels = shift_labels[j]
-            seq_log_probs = torch.log_softmax(seq_logits, dim=-1)
-            seq_token_lp = seq_log_probs.gather(-1, seq_labels.unsqueeze(-1)).squeeze(-1)
-            token_log_probs_list.append(seq_token_lp)
-            del seq_logits, seq_log_probs
-        token_log_probs = torch.stack(token_log_probs_list)
-        del logits
+def kl_estimators_per_sample(policy_token_logprobs, base_token_logprobs):
+    """Per-sample KL estimators from positionally aligned token logprobs.
 
-        for j in range(input_ids.size(0)):
-            pad_len = (attention_mask[j] == 0).sum().item()
-            prompt_len = batch_prompt_lens[j]
-            response_start_idx = pad_len + prompt_len - 1
-            valid_len = attention_mask[j].sum().item()
-            response_end_idx = pad_len + valid_len - 1
+    Returns ``(k1_per_sample, grpo_per_sample)``:
+      - k1: mean over tokens of ``log pi(t) - log pi_base(t)`` (simple estimator)
+      - grpo: mean over tokens of ``exp(d) - d - 1`` with ``d = ref - pol``
+        (matches GRPO's KL term)
 
-            if response_start_idx >= response_end_idx:
-                all_sum_log_probs.append(0.0)
-                all_mean_log_probs.append(0.0)
-                all_token_log_probs.append([])
-                continue
-
-            response_log_probs = token_log_probs[j, response_start_idx:response_end_idx]
-            all_sum_log_probs.append(response_log_probs.sum().item())
-            all_mean_log_probs.append(response_log_probs.mean().item())
-            all_token_log_probs.append(response_log_probs.cpu().tolist())
-
-    return all_sum_log_probs, all_mean_log_probs, all_token_log_probs
+    The two lists must come from teacher-forcing the same token sequences, so
+    a per-sample length mismatch is a hard error, not something to truncate.
+    """
+    k1_per_sample: List[float] = []
+    grpo_per_sample: List[float] = []
+    for pol_lp, ref_lp in zip(policy_token_logprobs, base_token_logprobs, strict=True):
+        if len(pol_lp) != len(ref_lp):
+            raise ValueError(
+                f"policy/base token logprob length mismatch: "
+                f"{len(pol_lp)} vs {len(ref_lp)}"
+            )
+        if not pol_lp:
+            k1_per_sample.append(0.0)
+            grpo_per_sample.append(0.0)
+            continue
+        diff = np.asarray(ref_lp) - np.asarray(pol_lp)
+        k1_per_sample.append(float(np.mean(-diff)))
+        grpo_per_sample.append(float(np.mean(np.exp(diff) - diff - 1)))
+    return k1_per_sample, grpo_per_sample

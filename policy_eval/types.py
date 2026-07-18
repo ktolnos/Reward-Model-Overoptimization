@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Protocol
 
-import numpy as np
 from vllm import SamplingParams
 
 
@@ -53,11 +52,11 @@ class GenerationResult:
     # Generated token count per response (len of vLLM completion.token_ids),
     # always populated — used for length/verbosity gating + over-budget accounting.
     response_token_lens: Optional[List[int]] = None
-    # Populated only when collect_logprobs=True:
+    # Populated only when collect_logprobs=True: the prompt+response token ids
+    # and prompt lengths, which KLEvaluator teacher-forces through the vLLM
+    # engine (policy weights, then base weights) to get aligned logprobs.
     full_ids_list: Optional[List[List[int]]] = None
     prompt_lens_list: Optional[List[int]] = None
-    policy_mean_logprobs: Optional[np.ndarray] = None
-    policy_token_logprobs: Optional[List[List[float]]] = None
 
 
 @dataclass

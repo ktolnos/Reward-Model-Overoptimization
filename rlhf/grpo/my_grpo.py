@@ -30,6 +30,7 @@ from data_utils import (
     set_lengths_from_config,
     compute_max_prompt_length,
     build_train_eval_datasets,
+    write_run_manifest,
     DATASET_LENGTH_CONFIGS,
 )
 
@@ -78,10 +79,13 @@ class _MultiTokenEosId(int):
     our ``__eq__``, and returns True for any token in the full stop set.
 
     Note: ``Tensor == _MultiTokenEosId(...)`` does NOT use this override --
-    ``Tensor.__eq__`` runs first and coerces to the primary int. That path is
-    only used inside the transformers-generate branch of ``GRPOTrainer._generate``
-    (line ~1320 in TRL 0.29). ``MyGRPOTrainer._generate_transformers_eos_mask``
-    handles that case separately.
+    ``Tensor.__eq__`` runs first and coerces to the primary int, so the
+    tensor-comparison EOS path (the transformers-generate branch of
+    ``GRPOTrainer._generate``, ~line 1320 in TRL 0.29) sees only the primary
+    stop id. There is no separate handling of that path. This only matters with
+    ``use_vllm=False`` and ``mask_truncated_completions``: a completion ending
+    in a *secondary* stop token would be masked as truncated. The default vLLM
+    path (list membership, as documented above) is unaffected.
     """
 
     _stop_set: frozenset
@@ -321,6 +325,39 @@ if __name__ == "__main__":
         assert (
             len(script_args.reward_model_paths) == 1
         ), "Online PET is currently only supported for a single reward model."
+
+    # Write the run manifest into the checkpoints dir so evaluate_policy.py
+    # defaults its config (dataset, training RM, KL base, temperature) to what
+    # this run actually used. Explicit eval CLI flags still override it.
+    # wandb is initialized here so the run id/name land in the same write; the
+    # trainer's WandbCallback reuses an already-active run.
+    if os.environ.get("RANK", "0") == "0":
+        wandb_fields = {}
+        if "wandb" in (training_args.report_to or []):
+            import wandb
+            if wandb.run is None:
+                wandb.init(
+                    project=os.environ.get("WANDB_PROJECT", "huggingface"),
+                    name=training_args.run_name,
+                )
+            wandb_fields = {
+                "wandb_run_id": wandb.run.id,
+                "wandb_run_name": wandb.run.name,
+                "wandb_project": wandb.run.project,
+                "wandb_url": wandb.run.url,
+            }
+        write_run_manifest(training_args.output_dir, {
+            **wandb_fields,
+            "model_name_or_path": model_args.model_name_or_path,
+            "dataset_path": script_args.dataset_path,
+            "temperature": training_args.temperature,
+            "reward_model_paths": list(script_args.reward_model_paths),
+            "rm_switch_strategy": script_args.rm_switch_strategy,
+            "ensemble_aggregation": script_args.ensemble_aggregation,
+            "beta": training_args.beta,
+            "length_config": script_args.length_config,
+            "max_completion_length": training_args.max_completion_length,
+        })
 
     ################
     # Model & Tokenizer

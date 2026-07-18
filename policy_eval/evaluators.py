@@ -14,19 +14,23 @@ to the relevant benchmark in ``benchmarks.py``.
 """
 from __future__ import annotations
 
-import hashlib
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import numpy as np
 import wandb
 
 from .arena_hard_upstream import CATEGORY_BASELINES
-from .judges import LLMBattleDetails, RMBattleDetails
+from .judges import LLMBattleDetails, RMBattleDetails, render_judge_question
 from .pairwise import compute_pairwise_metrics
-from .rewards import score_responses_with_rm
+from .rewards import hash_responses, score_responses_with_rm
 from .types import Benchmark, EvalContext, Example, GenerationResult
 from .wandb_utils import log_artifact
-from .generation import get_log_probs_from_ids
+from .generation import (
+    kl_estimators_per_sample,
+    teacher_forced_response_logprobs,
+    update_vllm_weights,
+)
 
 
 # =============================================================================
@@ -39,12 +43,19 @@ class RewardModelEvaluator:
     ``rm_label`` selects the RM from ``ctx.loaded_rms`` ("gold_rm", "training_rm",
     or "secondary_rm"). Metric keys use ``benchmark.metric_key(...)``, which
     drops the benchmark prefix entirely when ``benchmark.metric_prefix == ""``.
+
+    ``compare_vs_chosen`` additionally computes win-rate / arena / sc metrics
+    against the dataset's chosen responses. Only the preference benchmark sets
+    it: its examples are the ones ``precompute_chosen_scores`` scored, so the
+    opt-in guarantees chosen scores are never paired with another benchmark's
+    generations.
     """
     phase = "online"
     requires_logprobs = False
 
-    def __init__(self, rm_label: str):
+    def __init__(self, rm_label: str, *, compare_vs_chosen: bool = False):
         self.rm_label = rm_label
+        self.compare_vs_chosen = compare_vs_chosen
         self.name = f"rm_{rm_label}"
 
     def evaluate(
@@ -81,15 +92,19 @@ class RewardModelEvaluator:
         if not ctx.args.disable_wandb:
             out[benchmark.metric_key(f"{label}/scores_hist")] = wandb.Histogram(scores)
 
-        # Win-rate vs chosen: only valid when this benchmark's examples carry a
-        # chosen_response AND the cached chosen_scores array lines up with them.
-        # The cache is populated by precompute_chosen_scores (preference-only);
-        # without this guard, running the preference benchmark alongside another
-        # benchmark that shares an RM evaluator would silently leak preference
-        # chosen scores into the other benchmark's win-rate metric.
-        has_chosen_metadata = all("chosen_response" in ex.metadata for ex in examples)
-        chosen = rms.chosen_scores(label) if (rms and has_chosen_metadata) else None
-        if chosen is not None and len(chosen) == len(examples) and len(chosen) > 0:
+        # Win-rate vs chosen: explicit opt-in (preference benchmark only), so
+        # chosen scores precomputed on the preference split can never be paired
+        # with another benchmark's generations. ``chosen_scores`` is None in the
+        # --evaluate_chosen_responses path, where precompute is skipped.
+        chosen = rms.chosen_scores(label) if self.compare_vs_chosen else None
+        if chosen is not None:
+            if len(chosen) != len(examples):
+                raise ValueError(
+                    f"[RewardModelEvaluator] chosen scores for '{label}' have "
+                    f"{len(chosen)} entries but benchmark '{benchmark.name}' has "
+                    f"{len(examples)} examples — chosen scores were precomputed "
+                    f"on a different example set."
+                )
             # Persist the reference (chosen) scores for offline win-rate (per-prompt),
             # plus the reference text once so style-controlled win-rate is recomputable.
             ctx.recorder.add_prompt_column(
@@ -134,15 +149,6 @@ class RewardModelEvaluator:
 # =============================================================================
 # Generic pairwise evaluator — swap any Judge (RM or LLM) without a new class
 # =============================================================================
-
-def _hash_responses(responses: List[str]) -> str:
-    """Stable short hash of a list of response strings (for cache keys)."""
-    h = hashlib.sha256()
-    for r in responses:
-        h.update(r.encode("utf-8", errors="replace"))
-        h.update(b"\x00")
-    return h.hexdigest()[:16]
-
 
 def _get_baseline_responses_for(examples: List[Example], baseline_name: str) -> List[str]:
     """Pull baseline responses out of Example metadata.
@@ -238,7 +244,7 @@ class PairwiseEvaluator:
             safe_slot = slot_name.replace("/", "_")
             cache_key = (
                 f"{safe_slot}__n{len(baseline_responses)}__"
-                f"{_hash_responses(baseline_responses)}"
+                f"{hash_responses(baseline_responses)}"
             )
             battles, details = self.judge.score_pairs(
                 prompt_messages_list, policy_responses, baseline_responses, ctx,
@@ -334,7 +340,7 @@ class PairwiseEvaluator:
                 "checkpoint": ctx.checkpoint_num,
                 "prompt_uid": example_uid(ex),
                 "slot": slot_name,
-                "question": ex.prompt_messages[-1]["content"] if ex.prompt_messages else "",
+                "question": render_judge_question(ex.prompt_messages),
                 "policy_response": policy_responses[k],
                 "baseline_response": baseline_responses[k],
                 "game0_label": g0_labels[k] if g0_labels else None,
@@ -542,8 +548,34 @@ class IfevalRuleEvaluator:
 # KL divergence evaluator (requires logprobs from generation)
 # =============================================================================
 
+@dataclass
+class _PendingKL:
+    """Per-checkpoint stash the KL base pass consumes after the loop."""
+    full_ids_list: List[List[int]]
+    prompt_lens_list: List[int]
+    policy_token_logprobs: List[List[float]]
+    prompt_uids: List[str]
+
+
 class KLEvaluator:
     """KL(policy || base_policy) per-sample, logged as mean/std.
+
+    Both sides are teacher-forced through the SAME vLLM engine — identical
+    kernels/numerics, exact per-token alignment, and no second copy of any
+    model in GPU memory. The two sides run at different times:
+
+    - ``evaluate`` (online, per checkpoint): policy logprobs under the
+      checkpoint weights that just generated (no weight load), plus a stash of
+      the token ids + policy logprobs for the base pass.
+    - ``run_base_phase`` (once, after the checkpoint loop, engine still
+      alive): the base weights are swapped in a single time and every stashed
+      checkpoint is scored. All generation is done by then, so the checkpoint
+      weights never need restoring — one base-weight load per eval instead of
+      two extra loads per checkpoint.
+
+    ``evaluate`` therefore returns no metrics; they arrive keyed by checkpoint
+    from ``run_base_phase`` (via ``eval_utils.run_kl_base_phase``) and are
+    merged into the result rows with the deferred metrics.
 
     Two estimators:
       - ``kl/mean``: mean-log-prob difference (simple per-sequence)
@@ -558,55 +590,93 @@ class KLEvaluator:
 
     def __init__(self, base_model_path: str):
         self.base_model_path = base_model_path
-        self._base_model = None
-
-    def _ensure_base_model(self, ctx: EvalContext):
-        if self._base_model is not None:
-            return self._base_model
-        from data_utils import load_policy_and_tokenizer
-        print(f"Loading base policy for KL from {self.base_model_path}...")
-        model, _ = load_policy_and_tokenizer(self.base_model_path)
-        self._base_model = model.to(ctx.args.device).eval()
-        return self._base_model
+        self._pending: Dict[int, _PendingKL] = {}
 
     def evaluate(self, benchmark, examples, generation, ctx):
         if generation.full_ids_list is None:
-            print("[KLEvaluator] generation did not collect logprobs; skipping")
+            print("[KLEvaluator] generation did not collect token ids; skipping")
             return {}
-        base_model = self._ensure_base_model(ctx)
 
-        _, base_mean_lp, base_token_lp_list = get_log_probs_from_ids(
-            base_model, generation.full_ids_list, generation.prompt_lens_list,
-            ctx.args.device, batch_size=4,
+        from .persistence import example_uid
+
+        print("[KLEvaluator] teacher-forcing policy logprobs...")
+        policy_mean_lp, policy_token_lp = teacher_forced_response_logprobs(
+            ctx.llm, generation.full_ids_list, generation.prompt_lens_list,
         )
-
-        kl_per_sample = generation.policy_mean_logprobs - np.array(base_mean_lp)
-        kl_mean = float(np.mean(kl_per_sample))
-        kl_std = float(np.std(kl_per_sample))
-
-        kl_grpo_per_sample = []
-        for pol_lp, ref_lp in zip(generation.policy_token_logprobs, base_token_lp_list):
-            min_len = min(len(pol_lp), len(ref_lp))
-            pol = np.array(pol_lp[:min_len])
-            ref = np.array(ref_lp[:min_len])
-            diff = ref - pol
-            per_token = np.exp(diff) - diff - 1
-            kl_grpo_per_sample.append(np.mean(per_token) if len(per_token) else 0.0)
-
-        # Persist per-response KL + logprobs so KL can be recomputed (and
-        # re-aggregated) without re-running the base model.
-        ctx.recorder.add_response_column("kl__k1", kl_per_sample)
-        ctx.recorder.add_response_column("kl__grpo", kl_grpo_per_sample)
-        ctx.recorder.add_response_column(
-            "policy_mean_logprob", generation.policy_mean_logprobs
+        ctx.recorder.add_response_column("policy_mean_logprob", policy_mean_lp)
+        self._pending[ctx.checkpoint_num] = _PendingKL(
+            full_ids_list=generation.full_ids_list,
+            prompt_lens_list=generation.prompt_lens_list,
+            policy_token_logprobs=policy_token_lp,
+            prompt_uids=[example_uid(ex) for ex in examples],
         )
-        ctx.recorder.add_response_column("base_mean_logprob", base_mean_lp)
+        return {}
+
+    def run_base_phase(self, llm, benchmark, args) -> Dict[int, dict]:
+        """Score every stashed checkpoint against the base model.
+
+        Swaps the base weights into the (still-alive) engine once and leaves
+        them there — nothing generates after this phase. Returns
+        ``{checkpoint_num: metrics}``.
+        """
+        if not self._pending:
+            return {}
+        print(f"[KLEvaluator] swapping in KL base weights ({self.base_model_path}) "
+              f"to score {len(self._pending)} checkpoints...")
+        update_vllm_weights(llm, self.base_model_path)
 
         k = benchmark.metric_key
-        return {
-            k("kl/mean"): kl_mean,
-            k("kl/std"): kl_std,
-            k("kl/grpo_mean"): float(np.mean(kl_grpo_per_sample)),
-            k("kl/grpo_std"): float(np.std(kl_grpo_per_sample)),
-        }
+        metrics_by_ckpt: Dict[int, dict] = {}
+        for ckpt_num, pending in sorted(self._pending.items()):
+            base_mean_lp, base_token_lp = teacher_forced_response_logprobs(
+                llm, pending.full_ids_list, pending.prompt_lens_list,
+            )
+            kl_per_sample, kl_grpo_per_sample = kl_estimators_per_sample(
+                pending.policy_token_logprobs, base_token_lp,
+            )
+            self._write_kl_file(args, benchmark, ckpt_num, pending,
+                                kl_per_sample, kl_grpo_per_sample, base_mean_lp)
+            metrics_by_ckpt[ckpt_num] = {
+                k("kl/mean"): float(np.mean(kl_per_sample)),
+                k("kl/std"): float(np.std(kl_per_sample)),
+                k("kl/grpo_mean"): float(np.mean(kl_grpo_per_sample)),
+                k("kl/grpo_std"): float(np.std(kl_grpo_per_sample)),
+            }
+        self._pending.clear()
+        return metrics_by_ckpt
+
+    def _write_kl_file(self, args, benchmark, ckpt_num, pending,
+                       kl_per_sample, kl_grpo_per_sample, base_mean_lp) -> None:
+        """Persist per-response KL + base logprobs, one file per checkpoint.
+
+        The shared per-example log is already written by the time the base
+        pass runs (``policy_mean_logprob`` lives there), so the KL columns go
+        to a dedicated file joinable via ``prompt_uid`` — the same pattern as
+        the deferred judge verdicts.
+        """
+        import os
+        import pandas as pd
+        from .persistence import resolve_per_example_dir
+
+        per_example_dir = resolve_per_example_dir(args)
+        os.makedirs(per_example_dir, exist_ok=True)
+        fmt = args.per_example_format
+        ext = "jsonl" if fmt == "jsonl" else "parquet"
+        safe_bench = benchmark.name.replace("/", "_")
+        path = os.path.join(
+            per_example_dir, f"{safe_bench}__checkpoint-{ckpt_num}__kl.{ext}",
+        )
+        df = pd.DataFrame({
+            "benchmark": benchmark.name,
+            "checkpoint": ckpt_num,
+            "prompt_uid": pending.prompt_uids,
+            "kl__k1": kl_per_sample,
+            "kl__grpo": kl_grpo_per_sample,
+            "base_mean_logprob": base_mean_lp,
+        })
+        if fmt == "jsonl":
+            df.to_json(path, orient="records", lines=True, force_ascii=False)
+        else:
+            df.to_parquet(path, index=False)
+        print(f"[kl] wrote {len(df)} rows -> {path}")
 

@@ -29,7 +29,7 @@ independent evaluators plus a verifiable, RM-unhackable anchor (IFEval).
 A method is a function:
 
 ```
-method(SFT_policy, preference_dataset) -> trained_policy
+method(Base policy, preference_dataset) -> trained_policy
 ```
 
 Frozen rules:
@@ -68,6 +68,8 @@ Frozen rules:
   there is **zero labeler↔evaluator circularity**. The gold-RM-annotated variant
   (`…_annotated_Skywork-Reward-V2-Llama-3.1-8B`) is retained as a **robustness
   arm** run deferred to v1.5.
+
+  - MATH-500 or AIME
 
 ### Deferred to v1.5 🔲
 - **PKU-SafeRLHF** safety arm — requires safety-specific truth signals
@@ -109,9 +111,9 @@ Frozen rules:
 | Role | Model | Priority |
 |---|---|---|
 | **Primary anchor** | Qwen3.5-4B | full sweep + seeds + all baselines |
-| **Cross-family confirmation** | Gemma (E4B) | nearby-value sweeps around 4B winners |
-| **Smallest / scaling point** | Qwen3-0.6B | cheap 0.6B→4B(→8B) overopt-scaling curve |
-| If compute | Qwen 8B (full-FT) | scaling only |
+| **Cross-family confirmation** | Gemma (E2B) | nearby-value sweeps around 4B winners |
+| **Smallest / scaling point** | Qwen3.5-0.8B | cheap 0.8B→4B(→9B) overopt-scaling curve |
+| If compute | Qwen 9B (full-FT) | scaling only |
 
 Notes: 4B is the anchor because it trains in ≈ the same wall-clock as 0.6B on
 this dataset. Released artifacts per `(family, dataset)`:
@@ -181,12 +183,31 @@ SELECTION RM is trained from the same sft.
 
 ## 8. Frozen eval decoding config ✅
 
-**Greedy, `temperature=0`, `top_p=1.0`, `n=1`, fixed `max_new_tokens`** — identical
-across all methods, checkpoints, and benchmarks. Deterministic eval means all
-run-to-run variance comes from *training* seeds, not decoding — the clean basis
-for ranking.
+**Precommit: sample the policy at the training temperature.** Policy generations
+(preference, select, ifeval, arena_hard) use **`temperature = --eval_temperature`
+(default `1.0`), `top_p=1.0`, `n=1`, fixed `max_new_tokens`** — identical across all
+methods, checkpoints, and benchmarks. The default matches the GRPO training decode
+(the training run's `run_manifest.json`, written by `my_grpo.py` into the checkpoints
+dir, supplies its `--temperature` as the `--eval_temperature` default; an explicit
+CLI flag overrides), so **eval is in-distribution wrt training** — the project's
+no-distribution-shift constraint. This rejects greedy (`temp=0`): greedy evaluates a single mode the RL
+objective never directly optimizes, and it is blind to distributional hacking (great
+on most samples, garbage on a tail). Reproducibility is guaranteed not by determinism
+but by the per-example persistence layer ([§9](#9-per-example-logging-contract-a1-)),
+which stores raw samples + scores so any aggregate is recomputable.
 
-- ✅ **Judge-coupled temperature bump removed** — `build_preference_benchmark` no longer flips 0→0.7 / top_p 1.0→0.9 when a judge is attached; decoding is greedy regardless, so judge-runs and no-judge-runs are comparable. The frozen config is also enforced single-sample: `--num_responses_per_prompt != 1` is a hard error, and the pairwise/RM-win-rate paths assert `n==1` instead of silently judging `responses[::n]`. See [B3](#b3-decoding-config-not-frozen) / [C2](#c2-n1-inconsistency).
+- **Single-sample for now** (`n=1`, enforced — `--num_responses_per_prompt != 1` is a
+  hard error). Multi-sample (`n≥4`) with per-checkpoint sampling CIs is the natural
+  extension when tighter CIs are needed; because `n` is an estimator-variance knob (same
+  distribution at any `n`), the sweep and final ranking stay comparable. When `n>1` is
+  re-opened, every path must aggregate over **all** samples — do not revert to the
+  `responses[::n]` slice that [C2](#c2-n1-inconsistency) fixed.
+- **The LLM judge stays greedy** (`--llm_judge_temperature=0`), independent of the policy
+  temperature: it compares two fixed answers and needs no sampling diversity. Decoupling
+  policy and judge decoding keeps judge-runs and no-judge-runs comparable.
+- **The win-rate baseline reference stays greedy/deterministic** (baseline-model
+  generation, `temperature=0`, disk-cached) — it is a *fixed* reference anchor, not the
+  object under test, so it is deliberately not sampled.
 - Thinking-mode handling stays per-benchmark as currently implemented; the
   thinking span is stripped before RM scoring.
 
@@ -325,7 +346,8 @@ check all gate the sweeps — the code is frozen only after they pass.
 4. **B2 + C1 — Length guard + length logging.** Count/flag over-budget samples;
    log `response_token_len` + `finish_reason` on RM paths (folds into A1).
 5. ✅ **B3 — Decoding config frozen.** Judge-coupled temperature flip removed;
-   decoding is greedy single-sample regardless of judge ([§8](#8-frozen-eval-decoding-config-)).
+   policy is sampled single-sample at the training temperature (`--eval_temperature`,
+   default 1.0), judge stays greedy ([§8](#8-frozen-eval-decoding-config-)).
 6. Capability-retention benchmark ([§7](#7-eval-prompt-sets-)).
 7. **Cross-family (Gemma) readiness → code freeze.** Before any sweeps, verify the
    *full* pipeline (SFT → RM train → GRPO/DPO → eval) runs end-to-end on a **Gemma**
@@ -359,13 +381,13 @@ From the eval audit of `policy_eval/` (severity tagged):
 
 - ✅ **A1** Per-example scores now persisted — `PerExampleRecorder` ([policy_eval/persistence.py](policy_eval/persistence.py)) writes one parquet/jsonl per `(benchmark, checkpoint)` (one row per `(prompt, response)`) with responses, token lengths, finish reasons, every RM/judge score, KL, and `over_budget`. Aggregation can be recomputed offline. (Was: [evaluators.py](policy_eval/evaluators.py) logged only mean/std/lossy-histogram + aggregate win-rate.)
 - ✅ **B1** Open-weight judge implemented — a single `LLMJudge` ([policy_eval/judges.py](policy_eval/judges.py)) runs the Arena-Hard 2-game-swap + parse protocol over a pluggable backend: `VLLMBackend` (in-process vLLM, deferred, loaded once and shared across preference + arena_hard) or `OpenRouterBackend` (API). Verdicts persisted per-prompt; generation/truncation/parse failures counted to wandb. The old prompt-corruption API scaffold was removed.
-- 🟠 **B2** Eval bypasses length guard — `skip_validation=True` everywhere ([rewards.py:55-62](policy_eval/rewards.py#L55-L62), [benchmarks.py:86-94](policy_eval/benchmarks.py#L86-L94)); BT scoring doesn't truncate → over-budget fed past RM context, biasing the longest (most-hacked) responses.
-- ✅ **B3** Decoding config frozen — `build_preference_benchmark` no longer flips temp 0→0.7 / top_p 1.0→0.9 when a judge is attached; decoding is greedy (`temperature=0`, `top_p=1.0`, `n=1`) whether or not a judge is present, so judge-runs and no-judge-runs are comparable.
-- 🟡 **B4** Win-rate reference is dataset `chosen`, not SFT ([evaluators.py:96-106](policy_eval/evaluators.py#L96-L106)) — fine under human-primary but must be declared; becomes a reporting choice once A1 lands.
+- 🟠 **B2** Eval bypasses length guard — `skip_validation=True` everywhere ([rewards.py:55-62](policy_eval/rewards.py#L55-L62), [benchmarks.py:86-94](policy_eval/benchmarks.py#L86-L94)); BT scoring doesn't truncate → over-budget fed past RM context, biasing the longest (most-hacked) responses. -- OK, we ususally have the same tokenizer and vllm gen is capped
+- ✅ **B3** Decoding config frozen — judge-coupled temperature flip removed. Policy decoding is `temperature=--eval_temperature` (default 1.0 = training temp, [§8](#8-frozen-eval-decoding-config-)), `top_p=1.0`, `n=1`, across every policy-generation site (preference/select/ifeval/arena_hard, [benchmarks.py](policy_eval/benchmarks.py)); `grpo.sh` passes its training `--temperature` through. The LLM judge stays greedy (`--llm_judge_temperature=0`) and the win-rate baseline stays greedy/cached, both independent of the policy temperature — so judge-runs and no-judge-runs remain comparable.
+- 🟡 **B4** Win-rate reference is dataset `chosen`, not SFT ([evaluators.py:96-106](policy_eval/evaluators.py#L96-L106)) — fine under human-primary but must be declared; becomes a reporting choice once A1 lands. -- Expected, OK
 - ✅ **C1** Response length/finish_reason now logged on all paths — `response_token_len` + `finish_reason` + `over_budget` are per-example columns (A1). (B2's actual length *guard* on the RM scoring path is still open.)
 - ✅ **C2** `n>1` inconsistency resolved — the frozen eval is single-sample (enforced at benchmark build), and the pairwise + RM-win-rate paths now assert `n==1` instead of silently judging only `responses[::n]` (the first sample), which previously diverged from the RM `/mean` that averaged all samples.
 - ✅ **C3** Bootstrap rounds bumped to `n_bootstrap=1000` (was 100) for the arena/pairwise CIs ([pairwise.py](policy_eval/pairwise.py)), applied to both the arena-score battle-level bootstrap and the style-controlled BT bootstrap.
-- ⚪ Legacy [rm_eval/load_eval_datasets.py](rm_eval/load_eval_datasets.py) uses `truncation=True` + double length-filter — stale, off the policy path; quarantine/delete.
+- ✅ Legacy `rm_eval/` (truncation + no-op length filter, formatting inconsistent with the pipeline) — deleted, along with its driver `scripts/eval_bt_rm.sh`.
 
 Confirmed **correct** (no action): BT RM scoring tokenization (BOS-strip +
 `add_special_tokens=True` + left-pad, no truncation, via `tokenize_for_rm`); KL

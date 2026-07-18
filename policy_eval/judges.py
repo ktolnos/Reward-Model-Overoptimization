@@ -119,6 +119,20 @@ ARENA_HARD_REGEX_PATTERNS = [
     r"\[([AB<>=]+)\]",
 ]
 
+
+def render_judge_question(messages: List[dict]) -> str:
+    """Render a prompt conversation for the judge's ``<|User Prompt|>`` slot.
+
+    Single-turn prompts pass through verbatim, matching upstream Arena-Hard
+    byte-for-byte. Multi-turn conversations become a role-labelled transcript,
+    so the judge sees the same full dialog the reward models score with
+    (RM judges re-template the complete conversation; without this the LLM
+    judge saw only the final user turn).
+    """
+    if len(messages) == 1:
+        return messages[0]["content"]
+    return "\n\n".join(f"<|{m['role']}|>\n{m['content']}" for m in messages)
+
 # label_to_score from show_result.py. ``weight`` multiplies the strong labels,
 # expanding each prompt into multiple battles. With weight=3 the final
 # per-prompt battle count is 2 games × (weight or 1 depending on label
@@ -507,7 +521,7 @@ class LLMJudge:
         ctx,
     ) -> Tuple[List[List[float]], LLMBattleDetails]:
         n = len(answers_a)
-        questions = [m[-1]["content"] if m else "" for m in prompts_messages]
+        questions = [render_judge_question(m) for m in prompts_messages]
 
         # Two position-swapped games per prompt, flattened [p0/g0, p0/g1, ...].
         # game0 = A:baseline/B:policy, game1 = A:policy/B:baseline (upstream swap).

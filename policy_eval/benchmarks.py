@@ -162,12 +162,42 @@ def _make_judge_backend(args, model_name: str):
     return backend
 
 
+def _require_dataset_name(args, benchmark_name: str) -> None:
+    if not args.dataset_name:
+        raise ValueError(
+            f"The '{benchmark_name}' benchmark requires --dataset_name, and no run "
+            "manifest supplied it (legacy run predating run_manifest.json?). Pass "
+            "--dataset_name explicitly (DATASET_NAME in evaluate_policy.sh) — there "
+            "is deliberately no hardcoded fallback dataset."
+        )
+
+
+def _policy_sampling_params(args, max_tokens: int) -> SamplingParams:
+    """Frozen policy decoding config (BENCHMARK.md §8), shared by every
+    policy-generation site so no benchmark can drift: sampled at
+    --eval_temperature (default 1.0 = the GRPO training temperature, so eval is
+    in-distribution wrt training), top_p=1.0, single sample. Only the token
+    budget varies per benchmark. The LLM judge stays greedy independently
+    (--llm_judge_temperature), keeping judge-runs and no-judge-runs comparable.
+    """
+    return SamplingParams(
+        temperature=args.eval_temperature,
+        top_p=1.0,
+        max_tokens=max_tokens,
+        n=1,
+        stop_token_ids=None,  # filled in by generate_responses_vllm
+    )
+
+
 def build_preference_benchmark(args) -> Benchmark:
-    evaluators: List = [RewardModelEvaluator("gold_rm")]
+    _require_dataset_name(args, "preference")
+    # compare_vs_chosen: preference is the only benchmark whose examples match
+    # the precomputed chosen scores, so only its RM evaluators opt in.
+    evaluators: List = [RewardModelEvaluator("gold_rm", compare_vs_chosen=True)]
     if args.evaluate_with_training_rm:
-        evaluators.append(RewardModelEvaluator("training_rm"))
+        evaluators.append(RewardModelEvaluator("training_rm", compare_vs_chosen=True))
     if args.secondary_rm_name and args.secondary_rm_name.lower() != "none":
-        evaluators.append(RewardModelEvaluator("secondary_rm"))
+        evaluators.append(RewardModelEvaluator("secondary_rm", compare_vs_chosen=True))
     if args.kl_base_model_path:
         evaluators.append(KLEvaluator(args.kl_base_model_path))
     if args.evaluate_with_llm_judge:
@@ -184,27 +214,17 @@ def build_preference_benchmark(args) -> Benchmark:
             baselines=[judge_baseline_label(args)],
         ))
 
-    # Frozen eval decoding config (BENCHMARK.md §8): greedy, temperature=0,
-    # top_p=1.0, single sample. The LLM judge compares fixed greedy answers, so it
-    # needs no sampling diversity — keeping decoding identical whether or not a
-    # judge is attached is what makes judge-runs and no-judge-runs comparable.
     if (args.num_responses_per_prompt or 1) != 1:
         raise ValueError(
-            "The frozen eval is single-sample greedy (BENCHMARK.md §8); "
+            "The frozen eval is single-sample (BENCHMARK.md §8); "
             "--num_responses_per_prompt must be 1."
         )
-    sampling_params = SamplingParams(
-        temperature=0,
-        top_p=1.0,
-        max_tokens=args.max_new_tokens,
-        n=1,
-        logprobs=1 if any(e.requires_logprobs for e in evaluators) else None,
-        stop_token_ids=None,  # filled in by generate_responses_vllm
-    )
     gen_config = GenerationConfig(
-        sampling_params=sampling_params,
+        sampling_params=_policy_sampling_params(args, args.max_new_tokens),
         thinking=True,  # preference benchmark keeps thinking (matches original behavior)
         n_responses_per_example=1,
+        # KL needs the generated token ids (teacher-forced later); sampling
+        # itself no longer requests per-token logprobs.
         collect_logprobs=any(e.requires_logprobs for e in evaluators),
     )
     return Benchmark(
@@ -233,23 +253,18 @@ def build_preference_benchmark(args) -> Benchmark:
 # ---------------------------------------------------------------------------
 
 def build_select_benchmark(args) -> Benchmark:
+    _require_dataset_name(args, "select")
     if not args.sibling_rm_path or args.sibling_rm_path.lower() == "none":
         raise ValueError(
             "The 'select' benchmark requires --sibling_rm_path (an independently-seeded "
             "RM from the training RM's base model). Set it, or drop 'select' from "
             "--benchmarks."
         )
-    # Mirror the preference benchmark's generation (thinking on, greedy) so the
-    # selection signal reflects the same decoding the policy is judged under.
-    sampling_params = SamplingParams(
-        temperature=0,
-        top_p=1.0,
-        max_tokens=args.max_new_tokens,
-        n=1,
-        stop_token_ids=None,
-    )
+    # Mirror the preference benchmark's generation (thinking on, shared frozen
+    # decoding) so the selection signal reflects the same decoding the policy
+    # is judged under.
     gen_config = GenerationConfig(
-        sampling_params=sampling_params,
+        sampling_params=_policy_sampling_params(args, args.max_new_tokens),
         thinking=True,
         n_responses_per_example=1,
         collect_logprobs=False,
@@ -316,13 +331,8 @@ def build_ifeval_benchmark(args) -> Benchmark:
     # Match the legacy behaviour that respects the user's --max_new_tokens floor.
     ifeval_max_tokens = max(ifeval_max_tokens, args.max_new_tokens)
 
-    sampling_params = SamplingParams(
-        temperature=0,
-        max_tokens=ifeval_max_tokens,
-        stop_token_ids=None,
-    )
     gen_config = GenerationConfig(
-        sampling_params=sampling_params,
+        sampling_params=_policy_sampling_params(args, ifeval_max_tokens),
         thinking=thinking,
         n_responses_per_example=1,
         collect_logprobs=False,
@@ -548,13 +558,8 @@ def build_arena_hard_benchmark(args) -> Benchmark:
 
     max_tokens = max(_ARENA_HARD_MAX_NEW_TOKENS, args.max_new_tokens)
 
-    sampling_params = SamplingParams(
-        temperature=0,
-        max_tokens=max_tokens,
-        stop_token_ids=None,
-    )
     gen_config = GenerationConfig(
-        sampling_params=sampling_params,
+        sampling_params=_policy_sampling_params(args, max_tokens),
         thinking=False,
         n_responses_per_example=1,
         collect_logprobs=False,

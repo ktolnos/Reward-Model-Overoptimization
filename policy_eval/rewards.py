@@ -23,6 +23,16 @@ import torch
 from data_utils import format_and_validate_preference_sample
 from reward_utils import get_reward_rm, load_reward_model
 
+
+def hash_responses(responses: List[str]) -> str:
+    """Stable short hash of a list of response strings (for cache keys)."""
+    h = hashlib.sha256()
+    for r in responses:
+        h.update(r.encode("utf-8", errors="replace"))
+        h.update(b"\x00")
+    return h.hexdigest()[:16]
+
+
 def load_reward_model_impl(model_path_or_name: str, device: str):
     model, tokenizer = load_reward_model(
         model_path_or_name, reasoning=False, device=device
@@ -204,13 +214,20 @@ class LoadedRewardModels:
     def chosen_scores(self, label: str) -> Optional[np.ndarray]:
         return self._chosen_scores.get(label)
 
-    def precompute_chosen_scores(self, dataset, prompt_messages_list, args) -> None:
+    def precompute_chosen_scores(
+        self, dataset, prompt_messages_list, args, labels: List[str],
+    ) -> None:
+        """Score the dataset's chosen responses with the RMs in ``labels``.
+
+        The disk-cache key hashes the chosen-response *content* (and names the
+        split), so equal-sized splits / subsamples / regenerated datasets can
+        never silently reuse each other's scores.
+        """
         chosen_responses = [ex["chosen"][-1]["content"] for ex in dataset]
-        cache_id = hashlib.sha256(
-            f"{args.dataset_name}:{len(chosen_responses)}".encode()
-        ).hexdigest()[:16]
-        cache_key = f"n{len(chosen_responses)}__{cache_id}"
-        for label in self._models:
+        cache_key = (
+            f"{args.split}__n{len(chosen_responses)}__{hash_responses(chosen_responses)}"
+        )
+        for label in labels:
             self._chosen_scores[label] = self.score_with_cache(
                 label,
                 chosen_responses,

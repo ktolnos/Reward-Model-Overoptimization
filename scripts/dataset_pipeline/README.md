@@ -19,7 +19,7 @@ This folder contains a 4-stage preprocessing pipeline for preference datasets.
   - `rejected_reward`
   - `does_gold_agree_with_original`
 - Uploads annotated dataset to Hugging Face.
-- Run through `experimental/annotate_dataset.sh` (GPU sbatch script).
+- Needs a GPU large enough for the reward model.
 
 4. `stage4_subsample_upload.py`
 - Subsamples each split (default 25%).
@@ -37,9 +37,6 @@ scripts/dataset_pipeline/submit_full_pipeline.sh \
   --namespace <hf_user_or_org>
 ```
 
-This submits:
-- `stage1_verify_stage2_filter.sbatch`
-- `experimental/annotate_dataset.sh`
-- `stage4_subsample.sbatch`
-
-with `afterok` dependencies.
+This runs the four stages in order in the current shell/job (stage 3 needs
+a GPU large enough for the reward model). Use `--skip-stage12`, `--skip-stage3`
+/ `--skip-annotation`, or `--skip-stage4` to run a subset.

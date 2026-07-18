@@ -7,7 +7,14 @@ is excluded from metrics.
 
 Produces metrics in the same shape regardless of judge:
 
-    - wins / ties / losses / total
+    - wins / ties / losses: per-prompt counts (unweighted, one decision each)
+    - win_rate / win_or_tie_rate: unweighted default — one decision per prompt
+      (see below), comparable across judges; equals the weighted rate for a
+      one-battle RM judge
+    - wins/ties/losses_weighted, total: battle-level counts (decisive LLM
+      verdicts expanded x weight)
+    - win_rate_weighted / win_or_tie_rate_weighted: battle-level weighted, the
+      upstream Arena-Hard aggregation
     - arena_score: mean(all_battles) * 100
     - arena_score_ci_low / _ci_high: 90% CI, battle-level bootstrap (matches
       ``show_result.py:print_leaderboard``).
@@ -72,19 +79,47 @@ def compute_pairwise_metrics(
     boot_arena = outcomes[boot_idx].mean(axis=1) * 100
     arena_score = float(boot_arena.mean())
 
-    wins = int((outcomes == 1.0).sum())
-    ties = int((outcomes == 0.5).sum())
-    losses = n - wins - ties
+    # Battle-level (weighted) counts: decisive LLM verdicts are expanded x weight
+    # (this is the upstream Arena-Hard aggregation).
+    wins_w = int((outcomes == 1.0).sum())
+    ties_w = int((outcomes == 0.5).sum())
+    losses_w = n - wins_w - ties_w
     n_prompts = sum(1 for b in battles_per_prompt if b)
 
+    # Default win rate is unweighted: collapse each prompt to a single
+    # win/tie/loss so a weighted LLM judge (decisive verdicts expanded x weight,
+    # over the two positional games) contributes exactly one vote per prompt —
+    # directly comparable to the RM judge, which already emits one battle per
+    # prompt. Per prompt, mean the battle scores and threshold at 0.5: verdict
+    # strength still breaks a strong-vs-weak positional conflict (A>>B vs B>A ->
+    # win), while a symmetric conflict (A>B vs B>A) averages to 0.5 -> tie.
+    wins = ties = losses = 0
+    for battles in battles_per_prompt:
+        if not battles:
+            continue
+        m = float(np.mean(battles))
+        if m > 0.5:
+            wins += 1
+        elif m == 0.5:
+            ties += 1
+        else:
+            losses += 1
+
     out: Dict[str, float] = {
+        # Default: unweighted, one decision per prompt.
         "wins": wins,
         "ties": ties,
         "losses": losses,
-        "total": n,
         "n_prompts_judged": n_prompts,
-        "win_rate": wins / n,
-        "win_or_tie_rate": (wins + ties) / n,
+        "win_rate": wins / n_prompts if n_prompts else 0.0,
+        "win_or_tie_rate": (wins + ties) / n_prompts if n_prompts else 0.0,
+        # Weighted, battle-level (upstream Arena-Hard aggregation).
+        "wins_weighted": wins_w,
+        "ties_weighted": ties_w,
+        "losses_weighted": losses_w,
+        "total": n,
+        "win_rate_weighted": wins_w / n,
+        "win_or_tie_rate_weighted": (wins_w + ties_w) / n,
         "arena_score": arena_score,
         "arena_score_ci_low": float(np.percentile(boot_arena, 5)),
         "arena_score_ci_high": float(np.percentile(boot_arena, 95)),

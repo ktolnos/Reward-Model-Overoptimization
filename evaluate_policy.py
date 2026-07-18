@@ -39,6 +39,7 @@ from data_utils import setup_tokenizer
 from policy_eval import wandb_utils
 from policy_eval.benchmarks import build_benchmarks
 from policy_eval.eval_utils import (
+    apply_run_manifest_defaults,
     chosen_responses_as_generation,
     fetch_training_history,
     list_checkpoints,
@@ -47,6 +48,7 @@ from policy_eval.eval_utils import (
     rms_required_by,
     run_chosen_only,
     run_deferred_phase,
+    run_kl_base_phase,
 )
 from policy_eval.generation import (
     generate_responses_vllm,
@@ -61,6 +63,7 @@ from policy_eval.persistence import (
     write_manifest,
     write_recorder,
 )
+from policy_eval.evaluators import RewardModelEvaluator
 from policy_eval.rewards import LoadedRewardModels
 from policy_eval.selection import (
     assert_sibling_base_matches_training,
@@ -98,8 +101,12 @@ class ScriptArguments:
         default="", metadata={"help": "Directory containing policy checkpoints"}
     )
     dataset_name: str = field(
-        default="ktolnos/helpsteer3-preference-chosenrrejected",
-        metadata={"help": "Name of the preference dataset (for the 'preference' benchmark)"},
+        default="",
+        metadata={"help": "Name of the preference dataset (for the 'preference' and "
+                          "'select' benchmarks). Defaults from the run manifest; for "
+                          "legacy manifest-less runs it must be passed explicitly — "
+                          "there is no hardcoded fallback, so eval can never silently "
+                          "run on a different dataset than the run trained with."},
     )
     split: str = field(
         default="validation",
@@ -237,8 +244,16 @@ class ScriptArguments:
     # ------------------------------------------------------------------
     max_length: Optional[int] = field(default=1024, metadata={"help": "Max prompt length"})
     max_new_tokens: Optional[int] = field(default=1024, metadata={"help": "Max new tokens"})
+    eval_temperature: float = field(
+        default=1.0,
+        metadata={"help": "Policy sampling temperature for all policy generations "
+                  "(preference/select/ifeval/arena_hard). Defaults to the training "
+                  "temperature from the run manifest when present, so eval is "
+                  "in-distribution wrt training (BENCHMARK.md §8). The LLM judge is "
+                  "unaffected — it stays greedy via --llm_judge_temperature."},
+    )
     num_responses_per_prompt: Optional[int] = field(
-        default=1, metadata={"help": "Frozen eval is single-sample greedy (BENCHMARK.md §8); must be 1."},
+        default=1, metadata={"help": "Frozen eval is single-sample (BENCHMARK.md §8); must be 1."},
     )
     gpu_memory_utilization: float = field(
         default=0.3, metadata={"help": "vLLM GPU memory utilization"},
@@ -332,6 +347,10 @@ class ScriptArguments:
 
 def main():
     args = HfArgumentParser(ScriptArguments).parse_args_into_dataclasses()[0]
+    # Default dataset / training RM / KL base / temperature from the training
+    # run's manifest (written by my_grpo.py). Explicit CLI flags win. Applied
+    # before wandb init so the run config records the resolved values.
+    apply_run_manifest_defaults(args)
     wandb_utils.init_wandb(args)
 
     benchmarks = build_benchmarks(args)
@@ -365,8 +384,15 @@ def main():
     }
 
     # ----- Precompute chosen scores for the preference benchmark ------------
+    # Only for the RMs whose preference evaluators compare against chosen, so
+    # e.g. the select benchmark's sibling RM never scores (or gets paired with)
+    # the preference split's chosen responses.
     preference_bench = next((b for b in benchmarks if b.name == "preference"), None)
     if loaded_rms is not None and preference_bench is not None and not args.evaluate_chosen_responses:
+        chosen_labels = [
+            ev.rm_label for ev in preference_bench.evaluators
+            if isinstance(ev, RewardModelEvaluator) and ev.compare_vs_chosen
+        ]
         prompt_messages = [ex.prompt_messages for ex in bench_examples["preference"]]
         fake_dataset = [
             {"chosen": list(ex.prompt_messages) + [
@@ -374,7 +400,9 @@ def main():
             ]}
             for ex in bench_examples["preference"]
         ]
-        loaded_rms.precompute_chosen_scores(fake_dataset, prompt_messages, args)
+        loaded_rms.precompute_chosen_scores(
+            fake_dataset, prompt_messages, args, labels=chosen_labels,
+        )
 
     # ----- Chosen-responses-only path (no vLLM) -----------------------------
     if args.evaluate_chosen_responses:
@@ -406,6 +434,7 @@ def main():
     # ----- Main loop --------------------------------------------------------
     results_rows: List[dict] = []
     deferred_cache: Dict[Tuple[str, int], GenerationResult] = {}
+    deferred_metrics: Dict[int, dict] = {}
     full_eval_data: Dict[str, Dict[int, list]] = {b.name: {} for b in benchmarks}
 
     try:
@@ -506,6 +535,14 @@ def main():
                     if not isinstance(v, wandb.Histogram)
                 })
 
+            # ----- KL base pass (one weight swap for all checkpoints) -------
+            # Still inside the vLLM session, after all generation: swap the KL
+            # base model in once and teacher-force every checkpoint's stashed
+            # token ids, instead of two extra weight loads per checkpoint.
+            for ckpt_num, metrics in run_kl_base_phase(benchmarks, llm, args).items():
+                wandb_utils.log_metrics(metrics, checkpoint_num=ckpt_num)
+                deferred_metrics.setdefault(ckpt_num, {}).update(metrics)
+
         # ----- Deferred phase (policy vLLM is torn down) --------------------
         # Free the reward models' GPU memory first: no deferred evaluator uses
         # them, and the judge needs the GPU to load its own (possibly large) model.
@@ -514,11 +551,24 @@ def main():
             loaded_rms = None
 
         if deferred_cache:
-            run_deferred_phase(benchmarks, bench_examples, deferred_cache, args, loaded_rms)
+            for ckpt_num, metrics in run_deferred_phase(
+                benchmarks, bench_examples, deferred_cache, args, loaded_rms,
+            ).items():
+                deferred_metrics.setdefault(ckpt_num, {}).update(metrics)
 
     finally:
         if loaded_rms is not None:
             loaded_rms.unload()
+
+    # ----- Fold deferred + KL metrics into the result rows ------------------
+    # The rows were built during the main loop, before the KL base pass and
+    # deferred evaluators ran; merging here puts their metrics into the CSV and
+    # lets report_selection surface them for the selected checkpoint.
+    for row in results_rows:
+        row.update({
+            k: v for k, v in deferred_metrics.get(row["checkpoint"], {}).items()
+            if not isinstance(v, wandb.Histogram)
+        })
 
     # ----- Save CSV + jsonl -------------------------------------------------
     if results_rows:

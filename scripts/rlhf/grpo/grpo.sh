@@ -62,6 +62,7 @@ lora_lr_multiplier=5  # LoRA typically needs higher LR
 per_device_train_batch_size=1
 gradient_accumulation_steps=32
 beta="0"
+temperature=1  # policy sampling temperature; eval reuses it via run_manifest.json so eval is in-distribution
 rm_switch_strategy="sequential" # "ensemble" or "sequential" or "mix"
 ensemble_aggregation="mean" # "mean" or "min" or "uwo"
 mix_strategy="disjoint" # "disjoint" or "sliding" or "random_disjoint"
@@ -301,7 +302,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --report_to wandb \
     --num_generations 4 \
     --num_train_epochs 1 \
-    --temperature 1 \
+    --temperature ${temperature} \
     --epsilon_high 0.28 \
     --mask_truncated_completions True \
     --use_vllm True \
@@ -405,5 +406,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
 
 #     --report_to "none" \
 
+# Dataset, training RM, KL base model, and temperature reach the eval via the
+# run_manifest.json my_grpo.py writes into ${log_dir} — no flag plumbing needed.
 echo "running evaluation script for checkpoints in ${log_dir}"
-sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --kl_base_model_path "${base_model_name}" --checkpoint "${log_dir}"
+sbatch --export=ALL "${REPO_ROOT}/evaluate_policy.sh" --run_name "${wandb_name}" --checkpoint "${log_dir}"

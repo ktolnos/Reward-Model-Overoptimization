@@ -38,8 +38,13 @@ echo "$(ls -a /home/eop/)"
 CHECKPOINTS_DIR="/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_grpo/20260202_183444_1035193"
 
 
-# Path to the training reward model
-TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
+# Training RM, dataset, KL base model, and eval temperature default from the
+# run's run_manifest.json (written by my_grpo.py into the checkpoints dir), so
+# eval always matches what the run actually trained with. Leave these empty to
+# use the manifest; set them (here or via the --flags below) only to override
+# it or to evaluate a legacy run that predates the manifest.
+TRAINING_RM_PATH=""
+#TRAINING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/Qwen3-0.6B_42_BT_RM_Qwen/Qwen3-0.6B_974219_len2000_fulltrain_2e-05_datahelpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k/logs/checkpoint-142"
 #TRAINING_RM_PATH="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
 
 # Sibling RM: an independently-seeded RM from the training RM's base model, used
@@ -59,10 +64,10 @@ GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 LLM_JUDGE_BACKEND="vllm"
 LLM_JUDGE_MODEL="google/gemma-4-31B-it"
 
-# Dataset name
-#DATASET_NAME="/nas/ucb/eop/Reward-Model-Overoptimization/experimental/data/helpsteer2_gold_URM-LLaMa-3.1-8B_0_7951/"
+# Dataset name (empty = from the run manifest)
+DATASET_NAME=""
+#DATASET_NAME="ktolnos/helpsteer3-qwen35_annotated_human"
 # DATASET_NAME="ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k"
-DATASET_NAME="ktolnos/helpsteer3-qwen35_annotated_human"
 
 
 # Base model name (required for LoRA checkpoints)
@@ -79,13 +84,21 @@ WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
 SKIP_VALIDATION=1
 BENCHMARKS="select,preference,ifeval,arena_hard"
 
+# Policy sampling temperature for all policy generations (BENCHMARK.md §8).
+# Empty = the training temperature from the run manifest (falling back to the
+# Python default 1.0 for manifest-less runs). Set only to override.
+EVAL_TEMPERATURE=""
+
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
         --run_id) WANDB_RUN_ID="$2"; shift ;;
         --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
+        --training_rm_path) TRAINING_RM_PATH="$2"; shift ;;
+        --dataset_name) DATASET_NAME="$2"; shift ;;
         --checkpoint) CHECKPOINTS_DIR="$2"; shift ;;
         --benchmarks) BENCHMARKS="$2"; shift ;;
+        --eval_temperature) EVAL_TEMPERATURE="$2"; shift ;;
         --only_ifeval) BENCHMARKS="ifeval"; NO_SECONDARY_RM=1 ;;
         --only_preference) BENCHMARKS="preference" ;;
         --only_arena_hard) BENCHMARKS="arena_hard"; NO_SECONDARY_RM=1 ;;
@@ -111,10 +124,12 @@ fi
 
 echo "Running evaluation with the following settings:"
 echo "Checkpoints Directory: $CHECKPOINTS_DIR"
-echo "Training RM Path: $TRAINING_RM_PATH"
+echo "Training RM Path: ${TRAINING_RM_PATH:-<run manifest>}"
 echo "Sibling RM Path: $SIBLING_RM_PATH"
 echo "Gold RM Name: $GOLD_RM_NAME"
-echo "Dataset Name: $DATASET_NAME"
+echo "Dataset Name: ${DATASET_NAME:-<run manifest>}"
+echo "KL Base Model: ${KL_BASE_MODEL_PATH:-<run manifest>}"
+echo "Eval Temperature: ${EVAL_TEMPERATURE:-<run manifest>}"
 echo "Output File: $OUTPUT_FILE"
 echo "WandB Project: $WANDB_PROJECT"
 echo "WandB Run Name: $WANDB_RUN_NAME"
@@ -125,13 +140,13 @@ echo "LLM judge: ${WITH_LLM_JUDGE:+enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL
 
 export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 
-# Run the evaluation script
+# Run the evaluation script. Manifest-covered settings (training RM, dataset,
+# KL base, temperature) are passed only when explicitly set, so the run
+# manifest supplies them otherwise.
 python evaluate_policy.py \
     --checkpoints_dir "$CHECKPOINTS_DIR" \
-    --training_rm_path "$TRAINING_RM_PATH" \
     --sibling_rm_path "$SIBLING_RM_PATH" \
     --gold_rm_name "$GOLD_RM_NAME" \
-    --dataset_name "$DATASET_NAME" \
     --output_file "$OUTPUT_FILE" \
     --batch_size 1 \
     --generation_batch_size 32 \
@@ -145,8 +160,11 @@ python evaluate_policy.py \
     --llm_judge_model_name "$LLM_JUDGE_MODEL" \
     --arena_hard_judges "$ARENA_HARD_JUDGES" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
-    --kl_base_model_path "${KL_BASE_MODEL_PATH:-/nas/ucb/eop/Reward-Model-Overoptimization/scripts/rlhf/logs_sft/20260106_012931_1016814/checkpoint-158}" \
     --use_dataset_response_as_baseline True \
+    $([ -n "${TRAINING_RM_PATH:-}" ] && echo "--training_rm_path $TRAINING_RM_PATH") \
+    $([ -n "${DATASET_NAME:-}" ] && echo "--dataset_name $DATASET_NAME") \
+    $([ -n "${KL_BASE_MODEL_PATH:-}" ] && echo "--kl_base_model_path $KL_BASE_MODEL_PATH") \
+    $([ -n "${EVAL_TEMPERATURE:-}" ] && echo "--eval_temperature $EVAL_TEMPERATURE") \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jsonl" \
     ${DEBUG_MODE:-} \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \

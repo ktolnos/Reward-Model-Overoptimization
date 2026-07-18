@@ -685,19 +685,23 @@ class TestLoadPolicyAndTokenizer:
         stop_ids = get_generation_stop_token_ids(tok)
         assert model.generation_config.eos_token_id == stop_ids
 
+    # The invariant is that every tokenizer id indexes a valid embedding row
+    # (embed_size >= len(tok)). Resizing is grow-only: padded-vocab checkpoints
+    # (pythia: 50304 config vs 50282 tokens) must keep their config shapes, or
+    # the HF weights would no longer match what the vLLM weight hot-swap expects.
+
     def test_pythia_sft_embedding_size(self):
         model, tok = load_policy_and_tokenizer(PYTHIA_SFT_MODEL)
         embed_size = model.get_input_embeddings().weight.shape[0]
-        assert embed_size == len(tok)
+        assert embed_size >= len(tok)
 
     def test_base_pythia_gets_template_and_resized_embeddings(self):
         model, tok = load_policy_and_tokenizer(PYTHIA_BASE_MODEL)
         assert tok.chat_template == _PYTHIA_OA_V2_CHAT_TEMPLATE
         assert tok.pad_token is not None
         assert _has_pythia_oa_tokens(tok)
-        # Embeddings must be resized to match the extended vocabulary.
         embed_size = model.get_input_embeddings().weight.shape[0]
-        assert embed_size == len(tok)
+        assert embed_size >= len(tok)
 
 
 # ---------------------------------------------------------------------------

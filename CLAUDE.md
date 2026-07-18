@@ -33,12 +33,9 @@ Ignore code related to GRM training, PPO, and BoN (best of n), these parts are n
   - `sft/` - Supervised Fine-Tuning
     - `my_sft.py` - SFT implementation
 
-- **rm_eval/** - Reward model evaluation
-  - `eval.py` - Main evaluation script for BT models
-
-- **experimental/** - Experimental dataset annotation
-  - `dataset_annotation.py` - Annotate datasets with reward model scores
-  - `data/` - Preprocessed/annotated datasets
+- **scripts/dataset_pipeline/** - 4-stage preference-dataset preprocessing
+  (verify, filter/split/upload, annotate with a reward model, subsample); see
+  its README.md
 
 - **scripts/** - Shell scripts for running experiments
   - All scripts use SLURM by default (with `#SBATCH` directives)
@@ -74,14 +71,15 @@ cd scripts/rlhf/grpo
 sbatch grpo.sh
 ```
 
-### Dataset Annotation
+### Dataset preprocessing / annotation
 
 ```bash
-cd experimental
-sh annotate_dataset.sh
+sh scripts/dataset_pipeline/submit_full_pipeline.sh --reward-model <RM>
 ```
 
-This uses `dataset_annotation.py` to annotate datasets with reward model scores.
+Runs the 4-stage pipeline (verify, filter/split/upload, annotate with a reward
+model, subsample); see `scripts/dataset_pipeline/README.md` for stage details
+and skip flags.
 
 ## Important Patterns and Conventions
 

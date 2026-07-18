@@ -16,21 +16,80 @@ and these helpers testable in isolation.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+import sys
+from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 import wandb
+from transformers import HfArgumentParser
 
-from data_utils import get_generation_stop_token_ids
+from data_utils import get_generation_stop_token_ids, read_run_manifest
 
 from . import wandb_utils
-from .evaluators import PairwiseEvaluator, RewardModelEvaluator
+from .evaluators import KLEvaluator, PairwiseEvaluator, RewardModelEvaluator
 from .judges import RMJudge
 from .generation import teardown_vllm
 from .types import Benchmark, EvalContext, Example, GenerationResult
+
+
+def _explicit_cli_fields(args, argv: List[str]) -> Set[str]:
+    """Names of the dataclass fields explicitly set on the command line.
+
+    Re-parses ``argv`` with a probe parser built from the same dataclass, with
+    every default replaced by a sentinel: whatever ends up non-sentinel must
+    have been bound from ``argv``. Delegating to argparse means ``--field=value``,
+    dashed aliases (``--dataset-name``), and unambiguous prefix abbreviations
+    (``--eval_temp``) are all resolved exactly as the real parse resolved them,
+    so explicitness detection can never disagree with the parsed args.
+    """
+    probe = HfArgumentParser(type(args))
+    missing = object()
+    probe.set_defaults(**{f.name: missing for f in dataclasses.fields(args)})
+    namespace, _ = probe.parse_known_args(argv)
+    return {name for name, value in vars(namespace).items() if value is not missing}
+
+
+def apply_run_manifest_defaults(args, argv: Optional[List[str]] = None) -> None:
+    """Default eval args from the training run's ``run_manifest.json``.
+
+    ``my_grpo.py`` writes the manifest into the checkpoints dir, so the eval
+    configuration derives from what the training run actually used instead of
+    hardcoded shell defaults that can go stale. Precedence:
+
+        explicit CLI flag  >  run manifest  >  ScriptArguments default
+
+    A flag counts as explicit when argparse binds a value to it from ``argv``
+    (see ``_explicit_cli_fields``). Legacy runs without a manifest are left
+    untouched.
+    """
+    explicit = _explicit_cli_fields(args, sys.argv[1:] if argv is None else argv)
+    manifest = read_run_manifest(args.checkpoints_dir)
+    if manifest is None:
+        print(f"[run-manifest] none found for {args.checkpoints_dir!r}; "
+              "using CLI values / defaults")
+        return
+
+    def apply(field: str, value) -> None:
+        if field in explicit or value is None:
+            return
+        setattr(args, field, value)
+        print(f"[run-manifest] {field} = {value!r}")
+
+    apply("dataset_name", manifest.get("dataset_path"))
+    apply("kl_base_model_path", manifest.get("model_name_or_path"))
+    temperature = manifest.get("temperature")
+    apply("eval_temperature",
+          float(temperature) if temperature is not None else None)
+    reward_model_paths = manifest.get("reward_model_paths") or []
+    if reward_model_paths:
+        if len(reward_model_paths) > 1 and "training_rm_path" not in explicit:
+            print(f"[run-manifest] training used {len(reward_model_paths)} "
+                  "reward models; taking the first as training_rm_path")
+        apply("training_rm_path", reward_model_paths[0])
 
 
 def list_checkpoints(args) -> Tuple[List[str], Optional[str], str]:
@@ -65,9 +124,12 @@ def fetch_training_history(
 ) -> Optional[pd.DataFrame]:
     """Fetch the GRPO training run's history for re-logging into the eval run.
 
-    The training run is identified by ``group == checkpoints_dir`` — grpo.sh
-    sets ``WANDB_RUN_GROUP=${log_dir}`` and the eval is invoked with that same
-    dir, so the group lookup is unambiguous for runs launched by the pipeline.
+    The training run is resolved from the run manifest's ``wandb_run_id`` when
+    present (exact — ``my_grpo.py`` initializes wandb and writes the manifest
+    at train start).
+    Legacy manifest-less runs fall back to ``group == checkpoints_dir`` —
+    grpo.sh sets ``WANDB_RUN_GROUP=${log_dir}`` and the eval is invoked with
+    that same dir, so the group lookup is unambiguous for pipeline runs.
 
     Returns a DataFrame sorted by ``_step`` with scalar metric columns, or
     ``None`` if the run can't be found / wandb API fails / history is empty.
@@ -75,22 +137,46 @@ def fetch_training_history(
     if not project or project.lower() == "none":
         return None
     try:
+        # Eagerly verifies the API key / connectivity, so it can raise even
+        # when wandb.init succeeded (e.g. offline mode). History mirroring is
+        # best-effort — never abort the eval over it.
         api = wandb.Api()
-        runs = list(api.runs(path=project, filters={"group": checkpoints_dir}))
     except Exception as e:
-        print(f"[eval] could not query training runs in '{project}': {e}")
+        print(f"[eval] wandb API unavailable ({e}); skipping training history")
         return None
 
-    if not runs:
-        print(f"[eval] no training runs with group={checkpoints_dir} in '{project}'")
-        return None
-    if len(runs) > 1:
-        # Pick the most recent. Stale duplicates (e.g. an aborted restart) sort below.
-        runs.sort(key=lambda r: r.created_at, reverse=True)
-        print(f"[eval] {len(runs)} training runs found; using most recent: {runs[0].name}")
+    run = None
+    manifest = read_run_manifest(checkpoints_dir) or {}
+    run_id = manifest.get("wandb_run_id")
+    if run_id:
+        run_path = f"{manifest.get('wandb_project') or project}/{run_id}"
+        try:
+            run = api.run(run_path)
+            print(f"[eval] training run from manifest: {run.name} ({run_path})")
+        except Exception as e:
+            print(f"[eval] manifest wandb run '{run_path}' not fetchable ({e}); "
+                  "falling back to group lookup")
+
+    if run is None:
+        try:
+            runs = list(api.runs(path=project, filters={"group": checkpoints_dir}))
+        except Exception as e:
+            print(f"[eval] could not query training runs in '{project}': {e}")
+            return None
+        if not runs:
+            print(f"[eval] no training runs with group={checkpoints_dir} in '{project}'")
+            return None
+        if len(runs) > 1:
+            # Pick the most recent. Stale duplicates (e.g. an aborted restart) sort below.
+            runs.sort(key=lambda r: r.created_at, reverse=True)
+            print(f"[eval] {len(runs)} training runs found; using most recent: {runs[0].name}")
+        run = runs[0]
 
     try:
-        df = runs[0].history(samples=10000, pandas=True)
+        # scan_history returns every logged row (history(samples=N) downsamples
+        # long runs, so nearest-_step matching in lookup_train_metrics could land
+        # far from the checkpoint step).
+        df = pd.DataFrame(run.scan_history())
     except Exception as e:
         print(f"[eval] failed to fetch training history: {e}")
         return None
@@ -102,8 +188,6 @@ def fetch_training_history(
     df = df.dropna(subset=["_step"]).copy()
     df["_step"] = df["_step"].astype(int)
     df = df.sort_values("_step").reset_index(drop=True)
-    print(f"[eval] mirroring {len(df.columns) - 1} training metrics from "
-          f"'{runs[0].name}' ({len(df)} rows)")
     return df
 
 
@@ -301,7 +385,7 @@ def run_chosen_only(args, benchmarks, bench_examples, loaded_rms,
         if ev.requires_logprobs:
             print(f"[chosen-only] skipping {ev.name} (needs logprobs)")
             continue
-        if ev.name.startswith("llm_judge"):
+        if isinstance(ev, PairwiseEvaluator):
             print(f"[chosen-only] skipping {ev.name} (judge needs baseline)")
             continue
         combined.update(ev.evaluate(preference_bench, examples, generation, ctx))
@@ -315,13 +399,33 @@ def run_chosen_only(args, benchmarks, bench_examples, loaded_rms,
     wandb_utils.finish()
 
 
+def run_kl_base_phase(benchmarks, llm, args) -> Dict[int, dict]:
+    """Run the KL base-model pass for every checkpoint in one weight swap.
+
+    Called after the checkpoint loop while the policy engine is still alive:
+    all generation is done, so the engine can be left holding the base
+    weights. This costs one base-weight load per eval instead of the two
+    extra full loads per checkpoint that an in-loop swap+restore would.
+    Returns ``{checkpoint_num: metrics}``, merged into the result rows the
+    same way as the deferred metrics. Empty when no benchmark has a KLEvaluator
+    (or nothing was stashed).
+    """
+    metrics: Dict[int, dict] = {}
+    for bench in benchmarks:
+        for ev in bench.evaluators:
+            if isinstance(ev, KLEvaluator):
+                for ckpt_num, m in ev.run_base_phase(llm, bench, args).items():
+                    metrics.setdefault(ckpt_num, {}).update(m)
+    return metrics
+
+
 def run_deferred_phase(
     benchmarks,
     bench_examples,
     deferred_cache: Dict[Tuple[str, int], GenerationResult],
     args,
     loaded_rms,
-) -> None:
+) -> Dict[int, dict]:
     """Run deferred evaluators (e.g. the vLLM LLM judge) across all checkpoints.
 
     A deferred evaluator that holds a GPU model (the vLLM judge) loads it lazily
@@ -330,6 +434,11 @@ def run_deferred_phase(
     model) load that model once: the shared backend is freed only after the last
     evaluator using it finishes, so different judges never sit in GPU memory at
     the same time and the same judge isn't reloaded per benchmark.
+
+    Metrics are logged to wandb here and also returned as
+    ``{checkpoint_num: metrics}`` so the caller can fold them into the result
+    rows (CSV + checkpoint-selection summary), which were built before this
+    phase ran.
     """
     from collections import Counter
 
@@ -345,6 +454,7 @@ def run_deferred_phase(
 
     remaining = Counter(id(_resource(ev)) for _, ev in pairs if _resource(ev) is not None)
 
+    deferred_metrics: Dict[int, dict] = {}
     for bench, ev in pairs:
         print(f"[deferred] running {ev.name} on benchmark '{bench.name}'")
         for (bname, ckpt_num), gen in sorted(deferred_cache.items()):
@@ -356,8 +466,10 @@ def run_deferred_phase(
             )
             metrics = ev.evaluate(bench, bench_examples[bench.name], gen, ctx)
             wandb_utils.log_metrics(metrics, checkpoint_num=ckpt_num)
+            deferred_metrics.setdefault(ckpt_num, {}).update(metrics)
         res = _resource(ev)
         if res is not None:
             remaining[id(res)] -= 1
             if remaining[id(res)] == 0:
                 res.teardown()
+    return deferred_metrics

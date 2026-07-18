@@ -10,7 +10,7 @@ This module ports the two classes from the (still-open, on-hold) upstream PR
 https://github.com/huggingface/transformers/pull/45438 and registers them with
 ``AutoModelForSequenceClassification`` on import, so the rest of the pipeline
 (``reward_models/run_reward_models_train.py``, ``reward_utils.load_reward_model``,
-``rm_eval/eval.py``, GRPO) can use Gemma 4 as a reward model unchanged.
+GRPO) can use Gemma 4 as a reward model unchanged.
 
 Import this module for its side effects *before* any
 ``AutoModelForSequenceClassification.from_pretrained`` call::

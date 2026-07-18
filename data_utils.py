@@ -588,6 +588,59 @@ def tokenize_for_sft(text, tokenizer):
 
 
 # ---------------------------------------------------------------------------
+# Training-run manifest (written by training, read by evaluation)
+# ---------------------------------------------------------------------------
+
+RUN_MANIFEST_FILENAME = "run_manifest.json"
+
+
+def write_run_manifest(output_dir, manifest):
+    """Write the training-run manifest into the checkpoints dir.
+
+    ``evaluate_policy.py`` reads this file to default its configuration
+    (dataset, training RM, KL base model, decoding temperature) to what the
+    training run actually used, so eval cannot silently drift from training.
+    Explicit eval CLI flags still override the manifest.
+    """
+    import json
+    import os
+    from datetime import datetime
+
+    manifest = {
+        "manifest_version": 1,
+        "created_at": datetime.now().isoformat(),
+        **manifest,
+    }
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, RUN_MANIFEST_FILENAME)
+    with open(path, "w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"[run-manifest] wrote {path}")
+    return path
+
+
+def read_run_manifest(checkpoints_dir):
+    """Read the run manifest for a checkpoints dir, or None when absent.
+
+    Looks in ``checkpoints_dir`` itself and then in its parent, so both the
+    run dir and a single ``checkpoint-N`` subdir resolve to the same manifest.
+    Returns None for legacy runs that predate the manifest.
+    """
+    import json
+    import os
+
+    checkpoints_dir = checkpoints_dir.rstrip(os.sep)
+    for candidate in (checkpoints_dir, os.path.dirname(checkpoints_dir)):
+        path = os.path.join(candidate, RUN_MANIFEST_FILENAME)
+        if os.path.isfile(path):
+            with open(path) as f:
+                manifest = json.load(f)
+            print(f"[run-manifest] loaded {path}")
+            return manifest
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Shared dataset loading skeleton
 # ---------------------------------------------------------------------------
 

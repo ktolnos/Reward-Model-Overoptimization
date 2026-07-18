@@ -91,11 +91,16 @@ tokenizer = AutoTokenizer.from_pretrained(script_args.base_model, use_fast=False
 setup_tokenizer(tokenizer, model_name=script_args.base_model)
 
 # Load datasets
+# Split with a fixed seed (not training_args.seed) so that differently-seeded
+# sibling RMs share the same 95%/5% train/eval split: their eval accuracies stay
+# comparable and "same data, different init/order" holds literally. Init and
+# example order still vary with training_args.seed (manual_seed/np.random.seed
+# above and the shuffle below).
 train_dataset, eval_dataset = load_train_eval_dataset(
     dataset_list[0],
     tokenizer,
     size=100 if script_args.debug_dataset else None,
-    seed=training_args.seed,
+    seed=42,
     length_config=script_args.length_config,
     skip_validation=script_args.skip_validation,
 )
