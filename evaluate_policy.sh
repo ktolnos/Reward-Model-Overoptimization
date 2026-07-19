@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
-#SBATCH --time=5:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=high
 
 # =============================================================================
