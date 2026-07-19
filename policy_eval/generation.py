@@ -77,11 +77,12 @@ def update_vllm_weights(llm: LLM, model_path: str) -> None:
 def teardown_vllm(llm: Optional[LLM]) -> None:
     if llm is None:
         return
-    try:
-        destroy_model_parallel()
-        del llm.llm_engine.model_executor
-    except Exception:
-        pass
+    # vLLM V1 runs the model in a separate EngineCore process; the weights and
+    # KV cache live there, so freeing anything in this process is not enough.
+    # Shutting down the engine-core client terminates that process (and is a
+    # regular in-process teardown under the uniproc executor).
+    llm.llm_engine.engine_core.shutdown()
+    destroy_model_parallel()
     gc.collect()
     torch.cuda.empty_cache()
 
