@@ -95,6 +95,7 @@ def wait_for_gpu_memory(
     free, total = torch.cuda.mem_get_info(0)
     needed = int(min_free_fraction * total)
     deadline = time.monotonic() + timeout_s
+    reaped = False
     while free < needed:
         gc.collect()
         torch.cuda.empty_cache()
@@ -102,6 +103,19 @@ def wait_for_gpu_memory(
         if free >= needed:
             break
         if time.monotonic() >= deadline:
+            # Last resort: gc/empty_cache above only touch this process, but the
+            # holder is usually a vLLM EngineCore subprocess that never exited.
+            # Kill any such orphans once and give the OS a moment to reclaim.
+            if not reaped:
+                reaped = True
+                _reap_processes(_vllm_engine_procs(), timeout_s=0.0)
+                gc.collect()
+                torch.cuda.empty_cache()
+                free, total = torch.cuda.mem_get_info(0)
+                deadline = time.monotonic() + 15.0
+                if free >= needed:
+                    break
+                continue
             raise RuntimeError(
                 f"GPU 0 has only {free / 2**30:.2f} GiB free but "
                 f"{needed / 2**30:.2f} GiB is needed for gpu_memory_utilization="
@@ -111,17 +125,84 @@ def wait_for_gpu_memory(
         time.sleep(poll_s)
 
 
-def teardown_vllm(llm: Optional[LLM]) -> None:
+def _vllm_engine_procs():
+    """The vLLM EngineCore worker processes spawned by this process.
+
+    vLLM V1 runs the model in separate ``EngineCore`` subprocess(es) that title
+    themselves with "EngineCore"; those hold the GPU weights + KV cache. We
+    filter children by title so teardown never touches unrelated helpers (e.g.
+    the wandb service process, which also runs as a child).
+    """
+    try:
+        import psutil
+    except ImportError:
+        return []
+    try:
+        me = psutil.Process()
+    except psutil.NoSuchProcess:
+        return []
+    procs = []
+    for c in me.children(recursive=True):
+        try:
+            hay = f"{c.name()} {' '.join(c.cmdline())}".lower()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            continue
+        if "enginecore" in hay or "vllm" in hay:
+            procs.append(c)
+    return procs
+
+
+def teardown_vllm(llm: Optional[LLM], *, timeout_s: float = 60.0) -> None:
     if llm is None:
         return
     # vLLM V1 runs the model in a separate EngineCore process; the weights and
-    # KV cache live there, so freeing anything in this process is not enough.
-    # Shutting down the engine-core client terminates that process (and is a
-    # regular in-process teardown under the uniproc executor).
-    llm.llm_engine.engine_core.shutdown()
+    # KV cache live there, so freeing anything in this process is not enough --
+    # the OS only reclaims that GPU memory once the process actually exits.
+    #
+    # ``engine_core.shutdown()`` only *signals* that process; it returns without
+    # waiting, and under async scheduling the exit can lag or hang. A caller that
+    # then loads a big model (the LLM judge at 0.9 util) races that reclaim and
+    # hits a startup OOM. So we snapshot the worker processes first, signal
+    # shutdown, then block until they are truly gone (killing any that overstay)
+    # so this function only returns once the GPU memory is actually free.
+    procs = _vllm_engine_procs()
+    try:
+        llm.llm_engine.engine_core.shutdown()
+    except Exception as e:  # best-effort: still reap the processes below
+        print(f"[teardown_vllm] engine_core.shutdown() raised {e!r}; reaping processes")
     destroy_model_parallel()
+    del llm
     gc.collect()
     torch.cuda.empty_cache()
+    _reap_processes(procs, timeout_s=timeout_s)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def _reap_processes(procs, *, timeout_s: float) -> None:
+    """Wait for ``procs`` to exit, escalating to SIGTERM then SIGKILL."""
+    if not procs:
+        return
+    try:
+        import psutil
+    except ImportError:
+        return
+    _, alive = psutil.wait_procs(procs, timeout=timeout_s)
+    for p in alive:
+        print(f"[teardown_vllm] EngineCore process {p.pid} still alive after "
+              f"{timeout_s:.0f}s; sending SIGTERM.")
+        try:
+            p.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(alive, timeout=10.0)
+    for p in alive:
+        print(f"[teardown_vllm] EngineCore process {p.pid} ignored SIGTERM; sending SIGKILL.")
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(alive, timeout=10.0)
 
 
 @contextmanager
