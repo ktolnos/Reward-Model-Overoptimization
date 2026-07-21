@@ -17,6 +17,7 @@ engine and kernels without a second copy of the model in memory.
 from __future__ import annotations
 
 import gc
+import time
 from contextlib import contextmanager
 from typing import List, Optional
 
@@ -72,6 +73,42 @@ def update_vllm_weights(llm: LLM, model_path: str) -> None:
     # repeated prompt prefixes (same prompts every checkpoint, and the
     # teacher-forced KL passes share the full prompt+response prefix).
     llm.reset_prefix_cache()
+
+
+def wait_for_gpu_memory(
+    min_free_fraction: float,
+    *,
+    timeout_s: float = 180.0,
+    poll_s: float = 2.0,
+) -> None:
+    """Block until device 0 has ``min_free_fraction`` of its memory free.
+
+    vLLM's engine startup hard-fails unless free memory >= gpu_memory_utilization
+    * total. In the eval pipeline the judge engine is built right after the policy
+    engine is torn down, and a vLLM engine runs the model in a separate EngineCore
+    process whose GPU memory the OS only reclaims once that process actually exits
+    -- which can lag ``teardown_vllm`` by several seconds. Polling here lets that
+    reclaim finish before the next engine's startup check runs, turning an
+    intermittent, timing-dependent startup OOM into a short wait. Raises if the
+    memory never frees (a genuine leak, not a reclaim lag).
+    """
+    free, total = torch.cuda.mem_get_info(0)
+    needed = int(min_free_fraction * total)
+    deadline = time.monotonic() + timeout_s
+    while free < needed:
+        gc.collect()
+        torch.cuda.empty_cache()
+        free, total = torch.cuda.mem_get_info(0)
+        if free >= needed:
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"GPU 0 has only {free / 2**30:.2f} GiB free but "
+                f"{needed / 2**30:.2f} GiB is needed for gpu_memory_utilization="
+                f"{min_free_fraction} after waiting {timeout_s:.0f}s; a prior "
+                f"model was likely not released."
+            )
+        time.sleep(poll_s)
 
 
 def teardown_vllm(llm: Optional[LLM]) -> None:

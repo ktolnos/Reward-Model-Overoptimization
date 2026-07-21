@@ -402,6 +402,8 @@ class VLLMBackend:
         from transformers import AutoTokenizer
         from vllm import LLM
 
+        from .generation import wait_for_gpu_memory
+
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True,
         )
@@ -410,6 +412,10 @@ class VLLMBackend:
             f"(max_model_len={self.max_model_len}, "
             f"gpu_memory_utilization={self.gpu_memory_utilization})"
         )
+        # The just-torn-down policy engine frees its GPU memory asynchronously
+        # (its EngineCore process exits after teardown_vllm returns); wait for that
+        # so vLLM's startup free-memory check doesn't race the reclaim and fail.
+        wait_for_gpu_memory(self.gpu_memory_utilization)
         self._llm = LLM(
             model=self.model_name,
             tokenizer=self.model_name,
