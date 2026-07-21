@@ -214,7 +214,7 @@ class ScriptArguments:
         default=2048, metadata={"help": "Max new tokens for the LLM judge"},
     )
     llm_judge_enable_thinking: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Enable the judge model's reasoning trace. vLLM backend: applied via "
                           "the chat template, and when False the assistant turn is prefilled "
                           "with 'My final verdict ' to commit directly. API backend: forwarded "

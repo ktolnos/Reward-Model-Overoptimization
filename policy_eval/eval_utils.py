@@ -35,6 +35,11 @@ from .judges import RMJudge
 from .generation import teardown_vllm
 from .types import Benchmark, EvalContext, Example, GenerationResult
 
+# Wandb column carrying the trainer's global_step (logged by transformers'
+# WandbCallback). The real matching axis for training metrics — see
+# fetch_training_history for why wandb's own _step is unusable here.
+TRAIN_STEP_COL = "train/global_step"
+
 
 def _explicit_cli_fields(args, argv: List[str]) -> Set[str]:
     """Names of the dataclass fields explicitly set on the command line.
@@ -175,41 +180,52 @@ def fetch_training_history(
 
     try:
         # scan_history returns every logged row (history(samples=N) downsamples
-        # long runs, so nearest-_step matching in lookup_train_metrics could land
+        # long runs, so nearest-step matching in lookup_train_metrics could land
         # far from the checkpoint step).
         df = pd.DataFrame(run.scan_history())
     except Exception as e:
         print(f"[eval] failed to fetch training history: {e}")
         return None
 
-    if df.empty or "_step" not in df.columns:
-        print(f"[eval] training history empty or missing _step")
+    # Match on the trainer's global_step, NOT wandb's _step: _step is a
+    # per-wandb.log() commit counter, and TRL's profiling metrics + transformers'
+    # WandbCallback each log with no explicit step, so _step climbs far faster
+    # than global_step (profiling fires many commits per training step). Nearest-
+    # _step matching therefore lands on early profiling-only rows. The real step
+    # lives in the train/global_step column; profiling-only commits are NaN there
+    # and get dropped, and reward/kl/loss share the trainer's single log row.
+    if df.empty or TRAIN_STEP_COL not in df.columns:
+        print(f"[eval] training history empty or missing {TRAIN_STEP_COL}")
         return None
 
-    df = df.dropna(subset=["_step"]).copy()
-    df["_step"] = df["_step"].astype(int)
-    df = df.sort_values("_step").reset_index(drop=True)
+    df = df.dropna(subset=[TRAIN_STEP_COL]).copy()
+    df[TRAIN_STEP_COL] = df[TRAIN_STEP_COL].astype(int)
+    df = df.sort_values(TRAIN_STEP_COL).reset_index(drop=True)
     return df
 
 
 def lookup_train_metrics(
     history_df: Optional[pd.DataFrame], target_step: int
 ) -> Dict[str, float]:
-    """Return scalar train metrics at the ``_step`` nearest to ``target_step``.
+    """Return scalar train metrics at the ``train/global_step`` nearest to ``target_step``.
 
-    Non-scalar columns (tables, histograms, NaNs) and wandb-internal ``_*``
-    fields are dropped so they don't pollute the eval run.
+    Keys are returned with the wandb ``train/`` prefix stripped (transformers'
+    WandbCallback prepends it), since the caller re-adds a ``train/`` namespace;
+    the step column itself is excluded. Non-scalar columns (tables, histograms,
+    NaNs) and wandb-internal ``_*`` fields are dropped so they don't pollute the
+    eval run.
     """
     if history_df is None or history_df.empty:
         return {}
-    idx = (history_df["_step"] - target_step).abs().idxmin()
+    idx = (history_df[TRAIN_STEP_COL] - target_step).abs().idxmin()
     row = history_df.loc[idx]
     metrics: Dict[str, float] = {}
     for k, v in row.items():
-        if k.startswith("_"):
+        if k.startswith("_") or k == TRAIN_STEP_COL:
             continue
         if isinstance(v, (int, float)) and pd.notna(v):
-            metrics[k] = float(v)
+            key = k[len("train/"):] if k.startswith("train/") else k
+            metrics[key] = float(v)
     return metrics
 
 
