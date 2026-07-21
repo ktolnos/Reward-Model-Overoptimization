@@ -226,12 +226,15 @@ class ScriptArguments:
         default=1.0, metadata={"help": "LLM judge nucleus sampling top_p. Applies to both backends."},
     )
     llm_judge_gpu_memory_utilization: float = field(
-        default=0.95,
+        default=0.90,
         metadata={"help": "vLLM judge GPU memory utilization. The judge loads in the deferred "
                           "phase after the policy vLLM and the reward models are freed, so it "
-                          "has the whole (SLURM-exclusive) GPU to itself; set high since a large "
-                          "judge model's weights alone can leave little headroom for its KV "
-                          "cache at the full judge_max_model_len otherwise."},
+                          "has the whole (SLURM-exclusive) GPU to itself. Two-sided constraint: "
+                          "too low and the KV cache can't fit judge_max_model_len; too high and "
+                          "vLLM fills the budget with KV, leaving no headroom for the warmup / "
+                          "CUDA-graph transients and the ~4-5 GiB of non-PyTorch memory (which "
+                          "sits outside this budget). 0.90 sits between those for a large "
+                          "(~30B) judge on an 80 GiB GPU."},
     )
 
     # ------------------------------------------------------------------

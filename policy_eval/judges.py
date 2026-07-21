@@ -417,6 +417,14 @@ class VLLMBackend:
             tensor_parallel_size=torch.cuda.device_count(),
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_model_len=self.max_model_len,
+            # vLLM's sampler warmup builds a [max_num_seqs, vocab] logits tensor,
+            # and large-vocab judges (gemma: 262k) with logit soft-capping need a
+            # second copy of it -- ~256 MiB per 256 seqs. With a big judge model
+            # filling the GPU, that transient can be what tips warmup into OOM.
+            # A large judge is KV-bound to only a few concurrent full-length
+            # sequences regardless, so capping concurrency costs no real
+            # throughput while keeping the warmup transient small.
+            max_num_seqs=64,
             trust_remote_code=True,
             language_model_only=True,
         )
