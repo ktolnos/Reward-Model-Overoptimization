@@ -103,6 +103,8 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
         --run_id) WANDB_RUN_ID="$2"; shift ;;
+        --base_eval_run_id) BASE_EVAL_RUN_ID="$2"; shift ;;
+        --no_base_checkpoint) NO_BASE_CHECKPOINT=1 ;;
         --kl_base_model_path) KL_BASE_MODEL_PATH="$2"; shift ;;
         --training_rm_path) TRAINING_RM_PATH="$2"; shift ;;
         --dataset_name) DATASET_NAME="$2"; shift ;;
@@ -187,6 +189,8 @@ python evaluate_policy.py \
     $([ ! -z "${NO_IFEVAL:-}" ] && echo "--evaluate_ifeval False") \
     $([ ! -z "${NO_SECONDARY_RM:-}" ] && echo "--secondary_rm_name none") \
     $([ ! -z "${WANDB_RUN_ID:-}" ] && echo "--wandb_run_id $WANDB_RUN_ID") \
+    $([ -n "${BASE_EVAL_RUN_ID:-}" ] && echo "--base_eval_run_id $BASE_EVAL_RUN_ID") \
+    $([ -n "${NO_BASE_CHECKPOINT:-}" ] && echo "--prepend_base_checkpoint False") \
 
 #     --subsample_n 25 \
 

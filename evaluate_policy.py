@@ -41,6 +41,7 @@ from policy_eval.benchmarks import build_benchmarks
 from policy_eval.eval_utils import (
     apply_run_manifest_defaults,
     chosen_responses_as_generation,
+    fetch_base_checkpoint_metrics,
     fetch_training_history,
     list_checkpoints,
     lookup_train_metrics,
@@ -253,10 +254,10 @@ class ScriptArguments:
     eval_temperature: float = field(
         default=1.0,
         metadata={"help": "Policy sampling temperature for all policy generations "
-                  "(preference/select/ifeval/arena_hard). Defaults to the training "
-                  "temperature from the run manifest when present, so eval is "
-                  "in-distribution wrt training (BENCHMARK.md §8). The LLM judge is "
-                  "unaffected — it stays greedy via --llm_judge_temperature."},
+                  "(preference/select/ifeval/arena_hard). Fixed across runs and "
+                  "independent of the training temperature — higher temperature "
+                  "degrades the metrics regardless of the training regime. The LLM "
+                  "judge is unaffected — it stays greedy via --llm_judge_temperature."},
     )
     num_responses_per_prompt: Optional[int] = field(
         default=1, metadata={"help": "Frozen eval is single-sample (BENCHMARK.md §8); must be 1."},
@@ -319,6 +320,26 @@ class ScriptArguments:
         },
     )
     disable_wandb: Optional[bool] = field(default=False)
+    prepend_base_checkpoint: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "Log the base model's metrics at checkpoint 0 so every eval "
+            "plot shares an origin, pulled from the base model's own eval run in "
+            "wandb (no re-generation). The base model is model_name_or_path from "
+            "the run manifest; its eval run is found by group == that path with a "
+            "matching generation config. Run-independent metrics only: training-RM "
+            "and KL families are excluded (KL is re-logged as 0), and gold/secondary/"
+            "sibling metrics are kept only when the base eval used the same RM."
+        },
+    )
+    base_eval_run_id: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Pin the exact wandb run id to pull the checkpoint-0 base "
+            "metrics from, bypassing the group/config search. Use when the "
+            "automatic match is ambiguous or wrong."
+        },
+    )
     training_wandb_project: Optional[str] = field(
         default="grpo",
         metadata={
@@ -416,6 +437,16 @@ def main():
             args, benchmarks, bench_examples, loaded_rms,
             per_example_dir=per_example_dir,
         )
+
+    # ----- Backfill checkpoint 0 from the base model's own eval run ---------
+    # Gives every eval plot a shared origin without re-generating/re-scoring the
+    # base model. Logged only (not added to results_rows): checkpoint 0 is pulled
+    # from another run, so it must not masquerade as a locally-evaluated
+    # checkpoint in the CSV or feed checkpoint selection.
+    if not args.disable_wandb:
+        base_metrics = fetch_base_checkpoint_metrics(args)
+        if base_metrics:
+            wandb_utils.log_metrics(base_metrics, checkpoint_num=0)
 
     # ----- Resolve checkpoints + tokenizer ----------------------------------
     checkpoints, single_model_path, first_checkpoint_path = list_checkpoints(args)

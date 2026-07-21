@@ -63,7 +63,9 @@ class TestApplyRunManifestDefaults:
         assert args.dataset_name == "org/preference-dataset"
         assert args.training_rm_path == "save_reward_models/rm-a"
         assert args.kl_base_model_path == "logs_sft/checkpoint-744"
-        assert args.eval_temperature == 0.9
+        # eval_temperature is untied from the manifest: it keeps its default
+        # even when the manifest records a different training temperature.
+        assert args.eval_temperature == self._args(tmp_path).eval_temperature
 
     def test_explicit_cli_flags_override_manifest(self, tmp_path):
         from policy_eval.eval_utils import apply_run_manifest_defaults

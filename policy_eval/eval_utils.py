@@ -81,9 +81,10 @@ def apply_run_manifest_defaults(args, argv: Optional[List[str]] = None) -> None:
 
     apply("dataset_name", manifest.get("dataset_path"))
     apply("kl_base_model_path", manifest.get("model_name_or_path"))
-    temperature = manifest.get("temperature")
-    apply("eval_temperature",
-          float(temperature) if temperature is not None else None)
+    # eval_temperature is deliberately NOT derived from the manifest: higher
+    # sampling temperature degrades the metrics regardless of the training
+    # regime, so eval uses a fixed temperature (its CLI value / default)
+    # rather than matching the training temperature.
     reward_model_paths = manifest.get("reward_model_paths") or []
     if reward_model_paths:
         if len(reward_model_paths) > 1 and "training_rm_path" not in explicit:
@@ -209,6 +210,205 @@ def lookup_train_metrics(
             continue
         if isinstance(v, (int, float)) and pd.notna(v):
             metrics[k] = float(v)
+    return metrics
+
+
+# =============================================================================
+# Checkpoint-0 backfill from the base model's own eval run
+# =============================================================================
+#
+# The base model a GRPO run started from (``model_name_or_path`` in the run
+# manifest, i.e. ``base_model_name`` in grpo.sh) is "checkpoint 0" of the run's
+# trajectory. Its own eval run — which we run independently for every base model
+# anyway — already holds every run-independent metric. Rather than re-generate
+# and re-score the base model in every GRPO eval, we look that run up in wandb
+# and log its metrics at checkpoint 0, giving every eval plot a shared origin.
+
+# Metric families that must NOT be carried over verbatim from an independent
+# base eval: ``training_rm`` scored a *different* RM (each GRPO run has its own),
+# and ``kl`` is measured against the base model itself so it is 0 at checkpoint 0
+# by construction — re-injected below rather than copied.
+_BASE_CKPT_DROP_SUBSTRINGS = ("training_rm",)
+_BASE_CKPT_KL_ZERO = {
+    "kl/mean": 0.0, "kl/std": 0.0, "kl/grpo_mean": 0.0, "kl/grpo_std": 0.0,
+}
+
+
+def _norm_identity(value):
+    """Normalise a path/name for equality checks (trailing slash, whitespace)."""
+    if value is None:
+        return None
+    return str(value).strip().rstrip("/")
+
+
+def _base_eval_compatible(run, args) -> bool:
+    """Whether a candidate base eval run was generated the same way as this run.
+
+    Only the generation-level identity keys are required to match — differing
+    reward models are handled per-metric in ``_rm_family_incompatible`` (so a
+    base eval with a different secondary/sibling RM still contributes its gold /
+    IFEval / Arena-Hard numbers)."""
+    cfg = run.config or {}
+    if getattr(run, "job_type", None) != "evaluation":
+        return False
+    if cfg.get("evaluate_chosen_responses"):
+        return False  # scored dataset chosen responses, not a generated policy
+    if _norm_identity(cfg.get("dataset_name")) != _norm_identity(args.dataset_name):
+        return False
+    if cfg.get("split") != args.split:
+        return False
+    if cfg.get("eval_temperature") != args.eval_temperature:
+        return False
+    if cfg.get("max_new_tokens") != args.max_new_tokens:
+        return False
+    if cfg.get("max_length") != args.max_length:
+        return False
+    return True
+
+
+def _rm_family_incompatible(metric_key: str, base_cfg: dict, args) -> bool:
+    """Whether a base-eval metric depends on an RM that differs from this run's.
+
+    Gold / secondary / sibling RM scores are only comparable when the base eval
+    used the *same* RM. This gates each family on the matching config key so a
+    partially-compatible base eval still contributes the families that do match.
+    """
+    if "gold_rm" in metric_key:
+        return _norm_identity(base_cfg.get("gold_rm_name")) != _norm_identity(args.gold_rm_name)
+    if "secondary_rm" in metric_key:
+        return _norm_identity(base_cfg.get("secondary_rm_name")) != _norm_identity(args.secondary_rm_name)
+    if "sibling_rm" in metric_key or metric_key.startswith("select"):
+        return _norm_identity(base_cfg.get("sibling_rm_path")) != _norm_identity(args.sibling_rm_path)
+    return False
+
+
+def _extract_single_checkpoint_metrics(run) -> Optional[Tuple[int, Dict[str, float]]]:
+    """Return ``(checkpoint_num, scalar_metrics)`` for a single-checkpoint run.
+
+    A base eval evaluates exactly one model, but its ``checkpoint`` axis value is
+    0 for a plain model dir / HF id and the embedded step for a ``checkpoint-N``
+    dir (e.g. an SFT checkpoint). We take the run's single distinct ``checkpoint``
+    value rather than assuming 0, and refuse to guess if the run turns out to
+    hold more than one — that means it isn't the base eval we expect.
+    """
+    try:
+        df = pd.DataFrame(run.scan_history())
+    except Exception as e:
+        print(f"[base-ckpt] failed to fetch base eval history: {e}")
+        return None
+    if df.empty or "checkpoint" not in df.columns:
+        print("[base-ckpt] base eval history empty or missing 'checkpoint' axis")
+        return None
+    ckpts = sorted({int(c) for c in df["checkpoint"].dropna().tolist()})
+    if len(ckpts) != 1:
+        print(f"[base-ckpt] expected exactly one checkpoint in base eval run "
+              f"'{run.name}', found {ckpts}; refusing to guess. "
+              f"Pin the run with --base_eval_run_id.")
+        return None
+    rows = df[df["checkpoint"] == ckpts[0]]
+    merged: Dict[str, float] = {}
+    for _, row in rows.iterrows():
+        for k, v in row.items():
+            if k.startswith("_") or k == "checkpoint":
+                continue
+            if isinstance(v, (int, float)) and pd.notna(v):
+                merged[k] = float(v)
+    return ckpts[0], merged
+
+
+def fetch_base_checkpoint_metrics(args) -> Optional[Dict[str, float]]:
+    """Fetch the base model's eval metrics to log as this run's checkpoint 0.
+
+    Returns the metrics dict (ready to log at ``checkpoint_num=0``) or ``None``
+    when disabled, the base model can't be resolved, wandb is unavailable, or no
+    compatible base eval run exists.
+
+    Lookup correctness (the two things that must be right):
+      - **Run.** Eval runs are grouped by ``checkpoints_dir``; a base eval's
+        group is the base-model path exactly. Among runs with that group we keep
+        only those whose generation config matches (``_base_eval_compatible``)
+        and take the most recent. ``--base_eval_run_id`` pins one and skips the
+        search entirely.
+      - **Checkpoint.** Taken as the run's single distinct ``checkpoint`` value
+        (see ``_extract_single_checkpoint_metrics``), not assumed to be 0.
+
+    Run-specific families are handled rather than copied blindly: ``training_rm``
+    is dropped, ``kl`` is dropped and re-injected as 0, and gold/secondary/sibling
+    families are dropped when the base eval's RM differs from this run's.
+    """
+    if not getattr(args, "prepend_base_checkpoint", True):
+        return None
+
+    manifest = read_run_manifest(args.checkpoints_dir) or {}
+    base_path = _norm_identity(manifest.get("model_name_or_path") or args.kl_base_model_path)
+    if not base_path:
+        print("[base-ckpt] base model path unknown (no manifest model_name_or_path "
+              "or --kl_base_model_path); skipping checkpoint-0 backfill")
+        return None
+
+    try:
+        # Eagerly verifies API key / connectivity — can raise even when
+        # wandb.init succeeded (offline mode). Backfill is best-effort.
+        api = wandb.Api()
+    except Exception as e:
+        print(f"[base-ckpt] wandb API unavailable ({e}); skipping checkpoint-0 backfill")
+        return None
+
+    run = None
+    if getattr(args, "base_eval_run_id", None):
+        run_path = f"{args.wandb_project}/{args.base_eval_run_id}"
+        try:
+            run = api.run(run_path)
+        except Exception as e:
+            print(f"[base-ckpt] --base_eval_run_id '{run_path}' not fetchable ({e}); "
+                  "skipping checkpoint-0 backfill")
+            return None
+        if not _base_eval_compatible(run, args):
+            print(f"[base-ckpt] warning: pinned base eval run '{run.name}' has a "
+                  "generation config that differs from this run (dataset/split/"
+                  "temperature/lengths); backfilling anyway as requested.")
+    else:
+        try:
+            candidates = list(api.runs(path=args.wandb_project, filters={"group": base_path}))
+        except Exception as e:
+            print(f"[base-ckpt] could not query base eval runs in "
+                  f"'{args.wandb_project}': {e}")
+            return None
+        candidates = [r for r in candidates if _base_eval_compatible(r, args)]
+        if not candidates:
+            print(f"[base-ckpt] no compatible base eval run found "
+                  f"(group={base_path!r}, dataset={args.dataset_name!r}, "
+                  f"split={args.split!r}, temp={args.eval_temperature}); "
+                  "checkpoint 0 will be absent. Run the base model through "
+                  "evaluate_policy.py with the same settings, or pass "
+                  "--base_eval_run_id.")
+            return None
+        candidates.sort(key=lambda r: r.created_at, reverse=True)
+        if len(candidates) > 1:
+            print(f"[base-ckpt] {len(candidates)} compatible base eval runs; "
+                  f"using most recent: {candidates[0].name}")
+        run = candidates[0]
+
+    extracted = _extract_single_checkpoint_metrics(run)
+    if extracted is None:
+        return None
+    base_ckpt_num, raw_metrics = extracted
+
+    base_cfg = dict(run.config or {})
+    metrics: Dict[str, float] = {}
+    dropped_rm = 0
+    for k, v in raw_metrics.items():
+        if any(s in k for s in _BASE_CKPT_DROP_SUBSTRINGS) or k.startswith("kl/"):
+            continue
+        if _rm_family_incompatible(k, base_cfg, args):
+            dropped_rm += 1
+            continue
+        metrics[k] = v
+    metrics.update(_BASE_CKPT_KL_ZERO)
+
+    print(f"[base-ckpt] base eval '{run.name}' ({run.id}) evaluated at checkpoint "
+          f"{base_ckpt_num}; backfilling {len(metrics)} metrics at checkpoint 0 "
+          f"(dropped {dropped_rm} RM-mismatched)")
     return metrics
 
 

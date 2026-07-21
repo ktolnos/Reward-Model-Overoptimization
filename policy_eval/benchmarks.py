@@ -175,8 +175,8 @@ def _require_dataset_name(args, benchmark_name: str) -> None:
 def _policy_sampling_params(args, max_tokens: int) -> SamplingParams:
     """Frozen policy decoding config (BENCHMARK.md §8), shared by every
     policy-generation site so no benchmark can drift: sampled at
-    --eval_temperature (default 1.0 = the GRPO training temperature, so eval is
-    in-distribution wrt training), top_p=1.0, single sample. Only the token
+    --eval_temperature (fixed across runs, independent of the training
+    temperature), top_p=1.0, single sample. Only the token
     budget varies per benchmark. The LLM judge stays greedy independently
     (--llm_judge_temperature), keeping judge-runs and no-judge-runs comparable.
     """
