@@ -641,6 +641,42 @@ def read_run_manifest(checkpoints_dir):
 
 
 # ---------------------------------------------------------------------------
+# Prompt-level deduplication
+# ---------------------------------------------------------------------------
+
+def prompt_dedup_key(chosen_messages):
+    """Canonical key identifying the *prompt* a policy conditions on.
+
+    The prompt is the conversation preceding the response: everything in
+    ``chosen`` except the final assistant turn. HelpSteer3-style datasets carry
+    multiple response-pairs per prompt (same prompt, different chosen/rejected),
+    so this key collapses them to the unique prompt. Used by both the shared
+    trainer loader and evaluation so the prompt distribution is identical across
+    training and eval.
+    """
+    import json
+    return json.dumps(chosen_messages[:-1], sort_keys=True, ensure_ascii=False)
+
+
+def dedupe_dataset_by_prompt(ds):
+    """Return ``ds`` with one row per unique prompt (first occurrence kept).
+
+    Keyed on :func:`prompt_dedup_key` (the full conversation context minus the
+    final assistant turn). Order-preserving so downstream ``select``/split stay
+    deterministic.
+    """
+    chosens = ds["chosen"]
+    seen = set()
+    keep = []
+    for i, chosen in enumerate(chosens):
+        key = prompt_dedup_key(chosen)
+        if key not in seen:
+            seen.add(key)
+            keep.append(i)
+    return ds.select(keep)
+
+
+# ---------------------------------------------------------------------------
 # Shared dataset loading skeleton
 # ---------------------------------------------------------------------------
 
@@ -649,6 +685,7 @@ def build_train_eval_datasets(
     tokenizer,
     *,
     post_process_fn,
+    dedupe_by_prompt,
     eval_proportion=0.1,
     size=None,
     length_config,
@@ -663,10 +700,23 @@ def build_train_eval_datasets(
     Args:
         post_process_fn: callable(ds, tokenizer, *, length_config, skip_length_validation)
             that returns a processed Dataset.
+        dedupe_by_prompt: **required.** When True, collapse the dataset to one row
+            per unique prompt before splitting (:func:`dedupe_dataset_by_prompt`) —
+            correct for prompt-only stages (GRPO) and single-target SFT, where the
+            per-pair duplicates would over-weight high-pair-count prompts. When
+            False, keep every response-pair row — required for RM/DPO training,
+            whose signal *is* the pairs. No default: each caller must choose
+            explicitly. When True, ``size`` counts unique prompts (dedup happens
+            first).
     """
     import datasets as _ds_lib
 
     ds = _ds_lib.load_dataset(data_path_train, split="train")
+    if dedupe_by_prompt:
+        n_before = len(ds)
+        ds = dedupe_dataset_by_prompt(ds)
+        print(f"[build_train_eval_datasets] deduped by prompt: "
+              f"{n_before} rows -> {len(ds)} unique prompts")
     if size is not None:
         ds = ds.select(range(0, size))
     ds_dict = ds.train_test_split(test_size=eval_proportion, seed=42)

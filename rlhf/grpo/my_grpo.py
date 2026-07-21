@@ -472,6 +472,7 @@ if __name__ == "__main__":
         script_args.dataset_path,
         policy_tokenizer,
         post_process_fn=post_process_grpo_dataset,
+        dedupe_by_prompt=True,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
         length_config=script_args.length_config,

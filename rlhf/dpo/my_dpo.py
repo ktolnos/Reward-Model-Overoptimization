@@ -92,6 +92,7 @@ if __name__ == "__main__":
         script_args.dataset_path,
         tokenizer,
         post_process_fn=post_process_dpo_dataset,
+        dedupe_by_prompt=False,  # DPO's signal IS the per-prompt response pairs
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,
         length_config=script_args.length_config,

@@ -105,6 +105,7 @@ if __name__ == "__main__":
     train_dataset, eval_dataset = build_train_eval_datasets(
         script_args.dataset_path, tokenizer,
         post_process_fn=post_process_sft_dataset,
+        dedupe_by_prompt=True,
         length_config=script_args.length_config,
         eval_proportion=0.1,
         size=100 if script_args.dbg else None,

@@ -24,6 +24,7 @@ from vllm import SamplingParams
 
 from data_utils import (
     _apply_chat_template_no_thinking,
+    dedupe_dataset_by_prompt,
     format_and_validate_preference_sample,
     get_generation_stop_token_ids,
 )
@@ -63,14 +64,25 @@ def _load_preference_split(args, requested: str) -> List[Example]:
     else:
         dataset = ds
 
+    if "chosen" not in dataset.column_names:
+        raise ValueError("Preference dataset must have a 'chosen' column.")
+
+    # HelpSteer3-style datasets carry multiple response-pairs per prompt. Eval
+    # conditions only on the prompt, so collapse to unique prompts: otherwise
+    # high-pair-count prompts are over-weighted in every aggregate and the
+    # per-example prompt_uid (a prompt content hash) is non-unique, breaking the
+    # join-key contract. Done before debug/subsample so those counts are prompts.
+    n_before = len(dataset)
+    dataset = dedupe_dataset_by_prompt(dataset)
+    if len(dataset) != n_before:
+        print(f"[{requested}] deduped by prompt: {n_before} rows -> "
+              f"{len(dataset)} unique prompts")
+
     if args.debug:
         dataset = dataset.select(range(min(100, len(dataset))))
     elif args.subsample_n is not None and args.subsample_n < len(dataset):
         dataset = dataset.shuffle(seed=42).select(range(args.subsample_n))
         print(f"[preference] Subsampling to {args.subsample_n} prompts.")
-
-    if "chosen" not in dataset.column_names:
-        raise ValueError("Preference dataset must have a 'chosen' column.")
 
     examples = []
     for ex in dataset:
