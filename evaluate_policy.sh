@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=evaluate_policy
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=16gb
+#SBATCH --mem=56gb
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
@@ -30,6 +30,10 @@
 # Other overrides (all optional): --run_name, --checkpoint, --kl_base_model_path,
 # --ifeval_thinking, --evaluate_chosen_responses, --no_secondary_rm,
 # --with_training_rm, --with_llm_judge.
+#
+# Debug mode (subsamples examples, only the first checkpoint, and suffixes
+# outputs / the wandb run name with _debug):
+#     sbatch evaluate_policy.sh --debug
 # =============================================================================
 
 cd /nas/ucb/eop/Reward-Model-Overoptimization
@@ -91,6 +95,10 @@ BENCHMARKS="select,preference,ifeval,arena_hard"
 # Python default 1.0 for manifest-less runs). Set only to override.
 EVAL_TEMPERATURE=""
 
+# Debug mode: subsamples examples, uses only the first checkpoint, and
+# suffixes outputs / the wandb run name with _debug. See --debug below.
+DEBUG_MODE=""
+
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --run_name) WANDB_RUN_NAME="$2"; shift ;;
@@ -112,6 +120,7 @@ while [[ "$#" -gt 0 ]]; do
         --no_secondary_rm) NO_SECONDARY_RM=1 ;;
         --with_training_rm) WITH_TRAINING_RM=1 ;;
         --with_llm_judge) WITH_LLM_JUDGE=1 ;;
+        --debug) DEBUG_MODE=1 ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -139,6 +148,7 @@ echo "WandB Run ID (resume): ${WANDB_RUN_ID:-<new run>}"
 echo "Benchmarks: $BENCHMARKS"
 echo "Arena-Hard judges: $ARENA_HARD_JUDGES"
 echo "LLM judge: ${WITH_LLM_JUDGE:+enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL)}${WITH_LLM_JUDGE:-disabled}"
+echo "Debug mode: ${DEBUG_MODE:+enabled}${DEBUG_MODE:-disabled}"
 
 export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
 
@@ -168,7 +178,7 @@ python evaluate_policy.py \
     $([ -n "${KL_BASE_MODEL_PATH:-}" ] && echo "--kl_base_model_path $KL_BASE_MODEL_PATH") \
     $([ -n "${EVAL_TEMPERATURE:-}" ] && echo "--eval_temperature $EVAL_TEMPERATURE") \
     --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jsonl" \
-    ${DEBUG_MODE:-} \
+    $([ -n "${DEBUG_MODE:-}" ] && echo "--debug True") \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
     $([ ! -z "${SKIP_VALIDATION:-}" ] && echo "--skip_validation True") \
     $([ ! -z "${EVALUATE_CHOSEN:-}" ] && echo "--evaluate_chosen_responses True") \
@@ -185,5 +195,5 @@ python evaluate_policy.py \
 #   logs only IFEval metrics on the custom "checkpoint" step axis; the
 #   preference benchmark (and its RM scoring) is skipped entirely.
 # - To disable wandb logging, add: --disable_wandb
-# - To enable debug mode, uncomment the DEBUG_MODE line above
+# - To enable debug mode, add: --debug
 # - For LoRA models, uncomment and set BASE_MODEL_NAME above
