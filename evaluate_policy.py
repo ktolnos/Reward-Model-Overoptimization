@@ -276,7 +276,7 @@ class ScriptArguments:
     # ------------------------------------------------------------------
     # I/O
     # ------------------------------------------------------------------
-    batch_size: Optional[int] = field(default=8)
+    batch_size: Optional[int] = field(default=16)
     generation_batch_size: Optional[int] = field(default=8)
     device: Optional[str] = field(default="cuda")
     output_file: Optional[str] = field(default="evaluation_results.csv")
