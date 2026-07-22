@@ -217,7 +217,7 @@ class ScriptArguments:
         default=False,
         metadata={"help": "Enable the judge model's reasoning trace. vLLM backend: applied via "
                           "the chat template, and when False the assistant turn is prefilled "
-                          "with 'My final verdict ' to commit directly. API backend: forwarded "
+                          "with 'My final verdict is [[' so the judge emits only the verdict label. API backend: forwarded "
                           "via OpenRouter's reasoning toggle when False (best-effort)."},
     )
     llm_judge_temperature: float = field(

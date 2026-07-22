@@ -108,6 +108,33 @@ ARENA_HARD_SYSTEM_PROMPT = (
     'Example output: "My final verdict is tie: [[A=B]]".'
 )
 
+# No-thinking variant. The canonical prompt above is a chain-of-thought judge: it
+# instructs the model to generate its own answer and a written explanation before
+# the verdict. That is right for the thinking path but incoherent when thinking is
+# off -- there the verdict is prefilled, so none of that text is ever produced and
+# the instructions contradict what the model is allowed to do. This variant instead
+# asks the model to do all reasoning internally and emit only the verdict, and lists
+# the label first so it lands immediately after the "My final verdict is [[" prefill.
+ARENA_HARD_NO_THINKING_SYSTEM_PROMPT = (
+    "Please act as an impartial judge and evaluate the quality of the responses provided by "
+    "two AI assistants to the user prompt displayed below. You will be given assistant A's "
+    "answer and assistant B's answer. Your job is to decide which assistant's answer is better.\n\n"
+    "Think about what an ideal answer to the prompt would be and compare both assistants' answers "
+    "against it, without writing any of this out. Identify any mistakes or inaccurate information. "
+    "Consider whether each answer is helpful (correctly responds to the prompt or follows the "
+    "instructions; note that when the prompt is ambiguous or has more than one interpretation it "
+    "is more helpful to ask for clarification than to answer on an assumption), relevant, and "
+    "concise, its creativity and novelty where needed, and whether it omits any important "
+    "information.\n\n"
+    "Respond with only your final verdict, stated as one of the following labels:\n\n"
+    "1. [[A>>B]], Assistant A is significantly better\n"
+    "2. [[A>B]], Assistant A is slightly better\n"
+    "3. [[A=B]], a tie (relatively the same)\n"
+    "4. [[B>A]], Assistant B is slightly better\n"
+    "5. [[B>>A]], Assistant B is significantly better\n\n"
+    'Example output: "My final verdict is [[A=B]], a tie".'
+)
+
 ARENA_HARD_PROMPT_TEMPLATE = (
     "<|User Prompt|>\n{QUESTION}\n\n"
     "<|The Start of Assistant A's Answer|>\n{ANSWER_A}\n<|The End of Assistant A's Answer|>\n\n"
@@ -181,6 +208,47 @@ def battles_from_game_labels(
         ms0 = [1.0 - s for s in label_score[lbl0]]
         battles.append(ms1 + ms0)
     return battles, dropped
+
+
+def positional_bias_metrics(details: "LLMBattleDetails") -> Dict[str, float]:
+    """Controversial (position-flipped) rate from the two swapped games.
+
+    A prompt is *controversial* when the judge names opposite decisive winners in
+    the two position-swapped games (game0 = A:baseline/B:policy, game1 =
+    A:policy/B:baseline): it picked the same answer *position* both times, so the
+    pairwise decision reflects answer order rather than answer content. This is the
+    positional-bias signature — with no bias the judge names the same actual answer
+    regardless of order. ``prefers_first``/``prefers_second`` split the flips by
+    which position the judge favored (A = first, B = second).
+
+    Rate is over prompts both of whose games parsed (same denominator as
+    ``win_rate``). Ties in either game are not counted as a flip.
+    """
+    label_score = _label_to_score(weight=1)  # single value per label: direction only
+    n_judged = n_controversial = n_prefers_first = n_prefers_second = 0
+    for lbl0, lbl1 in zip(details.game0_labels, details.game1_labels):
+        if lbl0 not in label_score or lbl1 not in label_score:
+            continue
+        n_judged += 1
+        # Policy-perspective winner per game: +1 policy, 0 tie, -1 baseline.
+        s1 = label_score[lbl1][0]
+        s0 = 1.0 - label_score[lbl0][0]
+        w1 = (s1 > 0.5) - (s1 < 0.5)
+        w0 = (s0 > 0.5) - (s0 < 0.5)
+        if w0 != 0 and w1 != 0 and w0 != w1:
+            n_controversial += 1
+            # Opposite winners => same position won both games (w1 > 0 <=> the
+            # judge picked A/first in both, w1 < 0 <=> B/second in both).
+            if w1 > 0:
+                n_prefers_first += 1
+            else:
+                n_prefers_second += 1
+    return {
+        "n_controversial": n_controversial,
+        "controversial_rate": n_controversial / n_judged if n_judged else 0.0,
+        "n_prefers_first": n_prefers_first,
+        "n_prefers_second": n_prefers_second,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +344,7 @@ class JudgeGenParams:
     this from there, so a default can't drift between config and code.
 
     ``enable_thinking`` is honored in full by the local vLLM backend (chat
-    template + ``"My final verdict "`` prefill); the OpenRouter backend forwards
+    template + ``"My final verdict is [["`` prefill); the OpenRouter backend forwards
     it via OpenRouter's native ``reasoning`` toggle when disabling thinking.
     """
     temperature: float
@@ -376,10 +444,24 @@ class VLLMBackend:
     Deferred: the model loads lazily on the first ``generate`` (after the policy
     vLLM is torn down so the GPU is free) and is reused across checkpoints, then
     released by ``teardown``. Applies the chat template locally so it can honor
-    ``enable_thinking`` and prefill ``"My final verdict "`` when thinking is off.
+    ``enable_thinking`` and prefill ``"My final verdict is [["`` when thinking is off.
     """
     phase = "deferred"
-    PREFILL = "My final verdict "
+    # With thinking off the assistant turn is prefilled up to the opening of the
+    # verdict token. The system prompt states the label first ("[[A=B]], a tie"),
+    # so from this prefill the model emits the label and its closing brackets
+    # immediately -- e.g. "A>>B]]" -- and nothing else is needed to parse a verdict.
+    # This matches the prompt's example output verbatim.
+    PREFILL = "My final verdict is [["
+    # The label completion ("A>>B]]", the longest of the five) is exactly 4 tokens
+    # across the Llama-3.2, Gemma-3, Gemma-4, Qwen3 and Qwen3.5 tokenizers (measured),
+    # so 4 fits every verdict. No EOS headroom is needed: a label that fills the
+    # budget with no room for EOS, or is followed by the descriptor text, hits
+    # finish_reason=="length" yet still parses -- and LLMJudge.score_pairs only counts
+    # truncation as a failure when NO label parses, so that is never treated as
+    # truncation. (Only applies to the prefilled path; the thinking path keeps the
+    # full --llm_judge_max_new_tokens budget.)
+    PREFILL_MAX_TOKENS = 4
 
     def __init__(
         self,
@@ -389,7 +471,7 @@ class VLLMBackend:
         gpu_memory_utilization: float,
     ):
         self.model_name = model_name
-        self.label = f"vllm_{model_name.replace('/', '_')}"
+        self.label = model_name.replace("/", "_")
         self.max_model_len = max_model_len
         self.gpu_memory_utilization = gpu_memory_utilization
         self._llm = None
@@ -462,10 +544,15 @@ class VLLMBackend:
 
         self._ensure()
         prompts = [self._render(c, params.enable_thinking) for c in conversations]
+        # The prefill (see PREFILL_MAX_TOKENS) only exists on the no-thinking path,
+        # where the model just completes the verdict tail; cap it there so it
+        # commits immediately instead of running out the full budget. The thinking
+        # path needs the reasoning room, so it keeps params.max_tokens.
+        max_tokens = params.max_tokens if params.enable_thinking else self.PREFILL_MAX_TOKENS
         sampling = SamplingParams(
             temperature=params.temperature,
             top_p=params.top_p,
-            max_tokens=params.max_tokens,
+            max_tokens=max_tokens,
             n=1,
             stop_token_ids=get_generation_stop_token_ids(self._tokenizer),
         )
@@ -500,19 +587,28 @@ class LLMJudge:
         backend,
         *,
         gen_params: JudgeGenParams,
-        system_prompt: str = ARENA_HARD_SYSTEM_PROMPT,
+        system_prompt: Optional[str] = None,
         prompt_template: str = ARENA_HARD_PROMPT_TEMPLATE,
         regex_patterns: Optional[List[str]] = None,
         weight: int = 3,
     ):
         self.backend = backend
+        # The prompt is tied to the reasoning mode: the canonical chain-of-thought
+        # Arena-Hard prompt for the thinking path, the direct-verdict variant for the
+        # no-thinking path (see ARENA_HARD_NO_THINKING_SYSTEM_PROMPT). An explicit
+        # system_prompt overrides this selection.
+        if system_prompt is None:
+            system_prompt = (
+                ARENA_HARD_SYSTEM_PROMPT if gen_params.enable_thinking
+                else ARENA_HARD_NO_THINKING_SYSTEM_PROMPT
+            )
         self.system_prompt = system_prompt
         self.prompt_template = prompt_template
         self.regex_patterns = regex_patterns or ARENA_HARD_REGEX_PATTERNS
         self.weight = weight
         self.gen_params = gen_params
         self.phase = getattr(backend, "phase", "online")
-        self.name = f"llm_{backend.label}"
+        self.name = backend.label
 
     def teardown(self) -> None:
         if hasattr(self.backend, "teardown"):

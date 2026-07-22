@@ -21,7 +21,12 @@ import numpy as np
 import wandb
 
 from .arena_hard_upstream import CATEGORY_BASELINES
-from .judges import LLMBattleDetails, RMBattleDetails, render_judge_question
+from .judges import (
+    LLMBattleDetails,
+    RMBattleDetails,
+    positional_bias_metrics,
+    render_judge_question,
+)
 from .pairwise import compute_pairwise_metrics
 from .rewards import hash_responses, score_responses_with_rm
 from .types import Benchmark, EvalContext, Example, GenerationResult
@@ -162,16 +167,20 @@ def _get_baseline_responses_for(examples: List[Example], baseline_name: str) -> 
     return [ex.metadata.get("baselines", {}).get(baseline_name, "") for ex in examples]
 
 
-def _judge_failure_metrics(details) -> Dict[str, int]:
-    """Per-judge failure counts for wandb (empty for non-generative judges)."""
+def _judge_diagnostics(details) -> Dict[str, float]:
+    """Per-judge diagnostics for wandb (empty for non-generative judges):
+    generation/parse failure counts plus the positional-bias controversial rate
+    (prompts whose winner flipped under position swap)."""
     if not isinstance(details, LLMBattleDetails):
         return {}
-    return {
+    out: Dict[str, float] = {
         "n_generation_failures": details.n_generation_failures,
         "n_truncation_failures": details.n_truncation_failures,
         "n_parse_failures": details.n_parse_failures,
         "n_dropped_prompts": details.n_dropped_prompts,
     }
+    out.update(positional_bias_metrics(details))
+    return out
 
 
 class PairwiseEvaluator:
@@ -385,7 +394,7 @@ class PairwiseEvaluator:
             self._persist_pairwise(ctx, benchmark, examples, baseline_name, all_indices,
                                    battles, details, policy_responses, baseline_responses)
             metrics = compute_pairwise_metrics(battles, policy_responses, baseline_responses)
-            metrics.update(_judge_failure_metrics(details))
+            metrics.update(_judge_diagnostics(details))
             for k, v in metrics.items():
                 out[f"{self.judge.name}/{baseline_name}/{k}"] = v
         return out
@@ -423,7 +432,7 @@ class PairwiseEvaluator:
             self._persist_pairwise(ctx, benchmark, sub_examples, category, indices,
                                    battles, details, sub_policy, sub_baseline)
             metrics = compute_pairwise_metrics(battles, sub_policy, sub_baseline)
-            metrics.update(_judge_failure_metrics(details))
+            metrics.update(_judge_diagnostics(details))
             # Metric slot is the category name (matches upstream's leaderboard format).
             for k, v in metrics.items():
                 out[f"{self.judge.name}/{category}/{k}"] = v

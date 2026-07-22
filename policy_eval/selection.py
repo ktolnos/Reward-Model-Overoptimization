@@ -171,18 +171,36 @@ def _summary_keys(args) -> List[str]:
 _JUDGE_SUMMARY_METRICS = ("arena_score", "sc_score", "win_rate")
 
 
-def _judge_metric_keys(row: dict) -> List[str]:
+def _llm_judge_labels(args) -> set:
+    """Metric-key segments for the configured LLM judges (preference + arena_hard).
+
+    An LLM judge's metric-key segment is its sanitized model name (no prefix),
+    e.g. ``openai/gpt-4.1`` -> ``openai_gpt-4.1``, mirroring ``LLMJudge.name``
+    (which is just ``backend.label``). Covers the preference judge
+    (``--llm_judge_model_name``) and every ``llm:<model>`` in ``arena_hard_judges``.
+    """
+    labels = set()
+    if args.evaluate_with_llm_judge and args.llm_judge_model_name:
+        labels.add(args.llm_judge_model_name.replace("/", "_"))
+    for tok in (t.strip() for t in (args.arena_hard_judges or "").split(",") if t.strip()):
+        if tok.startswith("llm:"):
+            labels.add(tok[4:].replace("/", "_"))
+    return labels
+
+
+def _judge_metric_keys(row: dict, args) -> List[str]:
     """Headline LLM-judge metric keys present in a checkpoint's row.
 
-    Matches the preference judge (``llm_<judge>/<slot>/<metric>``) and the
-    arena_hard LLM judge (``arena_hard/llm_<judge>/<cat>/<metric>``) by detecting
-    a path segment starting with ``llm_`` and a headline final metric, so it
-    works regardless of the judge model/backend in use.
+    Matches the preference judge (``<judge>/<slot>/<metric>``) and the arena_hard
+    LLM judge (``arena_hard/<judge>/<cat>/<metric>``) by detecting a path segment
+    equal to one of the configured LLM-judge labels and a headline final metric,
+    so it works regardless of the judge model/backend in use.
     """
+    labels = _llm_judge_labels(args)
     keys = []
     for k in row:
         parts = k.split("/")
-        if parts[-1] in _JUDGE_SUMMARY_METRICS and any(p.startswith("llm_") for p in parts):
+        if parts[-1] in _JUDGE_SUMMARY_METRICS and any(p in labels for p in parts):
             keys.append(k)
     return sorted(keys)
 
@@ -194,7 +212,7 @@ def build_selected_summary(row: dict, args) -> Dict[str, float]:
     main loop). Includes the RM-panel metrics, IFEval, Arena-Hard, and any LLM
     judge metrics present. Missing metrics are simply absent (benchmark not run).
     """
-    keys = list(dict.fromkeys(_summary_keys(args) + _judge_metric_keys(row)))
+    keys = list(dict.fromkeys(_summary_keys(args) + _judge_metric_keys(row, args)))
     return {
         k: float(row[k])
         for k in keys
