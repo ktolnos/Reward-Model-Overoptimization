@@ -24,6 +24,13 @@
 # Arena-Hard-Auto v2.0 (gold RM only):
 #     sbatch evaluate_policy.sh --only_arena_hard [--run_id <WANDB_RUN_ID>]
 #
+# LLM-judge on already-generated answers from a previous eval (no regeneration,
+# no reward models). Source generations are auto-discovered (latest per-example
+# dir for this checkpoints_dir); pass --run_id to add the judge metrics onto the
+# original eval's wandb run:
+#     sbatch evaluate_policy.sh --llm_judge_on_cached [--run_id <WANDB_RUN_ID>]
+#     sbatch evaluate_policy.sh --llm_judge_on_cached --load_generations_dir <DIR>
+#
 # Arbitrary benchmark subset:
 #     sbatch evaluate_policy.sh --benchmarks ifeval,preference,arena_hard
 #
@@ -122,6 +129,16 @@ while [[ "$#" -gt 0 ]]; do
         --no_secondary_rm) NO_SECONDARY_RM=1 ;;
         --with_training_rm) WITH_TRAINING_RM=1 ;;
         --with_llm_judge) WITH_LLM_JUDGE=1 ;;
+        --load_generations) LOAD_GENERATIONS=1 ;;
+        --load_generations_dir) LOAD_GENERATIONS=1; LOAD_GENERATIONS_DIR="$2"; shift ;;
+        # Convenience: run ONLY the LLM judge on already-generated answers from a
+        # previous eval (auto-discovered), skipping regeneration and all RMs.
+        --llm_judge_on_cached)
+            LOAD_GENERATIONS=1
+            WITH_LLM_JUDGE=1
+            BENCHMARKS="preference,arena_hard"
+            NO_SECONDARY_RM=1
+            ;;
         --debug) DEBUG_MODE=1 ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
@@ -130,8 +147,12 @@ done
 
 # arena_hard is scored by the gold RM, plus the open-weight LLM judge when
 # --with_llm_judge is passed (both judges run on the same arena_hard responses).
+# In --load_generations mode no RM is loaded, so arena_hard is judged by the LLM
+# judge alone.
 ARENA_HARD_JUDGES="rm:gold_rm"
-if [ -n "${WITH_LLM_JUDGE:-}" ]; then
+if [ -n "${LOAD_GENERATIONS:-}" ]; then
+    ARENA_HARD_JUDGES="llm:${LLM_JUDGE_MODEL}"
+elif [ -n "${WITH_LLM_JUDGE:-}" ]; then
     ARENA_HARD_JUDGES="rm:gold_rm,llm:${LLM_JUDGE_MODEL}"
 fi
 
@@ -150,6 +171,7 @@ echo "WandB Run ID (resume): ${WANDB_RUN_ID:-<new run>}"
 echo "Benchmarks: $BENCHMARKS"
 echo "Arena-Hard judges: $ARENA_HARD_JUDGES"
 echo "LLM judge: ${WITH_LLM_JUDGE:+enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL)}${WITH_LLM_JUDGE:-disabled}"
+echo "Load cached generations: ${LOAD_GENERATIONS:+enabled (${LOAD_GENERATIONS_DIR:-auto-discover})}${LOAD_GENERATIONS:-disabled}"
 echo "Debug mode: ${DEBUG_MODE:+enabled}${DEBUG_MODE:-disabled}"
 
 export LD_PRELOAD="/nas/ucb/eop/.local/lib/libsqlite3.so.0"
@@ -191,6 +213,8 @@ python evaluate_policy.py \
     $([ ! -z "${WANDB_RUN_ID:-}" ] && echo "--wandb_run_id $WANDB_RUN_ID") \
     $([ -n "${BASE_EVAL_RUN_ID:-}" ] && echo "--base_eval_run_id $BASE_EVAL_RUN_ID") \
     $([ -n "${NO_BASE_CHECKPOINT:-}" ] && echo "--prepend_base_checkpoint False") \
+    $([ -n "${LOAD_GENERATIONS:-}" ] && echo "--load_generations True") \
+    $([ -n "${LOAD_GENERATIONS_DIR:-}" ] && echo "--load_generations_dir $LOAD_GENERATIONS_DIR") \
 
 #     --subsample_n 25 \
 

@@ -10,6 +10,8 @@ components in this package:
   ``GenerationResult`` so the evaluator path is reused unchanged.
 - ``run_chosen_only``: the ``--evaluate_chosen_responses`` code path.
 - ``run_deferred_phase``: calls deferred evaluators after the policy vLLM is torn down.
+- ``run_load_generations``: the ``--load_generations`` code path — judge cached
+  policy responses from a prior run (no vLLM, no RMs).
 
 Keeping these out of ``evaluate_policy.py`` makes the entry point easy to read
 and these helpers testable in isolation.
@@ -17,6 +19,7 @@ and these helpers testable in isolation.
 from __future__ import annotations
 
 import dataclasses
+import glob
 import hashlib
 import json
 import os
@@ -689,3 +692,214 @@ def run_deferred_phase(
             if remaining[id(res)] == 0:
                 res.teardown()
     return deferred_metrics
+
+
+# ---------------------------------------------------------------------------
+# Load-generations mode: judge previously cached policy responses
+#
+# Runs only the deferred evaluators (the LLM judge) on policy responses read
+# back from a prior run's per-example logs — no vLLM policy engine, no reward
+# models. Used to add LLM-as-judge metrics to already-generated answers without
+# re-generating or re-scoring.
+# ---------------------------------------------------------------------------
+
+def _list_cached_checkpoints(load_dir: str, benchmark_name: str) -> List[Tuple[int, str]]:
+    """Cached (checkpoint_num, path) pairs for one benchmark in ``load_dir``.
+
+    Matches the per-example log naming
+    (``<benchmark>__checkpoint-<n>.parquet|jsonl``); prefers parquet when both
+    formats exist for the same checkpoint. Sorted by checkpoint number.
+    """
+    safe = benchmark_name.replace("/", "_")
+    prefix = f"{safe}__checkpoint-"
+    found: Dict[int, str] = {}
+    for fmt in ("parquet", "jsonl"):
+        for path in glob.glob(os.path.join(load_dir, f"{prefix}*.{fmt}")):
+            stem = os.path.basename(path)[len(prefix):].rsplit(".", 1)[0]
+            try:
+                num = int(stem)
+            except ValueError:
+                continue
+            found.setdefault(num, path)  # parquet iterated first -> preferred
+    return sorted(found.items())
+
+
+def _read_cached_generation(
+    path: str, examples: List[Example], benchmark_name: str, ckpt_num: int,
+) -> GenerationResult:
+    """Reconstruct a single-sample ``GenerationResult`` from a per-example log.
+
+    Responses are re-ordered to match ``examples`` by ``prompt_uid`` (the
+    content-hash join key), so a cached run's row order need not match the
+    freshly loaded prompt set. Raises if a prompt has no cached response — a
+    mismatch between the cached run and the current dataset/split.
+    """
+    from .persistence import example_uid
+
+    if path.endswith(".jsonl"):
+        df = pd.read_json(path, lines=True)
+    else:
+        df = pd.read_parquet(path)
+    missing_cols = {"prompt_uid", "response_text"} - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"[load_generations] {path} is missing columns {sorted(missing_cols)}; "
+            f"cannot reconstruct generations."
+        )
+
+    by_uid: Dict[str, dict] = {}
+    for rec in df.to_dict("records"):
+        # Single-sample benchmarks: keep sample 0 (first row) per prompt.
+        by_uid.setdefault(str(rec["prompt_uid"]), rec)
+
+    responses, raw, finish, tok_lens = [], [], [], []
+    for ex in examples:
+        uid = example_uid(ex)
+        rec = by_uid.get(uid)
+        if rec is None:
+            raise ValueError(
+                f"[load_generations] {benchmark_name} checkpoint-{ckpt_num}: no cached "
+                f"response for prompt_uid={uid} in {path}. The cached run's prompt set "
+                f"does not match the current dataset/split."
+            )
+        responses.append(rec["response_text"])
+        raw.append(rec.get("response_raw_text", rec["response_text"]))
+        finish.append(rec.get("finish_reason", "stop"))
+        tl = rec.get("response_token_len")
+        tok_lens.append(int(tl) if tl is not None and not pd.isna(tl) else None)
+
+    return GenerationResult(
+        responses=responses,
+        raw_responses=raw,
+        finish_reasons=finish,
+        n_responses_per_example=1,
+        response_token_lens=tok_lens,
+    )
+
+
+def find_latest_generations_dir(
+    args, *, exclude_dir: Optional[str], benchmark_names: List[str],
+) -> str:
+    """Auto-discover the most recent per-example dir with cached generations.
+
+    Scans ``*_per_example`` dirs next to where this run's logs would be written,
+    keeps those holding cached generations for at least one requested benchmark,
+    and — when a ``_manifest.json`` is present — restricts to dirs whose run
+    trained from the same ``checkpoints_dir``. Picks the newest by generation
+    file mtime. ``exclude_dir`` (this run's own output dir) is skipped.
+    """
+    from .persistence import resolve_per_example_dir
+
+    out_dir = resolve_per_example_dir(args)
+    search_root = os.path.dirname(os.path.abspath(out_dir)) or "."
+    exclude_abs = os.path.abspath(exclude_dir) if exclude_dir else None
+
+    candidates: List[Tuple[float, str]] = []
+    for d in glob.glob(os.path.join(search_root, "*_per_example")):
+        if not os.path.isdir(d) or os.path.abspath(d) == exclude_abs:
+            continue
+        gen_files = [p for bn in benchmark_names for _, p in _list_cached_checkpoints(d, bn)]
+        if not gen_files:
+            continue
+        manifest_path = os.path.join(d, "_manifest.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path) as f:
+                    ckpt = json.load(f).get("args", {}).get("checkpoints_dir")
+                if ckpt and args.checkpoints_dir and ckpt != args.checkpoints_dir:
+                    continue
+            except (json.JSONDecodeError, OSError):
+                pass
+        candidates.append((max(os.path.getmtime(p) for p in gen_files), d))
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"[load_generations] no prior per-example generations found under "
+            f"{search_root} for benchmarks {benchmark_names} "
+            f"(checkpoints_dir={args.checkpoints_dir!r}). Run a normal eval first, "
+            f"or pass --load_generations_dir explicitly."
+        )
+    candidates.sort()
+    chosen = candidates[-1][1]
+    print(f"[load_generations] auto-selected latest generations dir: {chosen}")
+    return chosen
+
+
+def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: str) -> None:
+    """Judge cached policy generations from a previous run — no vLLM, no RMs.
+
+    Loads each ``(benchmark, checkpoint)``'s policy responses from a prior run's
+    per-example logs and runs only the deferred evaluators (the LLM judge). RM
+    evaluators (online phase) never run, so no reward model is loaded.
+    """
+    deferred_benchmarks = [b for b in benchmarks if b.deferred_evaluators]
+    if not deferred_benchmarks:
+        raise ValueError(
+            "--load_generations needs a benchmark with a deferred evaluator (the "
+            "LLM judge). Pass --benchmarks preference,arena_hard and "
+            "--evaluate_with_llm_judge True (and arena judges as llm:<model>)."
+        )
+    benchmark_names = [b.name for b in deferred_benchmarks]
+
+    load_dir = args.load_generations_dir or find_latest_generations_dir(
+        args, exclude_dir=per_example_dir, benchmark_names=benchmark_names,
+    )
+    if not os.path.isdir(load_dir):
+        raise FileNotFoundError(f"[load_generations] dir not found: {load_dir}")
+    print(f"[load_generations] loading cached generations from {load_dir}")
+
+    deferred_cache: Dict[Tuple[str, int], GenerationResult] = {}
+    for bench in deferred_benchmarks:
+        cached = _list_cached_checkpoints(load_dir, bench.name)
+        if not cached:
+            print(f"[load_generations] no cached generations for '{bench.name}' "
+                  f"in {load_dir}; skipping")
+            continue
+        for ckpt_num, path in cached:
+            deferred_cache[(bench.name, ckpt_num)] = _read_cached_generation(
+                path, bench_examples[bench.name], bench.name, ckpt_num,
+            )
+        print(f"[load_generations] {bench.name}: loaded {len(cached)} checkpoints "
+              f"{[n for n, _ in cached]}")
+    if not deferred_cache:
+        raise FileNotFoundError(
+            f"[load_generations] no cached generations found in {load_dir} for "
+            f"benchmarks {benchmark_names}."
+        )
+
+    # The preference judge reads its baseline from example metadata; inject it
+    # (dataset 'chosen' or the baseline model). arena_hard baselines already
+    # live in example metadata from the dataset load.
+    preference_bench = next((b for b in deferred_benchmarks if b.name == "preference"), None)
+    if preference_bench is not None:
+        tokenizer = None
+        if not args.use_dataset_response_as_baseline:
+            from transformers import AutoTokenizer
+            _, _, first_ckpt = list_checkpoints(args)
+            tokenizer = AutoTokenizer.from_pretrained(first_ckpt, trust_remote_code=True)
+        baseline_label, baseline_responses = make_baseline_responses(
+            args, preference_bench, bench_examples["preference"], tokenizer,
+        )
+        for ex, resp in zip(bench_examples["preference"], baseline_responses):
+            ex.metadata.setdefault("baselines", {})[baseline_label] = resp
+
+    deferred_metrics = run_deferred_phase(
+        deferred_benchmarks, bench_examples, deferred_cache, args, loaded_rms=None,
+    )
+
+    results_rows = []
+    for ckpt_num in sorted(deferred_metrics):
+        row = {"checkpoint": ckpt_num}
+        row.update({
+            k: v for k, v in deferred_metrics[ckpt_num].items()
+            if not isinstance(v, wandb.Histogram)
+        })
+        results_rows.append(row)
+    if results_rows and args.output_file:
+        out = args.output_file
+        if args.debug and out.endswith(".csv"):
+            out = out.replace(".csv", "_debug.csv")
+        pd.DataFrame(results_rows).to_csv(out, index=False)
+        print(f"\nResults saved to {out}")
+
+    wandb_utils.finish()

@@ -50,6 +50,7 @@ from policy_eval.eval_utils import (
     run_chosen_only,
     run_deferred_phase,
     run_kl_base_phase,
+    run_load_generations,
 )
 from policy_eval.generation import (
     generate_responses_vllm,
@@ -211,7 +212,7 @@ class ScriptArguments:
                           "so the cache is shared across all runs."},
     )
     llm_judge_max_new_tokens: Optional[int] = field(
-        default=2048, metadata={"help": "Max new tokens for the LLM judge"},
+        default=4096, metadata={"help": "Max new tokens for the LLM judge"},
     )
     llm_judge_enable_thinking: bool = field(
         default=False,
@@ -295,6 +296,23 @@ class ScriptArguments:
     per_example_format: Optional[str] = field(
         default="parquet",
         metadata={"help": "Per-example log format: 'parquet' (default) or 'jsonl'."},
+    )
+    load_generations: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Judge cached policy responses from a previous run instead of "
+                          "regenerating: skips the policy vLLM and all reward models, and "
+                          "runs only the deferred evaluators (the LLM judge) on responses "
+                          "read back from a prior run's per-example logs. Requires "
+                          "--evaluate_with_llm_judge and a benchmark with an LLM judge "
+                          "(preference / arena_hard). The source dir is auto-discovered "
+                          "(latest per-example dir for this checkpoints_dir) unless "
+                          "--load_generations_dir is set."},
+    )
+    load_generations_dir: Optional[str] = field(
+        default="",
+        metadata={"help": "Explicit per-example dir to read cached generations from when "
+                          "--load_generations is set. Empty = auto-discover the most recent "
+                          "per-example dir matching this run's checkpoints_dir."},
     )
     response_token_budget: Optional[int] = field(
         default=1024,
@@ -400,15 +418,23 @@ def main():
     write_manifest(per_example_dir, args, benchmarks)
 
     # ----- Lazily load the reward models actually used by evaluators --------
+    # Skipped in --load_generations mode: only the LLM judge runs there, and it
+    # loads its own model — no reward model is needed.
     loaded_rms: Optional[LoadedRewardModels] = None
     rm_labels_needed = rms_required_by(benchmarks)
-    if rm_labels_needed:
+    if rm_labels_needed and not args.load_generations:
         loaded_rms = LoadedRewardModels(args, rm_labels_needed)
 
     # ----- Load each benchmark's examples once ------------------------------
     bench_examples: Dict[str, List[Example]] = {
         b.name: b.load_examples(args) for b in benchmarks
     }
+
+    # ----- Load-generations mode: judge cached responses, no vLLM/no RMs ----
+    if args.load_generations:
+        return run_load_generations(
+            args, benchmarks, bench_examples, per_example_dir=per_example_dir,
+        )
 
     # ----- Precompute chosen scores for the preference benchmark ------------
     # Only for the RMs whose preference evaluators compare against chosen, so
