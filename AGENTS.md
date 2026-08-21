@@ -1,3 +1,13 @@
+## Environment
+
+- **On the cluster** (the working directory starts with `/nas`): use bare `python` /
+  `python3`. Pyenv resolves it to 3.12.10 (torch 2.10, transformers 5.5.1, vllm 0.19.1)
+  via the tracked `.python-version` in the repo root. Keep that file: `pyenv global` is
+  `system`, which is Python 3.8.10 with no packages, so deleting it breaks every script.
+  There is no venv and no `activate` command here.
+- **On the laptop** (anywhere else): use `venv/bin/python` and `venv/bin/python -m pip`
+  instead of the globally installed `python` / `pip`. You are most likely here, so don't
+  try to submit slurm jobs or expect `/nas` paths to exist.
 
 ## Overview
 
@@ -6,7 +16,7 @@ Current experiments focus on BT reward models and their ensembles.
 The main pipeline for current experiments involves trainig multiple BT reward models, training SFT policy model, then experimenting with training the policy with GRPO starting from SFT checkpoing. Each GRPO run is automatically evaluated using evaluate_policy.sh.  
 Current experiments are focused on GRPO, assume GRPO unless specified otherwise.
 Don't try to run training and locally.
-To run python locally, activate venv first (there is an `activate` command that automatically does it).
+To run python locally, see the Environment section above for which interpreter to use.
 
 One of the main constraints to keep in mind is that we want consistency across the whole pipeline, with no distribution shifts between data annotation, sft training, RM training, GRPO training (and how it uses SFT checkpoint and trained RMs), and evaluation.
 Tokenization should be consistent across the pipeline and use correct tokenizer for the model for both tokenization and chat template.
