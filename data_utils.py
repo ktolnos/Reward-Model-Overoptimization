@@ -246,7 +246,11 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
     text_config.pad_token_id = tokenizer.pad_token_id
     if hasattr(model, "generation_config"):
         model.generation_config.pad_token_id = tokenizer.pad_token_id
-        model.generation_config.eos_token_id = get_generation_stop_token_ids(tokenizer)
+        # base_model_name, not the adapter dir: a LoRA checkpoint ships no
+        # generation_config.json, and its vocab is the base model's anyway.
+        model.generation_config.eos_token_id = get_generation_stop_token_ids(
+            tokenizer, model_name_or_path=base_model_name,
+        )
 
     return model, tokenizer
 
@@ -281,18 +285,63 @@ def _add_token_id(stop_ids, token_id):
         stop_ids.add(tid)
 
 
-def get_generation_stop_token_ids(tokenizer):
+_GENERATION_CONFIG_EOS_CACHE = {}
+
+
+def _generation_config_eos_ids(model_name_or_path):
+    """EOS IDs declared in a model's generation_config.json.
+
+    Some chat models declare their real turn-end token only here: Gemma 4 ends a
+    turn with `<turn|>` (id 106), which the token-string lookup in
+    `get_generation_stop_token_ids` cannot find because that spelling is not one
+    of the known turn-end strings. Without these IDs in the stop set, generation
+    never stops on the turn-end token and burns the full token budget on every
+    sample. Cached per path: this reads from disk or the hub, and the stop set is
+    rebuilt at several points in the pipeline.
+    """
+    if not model_name_or_path:
+        return ()
+    cached = _GENERATION_CONFIG_EOS_CACHE.get(model_name_or_path)
+    if cached is not None:
+        return cached
+    ids = ()
+    try:
+        from transformers import GenerationConfig
+        eos = GenerationConfig.from_pretrained(model_name_or_path).eos_token_id
+        collected = set()
+        _add_token_id(collected, eos)
+        ids = tuple(sorted(collected))
+    except Exception as e:
+        # Benign for tokenizer-only and reward-model dirs that ship no
+        # generation_config.json; the token-string lookup still applies.
+        print(f"[stop_tokens] no generation_config eos for "
+              f"{model_name_or_path}: {type(e).__name__}: {e}")
+    _GENERATION_CONFIG_EOS_CACHE[model_name_or_path] = ids
+    return ids
+
+
+def get_generation_stop_token_ids(tokenizer, model_name_or_path=None):
     """Return tokenizer-specific generation stop IDs.
 
-    Includes eos_token_id and common chat turn-end tokens. <|endoftext|> is
+    Includes eos_token_id, the EOS IDs declared in the model's
+    generation_config.json, and common chat turn-end tokens. <|endoftext|> is
     looked up explicitly so it stays in the set even after eos_token_id has
     been re-pointed to a chat turn-end token (e.g. <|im_end|> for Qwen).
+
+    `model_name_or_path` says where to read generation_config.json from; it
+    defaults to the tokenizer's own `name_or_path`. Pass it when the tokenizer
+    was loaded from somewhere other than the model being generated with.
     """
     stop_ids = set()
     # Some wrappers (e.g. multimodal processors like Gemma4Processor) keep the
     # underlying tokenizer on `.tokenizer`; unwrap it for token-id lookups.
     raw_tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
     _add_token_id(stop_ids, raw_tokenizer.eos_token_id)
+
+    source = (model_name_or_path
+              or getattr(raw_tokenizer, "name_or_path", None)
+              or getattr(tokenizer, "name_or_path", None))
+    _add_token_id(stop_ids, _generation_config_eos_ids(source))
 
     convert = getattr(raw_tokenizer, "convert_tokens_to_ids", None)
     unk_token_id = getattr(raw_tokenizer, "unk_token_id", None)

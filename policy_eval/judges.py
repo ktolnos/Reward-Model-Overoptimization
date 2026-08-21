@@ -469,13 +469,23 @@ class VLLMBackend:
         *,
         max_model_len: int,
         gpu_memory_utilization: float,
+        quantization: Optional[str] = None,
     ):
         self.model_name = model_name
+        # Reflect the quant method in the label so metrics/artifacts distinguish
+        # e.g. the fp8 judge from the bf16 one when both run in a sweep.
         self.label = model_name.replace("/", "_")
+        if quantization:
+            self.label = f"{self.label}_{quantization}"
         self.max_model_len = max_model_len
         self.gpu_memory_utilization = gpu_memory_utilization
+        # None -> load the checkpoint's native dtype (bf16). "fp8" -> weight-only
+        # fp8 quantized in-flight from the bf16 weights (Marlin kernels on Ampere;
+        # ~half the VRAM). Any vLLM-recognized quant string is forwarded verbatim.
+        self.quantization = quantization
         self._llm = None
         self._tokenizer = None
+        self._stop_token_ids = None
 
     def _ensure(self) -> None:
         if self._llm is not None:
@@ -485,14 +495,27 @@ class VLLMBackend:
         from vllm import LLM
 
         from .generation import wait_for_gpu_memory
+        from data_utils import get_generation_stop_token_ids
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True,
-        )
         print(
             f"[VLLMBackend] loading judge {self.model_name} "
             f"(max_model_len={self.max_model_len}, "
             f"gpu_memory_utilization={self.gpu_memory_utilization})"
+        )
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, trust_remote_code=True,
+        )
+        # Resolve the stop set once, here: vLLM does not fold the model's
+        # generation_config eos list into its stops by default, so a judge whose
+        # turn-end token lives only there (gemma-4's <turn|>) would never stop and
+        # would burn the full max_tokens on every game. The shared helper covers
+        # both that list and the known turn-end token strings.
+        self._stop_token_ids = get_generation_stop_token_ids(
+            self._tokenizer, model_name_or_path=self.model_name,
+        )
+        print(
+            f"[VLLMBackend] judge stop_token_ids={self._stop_token_ids} "
+            f"({[self._tokenizer.decode([i]) for i in self._stop_token_ids]})"
         )
         # The just-torn-down policy engine frees its GPU memory asynchronously
         # (its EngineCore process exits after teardown_vllm returns); wait for that
@@ -515,6 +538,7 @@ class VLLMBackend:
             max_num_seqs=64,
             trust_remote_code=True,
             language_model_only=True,
+            quantization=self.quantization,
         )
 
     def teardown(self) -> None:
@@ -540,7 +564,6 @@ class VLLMBackend:
 
     def generate(self, conversations: List[List[dict]], params: "JudgeGenParams") -> List["JudgeGeneration"]:
         from vllm import SamplingParams
-        from data_utils import get_generation_stop_token_ids
 
         self._ensure()
         prompts = [self._render(c, params.enable_thinking) for c in conversations]
@@ -554,7 +577,7 @@ class VLLMBackend:
             top_p=params.top_p,
             max_tokens=max_tokens,
             n=1,
-            stop_token_ids=get_generation_stop_token_ids(self._tokenizer),
+            stop_token_ids=self._stop_token_ids,
         )
         outputs = self._llm.generate(prompts, sampling)
         gens = []
