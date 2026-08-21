@@ -113,16 +113,30 @@ measurably better than no-think, at 2.5–3× the cost. **no-think still wins.**
 ## Code changes (kept — general improvements)
 
 **Stop-token fix** — `data_utils.get_generation_stop_token_ids` now unions the
-model's `generation_config.eos_token_id` into the stop set. Gemma-4 ends turns
-with `<turn|>` (id 106), which the helper's string-keyed lookup misses; without
-this, a *thinking* judge never stops on the turn-end token and burns the full
-`max_tokens` on every game. Put in the shared helper (not just the judge) so
-every generation site gets it — policy and baseline generation in `policy_eval`,
-GRPO rollouts, and `policy.generation_config.eos_token_id`. Would otherwise bite
-any gemma-4 *policy* the same way. Read is cached per path, and a model dir with
-no `generation_config.json` (reward models, LoRA adapters) falls back to the old
-behavior. Verified no change for Qwen3, whose declared eos list is already
-covered by the string lookup.
+model's `generation_config.eos_token_id` into the stop set. The helper looks up
+turn-end tokens by *string* (`<|im_end|>`, `<end_of_turn>`, ...), and gemma-4
+spells its turn end `<turn|>`, so none of them matched: the judge's stop set was
+just `[1]` (`<eos>`) — no turn-end token at all. The no-think path only got away
+with it because it caps generation at 4 tokens; a *thinking* judge never stops on
+the turn end and burns the full `max_tokens` on every game.
+
+Put in the shared helper (not just the judge) so every generation site gets it —
+policy and baseline generation in `policy_eval`, GRPO rollouts, and
+`policy.generation_config.eos_token_id`. A gemma-4 *policy* would otherwise hit
+the same bug. The read is cached per path, and a model dir with no
+`generation_config.json` falls back to the previous behavior.
+
+Measured against the real cached configs (`HF_HOME=/nas/ucb/eop/cache`):
+
+| model | old | new |
+|---|---|---|
+| `google/gemma-4-31B-it` | `[1]` | `[1, 50, 106]` (+`<\|tool_response>`, `<turn\|>`) |
+| `Qwen/Qwen3-0.6B`, `Qwen3-8B` | `[151643, 151645]` | unchanged — declared eos list already covered |
+| `Qwen/Qwen3.5-{4B,4B-Base,9B}` | `[248044, 248046]` | unchanged — ship no `generation_config.json` |
+| Skywork gold RM, pythia, GRM-Gemma | | unchanged |
+
+So the fix is inert for the current Qwen policy/RM family (GRPO EOS handling and
+truncation accounting are untouched) and active for the gemma-4 judge.
 
 `policy_eval/judges.py`:
 - `VLLMBackend(..., quantization=...)` — forwards any vLLM quant string (e.g.
