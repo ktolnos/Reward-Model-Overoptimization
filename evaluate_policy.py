@@ -46,11 +46,14 @@ from policy_eval.eval_utils import (
     list_checkpoints,
     lookup_train_metrics,
     make_baseline_responses,
+    require_selection_available,
+    restrict_deferred_cache,
     rms_required_by,
     run_chosen_only,
     run_deferred_phase,
     run_kl_base_phase,
     run_load_generations,
+    selected_checkpoint_from_rows,
 )
 from policy_eval.generation import (
     generate_responses_vllm,
@@ -187,6 +190,18 @@ class ScriptArguments:
     evaluate_with_llm_judge: Optional[bool] = field(
         default=False,
         metadata={"help": "Use an LLM judge to compare policy vs baseline on the preference benchmark"},
+    )
+    judge_selected_checkpoint_only: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Run the LLM-as-judge evaluators (the deferred phase: the "
+                          "preference judge and any arena_hard 'llm:<model>' judge) on the "
+                          "selected checkpoint only — the argmax of the sibling-RM selection "
+                          "metric — instead of every checkpoint. The judge is the most "
+                          "expensive evaluator and only the selected checkpoint's judge "
+                          "numbers are reported; everything cheap (RM scores, IFEval, KL) "
+                          "still runs for all checkpoints. Requires the 'select' benchmark in "
+                          "this run; under --load_generations the selection score is "
+                          "recomputed from the cached 'select' per-example logs."},
     )
     llm_judge_backend: str = field(
         default="api",
@@ -412,6 +427,10 @@ def main():
     if any(b.name == "select" for b in benchmarks):
         assert_sibling_base_matches_training(args)
 
+    # Pinning the judge to the selected checkpoint needs a selection signal —
+    # check now, not after the whole checkpoint loop has generated.
+    require_selection_available(args, benchmarks)
+
     # ----- Per-example persistence (always on) ------------------------------
     per_example_dir = resolve_per_example_dir(args)
     print(f"Per-example logs -> {per_example_dir}/ (format={args.per_example_format})")
@@ -612,6 +631,11 @@ def main():
         if loaded_rms is not None:
             loaded_rms.unload()
             loaded_rms = None
+
+        if deferred_cache and args.judge_selected_checkpoint_only:
+            deferred_cache = restrict_deferred_cache(
+                deferred_cache, selected_checkpoint_from_rows(results_rows),
+            )
 
         if deferred_cache:
             for ckpt_num, metrics in run_deferred_phase(

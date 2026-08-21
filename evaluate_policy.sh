@@ -36,7 +36,12 @@
 #
 # Other overrides (all optional): --run_name, --checkpoint, --kl_base_model_path,
 # --ifeval_thinking, --evaluate_chosen_responses, --no_secondary_rm,
-# --with_training_rm, --with_llm_judge.
+# --with_training_rm, --with_llm_judge, --judge_all_checkpoints.
+#
+# The LLM judge runs on the SELECTED checkpoint only (sibling-RM argmax) by
+# default, since that is the only checkpoint whose judge numbers are reported.
+# To judge every checkpoint instead:
+#     sbatch evaluate_policy.sh --with_llm_judge --judge_all_checkpoints
 #
 # Debug mode (subsamples examples, only the first checkpoint, and suffixes
 # outputs / the wandb run name with _debug):
@@ -102,6 +107,16 @@ BENCHMARKS="select,preference,ifeval,arena_hard"
 # Python default 1.0 for manifest-less runs). Set only to override.
 EVAL_TEMPERATURE=""
 
+# Run the LLM-as-judge evaluators on the selected checkpoint only (the argmax of
+# the sibling RM's selection score) instead of every checkpoint. On by default:
+# the judge is the most expensive evaluator and only the selected checkpoint's
+# judge numbers are reported. Cheap metrics (RM scores, IFEval, KL, the
+# arena_hard gold-RM judge) still run for all checkpoints. Needs a selection
+# signal — the 'select' benchmark here, or cached 'select' per-example logs
+# under --load_generations; a judged run without one is rejected at startup.
+# Turn off with --judge_all_checkpoints (e.g. --only_arena_hard --with_llm_judge).
+JUDGE_SELECTED_ONLY=1
+
 # Debug mode: subsamples examples, uses only the first checkpoint, and
 # suffixes outputs / the wandb run name with _debug. See --debug below.
 DEBUG_MODE=""
@@ -129,6 +144,7 @@ while [[ "$#" -gt 0 ]]; do
         --no_secondary_rm) NO_SECONDARY_RM=1 ;;
         --with_training_rm) WITH_TRAINING_RM=1 ;;
         --with_llm_judge) WITH_LLM_JUDGE=1 ;;
+        --judge_all_checkpoints) JUDGE_SELECTED_ONLY="" ;;
         --load_generations) LOAD_GENERATIONS=1 ;;
         --load_generations_dir) LOAD_GENERATIONS=1; LOAD_GENERATIONS_DIR="$2"; shift ;;
         # Convenience: run ONLY the LLM judge on already-generated answers from a
@@ -171,6 +187,7 @@ echo "WandB Run ID (resume): ${WANDB_RUN_ID:-<new run>}"
 echo "Benchmarks: $BENCHMARKS"
 echo "Arena-Hard judges: $ARENA_HARD_JUDGES"
 echo "LLM judge: ${WITH_LLM_JUDGE:+enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL)}${WITH_LLM_JUDGE:-disabled}"
+echo "Judge selected checkpoint only: $([ -n "${JUDGE_SELECTED_ONLY:-}" ] && echo enabled || echo disabled)"
 echo "Load cached generations: ${LOAD_GENERATIONS:+enabled (${LOAD_GENERATIONS_DIR:-auto-discover})}${LOAD_GENERATIONS:-disabled}"
 echo "Debug mode: ${DEBUG_MODE:+enabled}${DEBUG_MODE:-disabled}"
 
@@ -195,6 +212,7 @@ python evaluate_policy.py \
     --llm_judge_backend "$LLM_JUDGE_BACKEND" \
     --llm_judge_model_name "$LLM_JUDGE_MODEL" \
     --arena_hard_judges "$ARENA_HARD_JUDGES" \
+    --judge_selected_checkpoint_only "$([ -n "${JUDGE_SELECTED_ONLY:-}" ] && echo True || echo False)" \
     --baseline_model_path "Qwen/Qwen3-0.6B" \
     --use_dataset_response_as_baseline True \
     $([ -n "${TRAINING_RM_PATH:-}" ] && echo "--training_rm_path $TRAINING_RM_PATH") \

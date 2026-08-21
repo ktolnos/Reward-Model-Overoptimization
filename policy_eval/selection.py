@@ -23,6 +23,13 @@ from .arena_hard_upstream import CATEGORY_BASELINES
 
 SELECTION_METRIC = "select/sibling_rm/mean"
 
+# The benchmark producing the selection signal, and the per-example column its
+# RM evaluator writes (``RewardModelEvaluator("sibling_rm").name`` is
+# ``rm_sibling_rm``). The column lets a later run recompute the selection argmax
+# straight from cached per-example logs, without loading the sibling RM.
+SELECTION_BENCHMARK = "select"
+SELECTION_SCORE_COLUMN = "score__rm_sibling_rm"
+
 # Categories reported individually in the summary (the rest still feed the
 # macro-average, but these two are the ones called out explicitly).
 _HEADLINE_CATEGORIES = ["hard_prompt", "creative_writing"]

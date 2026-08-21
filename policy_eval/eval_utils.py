@@ -10,6 +10,8 @@ components in this package:
   ``GenerationResult`` so the evaluator path is reused unchanged.
 - ``run_chosen_only``: the ``--evaluate_chosen_responses`` code path.
 - ``run_deferred_phase``: calls deferred evaluators after the policy vLLM is torn down.
+- ``restrict_deferred_cache``/``selected_checkpoint_*``: the
+  ``--judge_selected_checkpoint_only`` code path — judge one checkpoint only.
 - ``run_load_generations``: the ``--load_generations`` code path — judge cached
   policy responses from a prior run (no vLLM, no RMs).
 
@@ -36,6 +38,12 @@ from . import wandb_utils
 from .evaluators import KLEvaluator, PairwiseEvaluator, RewardModelEvaluator
 from .judges import RMJudge
 from .generation import teardown_vllm
+from .selection import (
+    SELECTION_BENCHMARK,
+    SELECTION_METRIC,
+    SELECTION_SCORE_COLUMN,
+    select_best_checkpoint,
+)
 from .types import Benchmark, EvalContext, Example, GenerationResult
 
 # Wandb column carrying the trainer's global_step (logged by transformers'
@@ -638,6 +646,103 @@ def run_kl_base_phase(benchmarks, llm, args) -> Dict[int, dict]:
     return metrics
 
 
+# ---------------------------------------------------------------------------
+# Judging a single checkpoint (--judge_selected_checkpoint_only)
+#
+# The LLM judge is by far the most expensive evaluator, and for the paper only
+# the *selected* checkpoint's judge numbers are reported. These helpers resolve
+# the sibling-RM argmax and trim the deferred cache down to it, so the judge
+# runs once instead of once per checkpoint. Everything cheap (RM scores, IFEval,
+# KL) still runs for every checkpoint, so the selection curve is unaffected.
+# ---------------------------------------------------------------------------
+
+def require_selection_available(args, benchmarks) -> None:
+    """Fail fast at startup when the judge is pinned to the selected checkpoint.
+
+    Called before any generation: without the ``select`` benchmark there is no
+    selection signal in this run, and discovering that after the whole
+    checkpoint loop has run would waste the entire eval. A no-op when no judge
+    runs at all (no deferred evaluator) — the flag then decides nothing.
+    """
+    if not args.judge_selected_checkpoint_only:
+        return
+    if args.load_generations:
+        return  # resolved from the cached per-example logs instead
+    if not any(b.deferred_evaluators for b in benchmarks):
+        return
+    if not any(b.name == SELECTION_BENCHMARK for b in benchmarks):
+        raise ValueError(
+            "--judge_selected_checkpoint_only needs the selection signal "
+            f"('{SELECTION_METRIC}'), but the '{SELECTION_BENCHMARK}' benchmark is not in "
+            f"--benchmarks ({args.benchmarks!r}). Add it (and --sibling_rm_path), or pass "
+            "--judge_selected_checkpoint_only False to judge every checkpoint."
+        )
+
+
+def selected_checkpoint_from_rows(results_rows: List[dict]) -> int:
+    """Checkpoint number with the highest selection score among the result rows."""
+    picked = select_best_checkpoint(results_rows)
+    if picked is None:
+        raise ValueError(
+            f"--judge_selected_checkpoint_only: '{SELECTION_METRIC}' is missing from every "
+            "checkpoint row, so the selected checkpoint is unknown. Did the "
+            f"'{SELECTION_BENCHMARK}' benchmark run?"
+        )
+    ckpt, score, _ = picked
+    print(f"[judge] selected checkpoint-{ckpt} ({SELECTION_METRIC}={score:.4f}, argmax over "
+          f"{sum(1 for r in results_rows if SELECTION_METRIC in r)} checkpoints)")
+    return ckpt
+
+
+def selected_checkpoint_from_cache(load_dir: str) -> int:
+    """Recompute the selection argmax from a prior run's cached ``select`` logs.
+
+    ``--load_generations`` loads no reward model, so the selection score is
+    re-derived from the per-example sibling-RM scores the earlier run persisted
+    (mean over that checkpoint's responses — the same aggregation
+    ``RewardModelEvaluator`` logs as ``select/sibling_rm/mean``).
+    """
+    cached = _list_cached_checkpoints(load_dir, SELECTION_BENCHMARK)
+    if not cached:
+        raise FileNotFoundError(
+            f"--judge_selected_checkpoint_only: no cached '{SELECTION_BENCHMARK}' per-example "
+            f"logs in {load_dir}, so the selected checkpoint cannot be recovered. Re-run the "
+            f"generating eval with '{SELECTION_BENCHMARK}' in --benchmarks, or pass "
+            "--judge_selected_checkpoint_only False to judge every checkpoint."
+        )
+    best: Optional[Tuple[int, float]] = None
+    for ckpt_num, path in cached:
+        df = pd.read_json(path, lines=True) if path.endswith(".jsonl") else pd.read_parquet(path)
+        if SELECTION_SCORE_COLUMN not in df.columns:
+            raise ValueError(
+                f"--judge_selected_checkpoint_only: {path} has no '{SELECTION_SCORE_COLUMN}' "
+                "column; the cached run scored no sibling RM on the selection split."
+            )
+        score = float(pd.to_numeric(df[SELECTION_SCORE_COLUMN]).mean())
+        if best is None or score > best[1]:
+            best = (ckpt_num, score)
+    ckpt, score = best
+    print(f"[judge] selected checkpoint-{ckpt} ({SELECTION_METRIC}={score:.4f}, argmax over "
+          f"{len(cached)} cached checkpoints in {load_dir})")
+    return ckpt
+
+
+def restrict_deferred_cache(
+    deferred_cache: Dict[Tuple[str, int], GenerationResult], ckpt: int,
+) -> Dict[Tuple[str, int], GenerationResult]:
+    """Keep only ``ckpt``'s generations, so deferred evaluators judge it alone."""
+    kept = {k: v for k, v in deferred_cache.items() if k[1] == ckpt}
+    if not kept:
+        raise ValueError(
+            f"--judge_selected_checkpoint_only: selected checkpoint-{ckpt} has no generations "
+            f"to judge (cached checkpoints: {sorted({n for _, n in deferred_cache})})."
+        )
+    skipped = sorted({n for _, n in deferred_cache} - {ckpt})
+    print(f"[judge] judging checkpoint-{ckpt} only; skipping {len(skipped)} other "
+          f"checkpoint(s): {skipped}")
+    return kept
+
+
 def run_deferred_phase(
     benchmarks,
     bench_examples,
@@ -865,6 +970,11 @@ def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: s
         raise FileNotFoundError(
             f"[load_generations] no cached generations found in {load_dir} for "
             f"benchmarks {benchmark_names}."
+        )
+
+    if args.judge_selected_checkpoint_only:
+        deferred_cache = restrict_deferred_cache(
+            deferred_cache, selected_checkpoint_from_cache(load_dir),
         )
 
     # The preference judge reads its baseline from example metadata; inject it
