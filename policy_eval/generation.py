@@ -314,6 +314,18 @@ def teacher_forced_response_logprobs(llm: LLM, full_ids_list, prompt_lens_list):
     """
     from vllm.inputs import TokensPrompt
 
+    # The prompt_logprobs pass materializes a float32 full-vocab tensor per
+    # scheduled request (chunk × vocab × 4B, so 1.31 GiB for a 1415-token
+    # request at Qwen3.5's 248320 vocab), and that transient sits outside the
+    # engine's gpu_memory_utilization budget. This process meanwhile keeps the
+    # reward models resident and, having just scored a benchmark with them, is
+    # holding their allocator high-water mark -- reserved but idle, and
+    # invisible to the EngineCore subprocess that needs it. Release it to the
+    # driver first, or the pass OOMs the engine (EngineDeadError) on a card
+    # this crowded.
+    gc.collect()
+    torch.cuda.empty_cache()
+
     max_model_len = llm.llm_engine.model_config.max_model_len
     sampling = SamplingParams(
         temperature=0, max_tokens=1, prompt_logprobs=0, detokenize=False,
