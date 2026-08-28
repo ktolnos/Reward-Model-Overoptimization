@@ -141,7 +141,7 @@ spots are the failure mode).
 | Open-weight LLM judge ✅ (model 🔲) | configurable via `--llm_judge_model_name` | pairwise win-rate via the Arena-Hard-Auto v2.0 protocol, served in-process by vLLM in the deferred phase. Model proposal `google/gemma-4-31B-it`; other candidates: DeepSeek V4 Flash, Qwen3.6 27B, zai-org/GLM-4.7-Flash 31B — pick whichever runs in vLLM at reasonable tps. |
 | IFEval rule-based | — | verifiable, **RM-unhackable** truth anchor |
 
-LLM judge prompt ✅: uses the **Arena-Hard-Auto v2.0** prompt/template (5-point graded verdict `[[A>>B]]`…`[[B>>A]]`, mapped to weighted battles exactly as upstream `show_result.py`) — the most justifiable / reproducible option of the candidates (Deepseek R1, Deepseek GRM, Kimi). Implemented in [policy_eval/judges.py](policy_eval/judges.py) as `LLMJudge` with a pluggable backend (`VLLMBackend` for open-weight / `OpenRouterBackend` for API).
+LLM judge prompt ✅: uses the **Arena-Hard-Auto v2.0** prompt/template (5-point graded verdict `[[A>>B]]`…`[[B>>A]]`, mapped to weighted battles exactly as upstream `show_result.py`) — the most justifiable / reproducible option of the candidates (Deepseek R1, Deepseek GRM, Kimi). Implemented in [policy_eval/judges.py](policy_eval/judges.py) as `LLMJudge` with a pluggable backend: `VLLMBackend` (open-weight, local) or `OpenAICompatibleBackend` (any hosted OpenAI-compatible API — the Vector Institute proxy, OpenRouter — selected by provider).
 
 ### SELECTION set (used only by the no-peek rule)
 | Evaluator | Notes |
@@ -338,9 +338,23 @@ check all gate the sweeps — the code is frozen only after they pass.
    `--debug` run before the first sweep.
 3. ✅ **B1 — Open-weight vLLM judge** ([§5](#5-evaluators)). Done: a single
    `LLMJudge` (Arena-Hard 2-game-swap + parse) with a pluggable backend —
-   `VLLMBackend` (deferred; loads the judge vLLM once and shares it across the
-   preference + arena_hard benchmarks) or `OpenRouterBackend` (API), selected by
-   `--llm_judge_backend`. Generation params unified via `--llm_judge_*`;
+   `VLLMBackend` (loads the judge vLLM once and shares it across the preference
+   + arena_hard benchmarks) or `OpenAICompatibleBackend`, one implementation for
+   every hosted OpenAI-compatible API with the per-provider endpoint, key env
+   var, reasoning dialect and Batch-API support in `OPENAI_PROVIDERS`
+   (`vector` = the Vector Institute proxy, `--vector_judge` in
+   `evaluate_policy.sh`; `openrouter`). All backends are deferred, so
+   `--judge_selected_checkpoint_only` and `--load_generations` apply to each.
+   **Hosted judges run as a separate GPU-free job** (`judge_cached.sh`, chained
+   `--dependency=singleton,afterok:$GPU`): the judge costs ~2.8k games ≈ 28 min
+   per checkpoint, the proxy's RPM budget is shared project-wide while the
+   client-side pacing is per-process (so concurrent evals overrun it), and a
+   proxy outage then costs a retry rather than the generation phase. It judges
+   the **selected + final** checkpoints (`--judge_final_checkpoint`), not all
+   ~20 — the pair is what separates "the sibling RM picked well" from "the gold
+   RM was itself overoptimized". Its metrics land on the generating run: the
+   per-example `_manifest.json` records that run's wandb id.
+   Selected by `--llm_judge_backend`. Generation params unified via `--llm_judge_*`;
    per-prompt verdicts persisted (A1); generation/truncation/parse failures
    counted to wandb. Judge model still to finalize (proposal `google/gemma-4-31B-it`).
 4. **B2 + C1 — Length guard + length logging.** Count/flag over-budget samples;
@@ -380,7 +394,7 @@ check all gate the sweeps — the code is frozen only after they pass.
 From the eval audit of `policy_eval/` (severity tagged):
 
 - ✅ **A1** Per-example scores now persisted — `PerExampleRecorder` ([policy_eval/persistence.py](policy_eval/persistence.py)) writes one parquet/jsonl per `(benchmark, checkpoint)` (one row per `(prompt, response)`) with responses, token lengths, finish reasons, every RM/judge score, KL, and `over_budget`. Aggregation can be recomputed offline. (Was: [evaluators.py](policy_eval/evaluators.py) logged only mean/std/lossy-histogram + aggregate win-rate.)
-- ✅ **B1** Open-weight judge implemented — a single `LLMJudge` ([policy_eval/judges.py](policy_eval/judges.py)) runs the Arena-Hard 2-game-swap + parse protocol over a pluggable backend: `VLLMBackend` (in-process vLLM, deferred, loaded once and shared across preference + arena_hard) or `OpenRouterBackend` (API). Verdicts persisted per-prompt; generation/truncation/parse failures counted to wandb. The old prompt-corruption API scaffold was removed.
+- ✅ **B1** Open-weight judge implemented — a single `LLMJudge` ([policy_eval/judges.py](policy_eval/judges.py)) runs the Arena-Hard 2-game-swap + parse protocol over a pluggable backend: `VLLMBackend` (in-process vLLM, deferred, loaded once and shared across preference + arena_hard) or `OpenAICompatibleBackend` (any hosted OpenAI-compatible API; see `OPENAI_PROVIDERS`). Verdicts persisted per-prompt; generation/truncation/parse failures counted to wandb. The old prompt-corruption API scaffold was removed.
 - 🟠 **B2** Eval bypasses length guard — `skip_validation=True` everywhere ([rewards.py:55-62](policy_eval/rewards.py#L55-L62), [benchmarks.py:86-94](policy_eval/benchmarks.py#L86-L94)); BT scoring doesn't truncate → over-budget fed past RM context, biasing the longest (most-hacked) responses. -- OK, we ususally have the same tokenizer and vllm gen is capped
 - ✅ **B3** Decoding config frozen — judge-coupled temperature flip removed. Policy decoding is `temperature=--eval_temperature` (default 1.0 = training temp, [§8](#8-frozen-eval-decoding-config-)), `top_p=1.0`, `n=1`, across every policy-generation site (preference/select/ifeval/arena_hard, [benchmarks.py](policy_eval/benchmarks.py)); `grpo.sh` passes its training `--temperature` through. The LLM judge stays greedy (`--llm_judge_temperature=0`) and the win-rate baseline stays greedy/cached, both independent of the policy temperature — so judge-runs and no-judge-runs remain comparable.
 - 🟡 **B4** Win-rate reference is dataset `chosen`, not SFT ([evaluators.py:96-106](policy_eval/evaluators.py#L96-L106)) — fine under human-primary but must be declared; becomes a reporting choice once A1 lands. -- Expected, OK

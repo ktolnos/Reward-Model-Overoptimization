@@ -5,6 +5,7 @@ them into ``results_rows`` before the CSV write and ``report_selection``.
 """
 import os
 import sys
+import types
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -70,14 +71,33 @@ def test_run_deferred_phase_returns_per_checkpoint_metrics():
 
 def test_merged_judge_metrics_are_picked_up_by_selection_summary():
     # After the main-loop rows are updated with deferred metrics, the selection
-    # report's judge-key detection must find them.
+    # report's judge-key detection must find them. Detection is by judge *label*,
+    # which comes from args, so the row alone is not enough.
+    args = types.SimpleNamespace(
+        evaluate_with_llm_judge=True,
+        llm_judge_model_name="llm_stub",
+        arena_hard_judges="rm:gold_rm,llm:llm_stub",
+    )
     row = {
         "checkpoint": 100,
         "select/sibling_rm/mean": 1.0,
         "llm_stub/chosen/arena_score": 100.0,
         "arena_hard/llm_stub/hard_prompt/sc_score": 55.0,
+        # Same headline metric name, but scored by the RM judge rather than the
+        # LLM judge -- must not be reported as a judge metric.
+        "arena_hard/gold_rm/hard_prompt/sc_score": 42.0,
     }
-    assert _judge_metric_keys(row) == [
+    assert _judge_metric_keys(row, args) == [
         "arena_hard/llm_stub/hard_prompt/sc_score",
         "llm_stub/chosen/arena_score",
     ]
+
+
+def test_no_judge_metrics_when_the_llm_judge_is_disabled():
+    """With no LLM judge configured there are no judge labels, hence no keys."""
+    args = types.SimpleNamespace(
+        evaluate_with_llm_judge=False,
+        llm_judge_model_name="llm_stub",
+        arena_hard_judges="rm:gold_rm",
+    )
+    assert _judge_metric_keys({"llm_stub/chosen/arena_score": 1.0}, args) == []

@@ -2,9 +2,7 @@
 
 - **On the cluster** (the working directory starts with `/nas`): use bare `python` /
   `python3`. Pyenv resolves it to 3.12.10 (torch 2.10, transformers 5.5.1, vllm 0.19.1)
-  via the tracked `.python-version` in the repo root. Keep that file: `pyenv global` is
-  `system`, which is Python 3.8.10 with no packages, so deleting it breaks every script.
-  There is no venv and no `activate` command here.
+  via the tracked `.python-version` in the repo root.
 - **On the laptop** (anywhere else): use `venv/bin/python` and `venv/bin/python -m pip`
   instead of the globally installed `python` / `pip`. You are most likely here, so don't
   try to submit slurm jobs or expect `/nas` paths to exist.
@@ -50,6 +48,15 @@ Ignore code related to GRM training, PPO, and BoN (best of n), these parts are n
   - Slurm is not avialable on the local environment, so most scripts are not runnable there
 
 ### Key Utilities
+
+- `run_provenance.py` - cross-stage run provenance. Every stage (SFT, RM
+  training, GRPO, policy eval, the judge pass) logs its slurm job to wandb under
+  the **same** field name, `slurm/job_id` (plus `slurm/log`, the StdOut path),
+  and records the same ids in the `run_manifest.json` it writes next to its
+  checkpoints. A downstream stage turns a checkpoint path back into links to the
+  run and job that produced it via `related_run_fields`, which the eval run logs
+  as `related/{policy,base_policy,training_rm,sibling_rm}/*`. Any new pipeline
+  stage should do the same — it is the only thing tying the jobs together.
 
 - `reward_utils.py` - Reward model utilities including reasoning reward models (e.g., Skywork prompts)
 - `evaluate_policy.py` - Policy evaluation after RLHF training -- main evaluation script for the project.
@@ -107,7 +114,7 @@ and skip flags.
 
 - Preference datasets typically have `chosen` and `rejected` fields
 - Common datasets:
-  - `ktolnos/helpsteer3_goldSkywork-Reward-V2-Llama-3.1-8B-10k`
+  - `ktolnos/helpsteer3-qwen35_annotated_human`
   - `gagan3012/helpsteer2-preference-v2`
 
 ### Reward Model Types

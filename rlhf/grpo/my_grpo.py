@@ -332,6 +332,10 @@ if __name__ == "__main__":
     # wandb is initialized here so the run id/name land in the same write; the
     # trainer's WandbCallback reuses an already-active run.
     if os.environ.get("RANK", "0") == "0":
+        from run_provenance import (
+            attach_to_wandb, manifest_slurm_fields, related_run_fields,
+            slurm_fields, wandb_manifest_fields,
+        )
         wandb_fields = {}
         if "wandb" in (training_args.report_to or []):
             import wandb
@@ -340,14 +344,20 @@ if __name__ == "__main__":
                     project=os.environ.get("WANDB_PROJECT", "huggingface"),
                     name=training_args.run_name,
                 )
-            wandb_fields = {
-                "wandb_run_id": wandb.run.id,
-                "wandb_run_name": wandb.run.name,
-                "wandb_project": wandb.run.project,
-                "wandb_url": wandb.run.url,
-            }
+            wandb_fields = wandb_manifest_fields()
+            # This job under the same field name every stage uses, plus links
+            # to the SFT run and the RM runs this one consumes, so the eval run
+            # is never the only place the chain is visible.
+            provenance = dict(slurm_fields())
+            provenance.update(
+                related_run_fields("base_policy", model_args.model_name_or_path))
+            for i, rm_path in enumerate(script_args.reward_model_paths):
+                label = "rm" if len(script_args.reward_model_paths) == 1 else f"rm_{i}"
+                provenance.update(related_run_fields(label, rm_path))
+            attach_to_wandb(provenance)
         write_run_manifest(training_args.output_dir, {
             **wandb_fields,
+            **manifest_slurm_fields(),
             "model_name_or_path": model_args.model_name_or_path,
             "dataset_path": script_args.dataset_path,
             "temperature": training_args.temperature,

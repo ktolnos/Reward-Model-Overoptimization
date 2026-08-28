@@ -5,9 +5,12 @@ Two implementations:
 
     - ``RMJudge``: score each answer with a reward model; winner has the higher
       score. One battle per prompt.
-    - ``LLMJudge``: ask an LLM (local vLLM via ``VLLMBackend`` or a remote API via
-      ``OpenRouterBackend``) using the Arena-Hard-Auto v2.0 prompt template. Runs
-      2 games per prompt with position swap; each game's label is mapped (with
+    - ``LLMJudge``: ask an LLM -- locally via ``VLLMBackend``, or over any
+      OpenAI-compatible API via ``OpenAICompatibleBackend`` (one backend for
+      every hosted provider; ``OPENAI_PROVIDERS`` holds the per-provider
+      endpoint, key env var, reasoning dialect and Batch-API support) -- using
+      the Arena-Hard-Auto v2.0 prompt template. Runs 2 games per prompt with
+      position swap; each game's label is mapped (with
       weighting) to one or more {0.0, 0.5, 1.0} battles, matching ``show_result.py``
       exactly so that scores produced here match the official leaderboard when the
       same judge/baseline are used.
@@ -19,8 +22,11 @@ answer_a's perspective (1.0 = A wins, 0.0 = A loses, 0.5 = tie). The
 """
 from __future__ import annotations
 
+import io
+import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -344,8 +350,8 @@ class JudgeGenParams:
     this from there, so a default can't drift between config and code.
 
     ``enable_thinking`` is honored in full by the local vLLM backend (chat
-    template + ``"My final verdict is [["`` prefill); the OpenRouter backend forwards
-    it via OpenRouter's native ``reasoning`` toggle when disabling thinking.
+    template + ``"My final verdict is [["`` prefill); ``OpenAICompatibleBackend``
+    maps it to whatever reasoning dialect its provider speaks.
     """
     temperature: float
     top_p: float
@@ -353,39 +359,208 @@ class JudgeGenParams:
     enable_thinking: bool
 
 
-class OpenRouterBackend:
-    """Generate judge completions via the OpenRouter chat-completions API."""
-    phase = "online"
+class JudgeAccessError(RuntimeError):
+    """A judge API rejected the credentials or the model grant (HTTP 401/403)."""
+
+
+@dataclass(frozen=True)
+class OpenAIProvider:
+    """The only four things that differ between OpenAI-compatible endpoints."""
+    name: str
+    base_url: str
+    api_key_env: str
+    # How reasoning is requested or suppressed; see ``_reasoning_fields``:
+    #   "toggle" - OpenRouter's native {"reasoning": {"enabled"|"effort": ...}}
+    #   "model"  - derived from the model: gpt-oss (harmony) takes
+    #              reasoning_effort, vLLM-served models take
+    #              chat_template_kwargs.enable_thinking
+    reasoning_style: str
+    # Whether the provider implements the async OpenAI Batch API
+    # (/v1/files + /v1/batches). OpenRouter does not.
+    supports_batch: bool = False
+    # Default client-side pacing. 0 = unpaced; set only where the provider
+    # actually enforces a request-per-minute budget.
+    default_rpm: float = 0.0
+
+
+OPENAI_PROVIDERS: Dict[str, OpenAIProvider] = {
+    "openrouter": OpenAIProvider(
+        name="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        reasoning_style="toggle",
+    ),
+    "vector": OpenAIProvider(
+        name="vector",
+        base_url="https://proxy.vectorinstitute.ai/v1",
+        api_key_env="VECTOR_INFERENCE_API_KEY",
+        # The proxy fronts on-prem vLLM servers and hosted models alike, so the
+        # reasoning control depends on the model rather than the endpoint.
+        reasoning_style="model",
+        supports_batch=True,
+        # The proxy enforces a project-wide RPM budget that is SHARED with
+        # everyone else on the project; 100 leaves headroom under the observed
+        # 120 cap.
+        default_rpm=100.0,
+    ),
+}
+
+
+class _RateLimiter:
+    """Thread-safe pacer keeping request starts under a per-minute cap.
+
+    Pacing beats discovering a published RPM ceiling through 429s: a rejected
+    request still costs a round-trip and its retry lands in the same saturated
+    window. ``requests_per_minute<=0`` disables pacing.
+    """
+
+    def __init__(self, requests_per_minute: Optional[float]):
+        self.min_interval = 60.0 / requests_per_minute if requests_per_minute else 0.0
+        self._lock = threading.Lock()
+        self._next_at = 0.0
+
+    def acquire(self) -> None:
+        if self.min_interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next_at - now)
+            # Reserve this slot before releasing the lock so concurrent workers
+            # queue up behind each other rather than all sleeping to the same
+            # instant and then firing as one burst.
+            self._next_at = max(now, self._next_at) + self.min_interval
+        if wait:
+            time.sleep(wait)
+
+
+class OpenAICompatibleBackend:
+    """Generate judge completions from any OpenAI ``/chat/completions`` endpoint.
+
+    The endpoint is a ``provider`` entry (``OPENAI_PROVIDERS``); everything else
+    -- fan-out in request order, pacing, retry/backoff, verdict extraction -- is
+    shared, so a fix reaches every provider at once.
+
+    Non-obvious behaviour:
+
+      - Reasoning is controlled per provider (``_reasoning_fields``). A server
+        that rejects those extras with HTTP 400 is retried once without them:
+        losing the thinking toggle beats losing the run.
+      - Verdict text falls back to the reasoning channel when ``content`` is
+        empty, so a model that stops inside its reasoning still parses.
+      - 401/403 raises ``JudgeAccessError`` instead of retrying -- it is identical
+        for every request, so retrying only delays a doomed run and would report a
+        bad key as "every prompt dropped".
+
+    Unlike ``VLLMBackend`` the no-thinking path cannot prefill the assistant turn,
+    so the model emits the whole ``"My final verdict is [[X]]"`` line itself --
+    which is what ``ARENA_HARD_NO_THINKING_SYSTEM_PROMPT`` asks for.
+
+    ``phase`` is "deferred" (= after all generation) despite needing no GPU:
+    ``--judge_selected_checkpoint_only`` trims the *deferred* cache and
+    ``--load_generations`` runs *only* deferred evaluators, so an online judge
+    would silently judge every checkpoint instead of the selected one.
+    """
+    phase = "deferred"
 
     def __init__(
         self,
-        model_name: str = "openai/gpt-4.1",
+        model_name: str,
         *,
+        provider: "str | OpenAIProvider" = "openrouter",
         api_key: Optional[str] = None,
-        api_key_env: str = "OPENROUTER_API_KEY",
+        base_url: Optional[str] = None,
         max_parallel: int = 8,
         max_retries: int = 5,
-        timeout: int = 300,
-        base_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        timeout: int = 600,
+        requests_per_minute: Optional[float] = None,
+        reasoning_effort: str = "auto",
+        use_batch_api: bool = False,
+        batch_poll_seconds: float = 30.0,
+        batch_completion_window: str = "24h",
     ):
+        if isinstance(provider, str):
+            if provider not in OPENAI_PROVIDERS:
+                raise ValueError(
+                    f"Unknown provider {provider!r}. Known: {sorted(OPENAI_PROVIDERS)}."
+                )
+            provider = OPENAI_PROVIDERS[provider]
+        self.provider = provider
         self.model_name = model_name
         self.label = model_name.replace("/", "_")
         self._api_key = api_key
-        self.api_key_env = api_key_env
+        self.api_key_env = provider.api_key_env
+        self.base_url = (base_url or provider.base_url).rstrip("/")
         self.max_parallel = max_parallel
         self.max_retries = max_retries
         self.timeout = timeout
-        self.base_url = base_url
+        # None = the provider's own default; 0 = explicitly unpaced.
+        self.requests_per_minute = (
+            provider.default_rpm if requests_per_minute is None else requests_per_minute
+        )
+        # "auto" derives the effort from JudgeGenParams.enable_thinking; an
+        # explicit low/medium/high pins it regardless of the thinking flag.
+        self.reasoning_effort = reasoning_effort
+        if use_batch_api and not provider.supports_batch:
+            raise ValueError(
+                f"Provider {provider.name!r} has no Batch API; drop --llm_judge_use_batch_api "
+                f"or use a provider that supports it "
+                f"({sorted(p for p, v in OPENAI_PROVIDERS.items() if v.supports_batch)})."
+            )
+        self.use_batch_api = use_batch_api
+        self.batch_poll_seconds = batch_poll_seconds
+        self.batch_completion_window = batch_completion_window
+        self._limiter = _RateLimiter(self.requests_per_minute)
+        # Set once a request proves the server rejects our reasoning/thinking
+        # extras, so the remaining ~2N requests skip the doomed first attempt.
+        self._strip_extras = False
+
+    # -- request construction ------------------------------------------------
 
     def _resolve_key(self) -> str:
         key = self._api_key or os.environ.get(self.api_key_env)
         if not key:
             raise RuntimeError(
-                f"OpenRouter judge needs an API key (--openrouter_api_key or env {self.api_key_env})"
+                f"The {self.provider.name} judge needs an API key: pass "
+                f"--llm_judge_api_key or set {self.api_key_env}."
             )
         return key
 
-    def _one(self, messages: List[dict], params: "JudgeGenParams", api_key: str) -> "JudgeGeneration":
+    def _headers(self, api_key: str) -> dict:
+        return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    def _is_harmony(self) -> bool:
+        """gpt-oss models always reason; only the effort dial exists."""
+        return "gpt-oss" in self.model_name.lower()
+
+    def _reasoning_fields(self, params: "JudgeGenParams") -> dict:
+        """Provider-specific fields controlling the judge's reasoning."""
+        style = self.provider.reasoning_style
+        if self._strip_extras:
+            return {}
+        effort = self.reasoning_effort
+
+        if style == "toggle":
+            if effort not in ("auto", "none"):
+                return {"reasoning": {"effort": effort}}
+            # Only deviate from the model's default reasoning behaviour when
+            # thinking is explicitly disabled (a no-op for models without it).
+            return {} if params.enable_thinking else {"reasoning": {"enabled": False}}
+
+        if style == "model":
+            if self._is_harmony():
+                if effort == "auto":
+                    effort = "high" if params.enable_thinking else "low"
+                return {} if effort == "none" else {"reasoning_effort": effort}
+            fields: dict = {
+                "chat_template_kwargs": {"enable_thinking": params.enable_thinking}
+            }
+            if effort not in ("auto", "none"):
+                fields["reasoning_effort"] = effort
+            return fields
+
+        raise ValueError(f"Unknown reasoning_style {style!r} for {self.provider.name}.")
+
+    def _body(self, messages: List[dict], params: "JudgeGenParams") -> dict:
         body = {
             "model": self.model_name,
             "messages": messages,
@@ -393,48 +568,231 @@ class OpenRouterBackend:
             "top_p": params.top_p,
             "max_tokens": params.max_tokens,
         }
-        # Only deviate from the model's default reasoning behavior when thinking
-        # is explicitly disabled (OpenRouter-native toggle; no-op for models that
-        # don't support it). Keeps the default path byte-for-byte as before.
-        if not params.enable_thinking:
-            body["reasoning"] = {"enabled": False}
+        body.update(self._reasoning_fields(params))
+        return body
 
+    @staticmethod
+    def _text_from_choice(choice: dict) -> str:
+        """Verdict text, falling back to the reasoning channel when empty.
+
+        Reasoning models return the analysis separately (``reasoning_content`` on
+        vLLM, ``reasoning`` on OpenRouter); a model that stops inside it leaves
+        ``content`` empty, and the verdict may still be in there.
+        """
+        msg = choice.get("message") or {}
+        text = msg.get("content") or ""
+        if not text.strip():
+            text = msg.get("reasoning_content") or msg.get("reasoning") or ""
+        return text
+
+    # -- live (non-batch) path -----------------------------------------------
+
+    def _sleep_for_retry(self, resp, attempt: int) -> None:
+        """Back off before a retry, honouring a server-provided ``Retry-After``."""
+        delay = min(60.0, 2 ** attempt)
+        if resp is not None:
+            hdr = resp.headers.get("Retry-After")
+            if hdr:
+                try:
+                    delay = max(delay, float(hdr))
+                except ValueError:
+                    pass
+        time.sleep(delay)
+
+    def _post_chat(
+        self, messages: List[dict], params: "JudgeGenParams", api_key: str,
+    ) -> "JudgeGeneration":
         last_err = None
         for attempt in range(self.max_retries):
+            resp = None
             try:
-                r = requests.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=body,
+                self._limiter.acquire()
+                resp = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self._headers(api_key),
+                    json=self._body(messages, params),
                     timeout=self.timeout,
                 )
-                r.raise_for_status()
-                choice = r.json()["choices"][0]
+                if resp.status_code in (401, 403):
+                    raise JudgeAccessError(
+                        f"The {self.provider.name} endpoint refused the request for "
+                        f"model {self.model_name!r} (HTTP {resp.status_code}): "
+                        f"{resp.text[:300]}. Check that {self.api_key_env} holds a valid "
+                        f"key and that it is entitled to this model (on the Vector "
+                        f"proxy, models are granted per project at "
+                        f"inference.vectorinstitute.ai)."
+                    )
+                if resp.status_code == 400 and not self._strip_extras and \
+                        self._reasoning_fields(params):
+                    # Most likely the server rejected the reasoning fields. Drop
+                    # them for this and every later request, then retry at once --
+                    # losing the thinking toggle beats losing the run.
+                    print(
+                        f"[{self.provider.name}] HTTP 400 from {self.model_name}; "
+                        f"retrying without the reasoning/thinking fields. "
+                        f"Body: {resp.text[:300]}"
+                    )
+                    self._strip_extras = True
+                    continue
+                if resp.status_code == 429:
+                    last_err = f"429 {resp.text[:200]}"
+                    self._sleep_for_retry(resp, attempt)
+                    continue
+                resp.raise_for_status()
+                choice = resp.json()["choices"][0]
                 return JudgeGeneration(
-                    text=choice["message"]["content"],
+                    text=self._text_from_choice(choice),
                     truncated=choice.get("finish_reason") == "length",
                 )
+            except JudgeAccessError:
+                raise
             except Exception as e:
                 last_err = e
-                time.sleep(2 ** attempt)
-        print(f"[OpenRouterBackend] giving up after {self.max_retries} retries: {last_err}")
+                self._sleep_for_retry(resp, attempt)
+        print(f"[{self.provider.name}] giving up on a game after "
+              f"{self.max_retries} retries: {last_err}")
         return JudgeGeneration(text="", truncated=False)
 
-    def generate(self, conversations: List[List[dict]], params: "JudgeGenParams") -> List["JudgeGeneration"]:
+    def generate(
+        self, conversations: List[List[dict]], params: "JudgeGenParams",
+    ) -> List["JudgeGeneration"]:
+        api_key = self._resolve_key()
+        if self.use_batch_api:
+            return self._generate_batch(conversations, params, api_key)
+
         import concurrent.futures as cf
 
-        api_key = self._resolve_key()
+        started = time.monotonic()
         gens: List[Optional[JudgeGeneration]] = [None] * len(conversations)
         with cf.ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
             futs = {
-                pool.submit(self._one, conv, params, api_key): i
+                pool.submit(self._post_chat, conv, params, api_key): i
                 for i, conv in enumerate(conversations)
             }
             for fut in cf.as_completed(futs):
                 gens[futs[fut]] = fut.result()
+        elapsed = time.monotonic() - started
+        n = max(1, len(conversations))
+        print(
+            f"[{self.provider.name}] {len(conversations)} requests to "
+            f"{self.model_name} in {elapsed:.1f}s ({elapsed / n:.2f}s/request "
+            f"wall-clock, max_parallel={self.max_parallel}, "
+            f"rpm_cap={self.requests_per_minute})"
+        )
+        return gens
+
+    # -- batch path ----------------------------------------------------------
+
+    def _generate_batch(
+        self, conversations: List[List[dict]], params: "JudgeGenParams", api_key: str,
+    ) -> List["JudgeGeneration"]:
+        """Upload one JSONL request per game, poll, demux results by ``custom_id``.
+
+        Trades latency for throughput: the batch runs against a separate quota
+        rather than the live RPM budget. Dropped requests come back as empty
+        generations, which ``score_pairs`` counts as generation failures.
+        """
+        auth = {"Authorization": f"Bearer {api_key}"}
+        tag = f"[{self.provider.name}:batch]"
+
+        # 1. Upload the request set as a JSONL file.
+        lines = [
+            json.dumps({
+                "custom_id": str(i),
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": self._body(conv, params),
+            })
+            for i, conv in enumerate(conversations)
+        ]
+        payload = ("\n".join(lines) + "\n").encode()
+        print(f"{tag} uploading {len(lines)} requests ({len(payload) / 1e6:.1f} MB)")
+        up = requests.post(
+            f"{self.base_url}/files",
+            headers=auth,
+            files={"file": ("judge_batch.jsonl", io.BytesIO(payload), "application/jsonl")},
+            data={"purpose": "batch"},
+            timeout=self.timeout,
+        )
+        if not up.ok:
+            # A provider can advertise the Batch API (GET /v1/files and
+            # /v1/batches answer) while its upstream implements no file
+            # endpoint, so the surface looks present until the first upload.
+            # Measured on the Vector proxy: 502 "Upstream file upload failed:
+            # 404". Say so plainly -- the raw HTTPError lands after the whole
+            # generation phase and reads like a transient blip.
+            raise RuntimeError(
+                f"{self.provider.name} rejected the batch file upload "
+                f"(HTTP {up.status_code}: {up.text[:200]}). Its Batch API is not "
+                f"usable, whatever GET /v1/batches reports. Drop "
+                f"--llm_judge_use_batch_api and use the live path; cached "
+                f"generations can be re-judged with --llm_judge_on_cached instead "
+                f"of regenerating."
+            )
+        input_file_id = up.json()["id"]
+
+        # 2. Submit the batch.
+        sub = requests.post(
+            f"{self.base_url}/batches",
+            headers=self._headers(api_key),
+            json={
+                "input_file_id": input_file_id,
+                "endpoint": "/v1/chat/completions",
+                "completion_window": self.batch_completion_window,
+            },
+            timeout=self.timeout,
+        )
+        sub.raise_for_status()
+        batch = sub.json()
+        batch_id = batch["id"]
+        print(f"{tag} {batch_id} submitted (window={self.batch_completion_window})")
+
+        # 3. Poll until it settles.
+        started = time.monotonic()
+        terminal = {"completed", "failed", "expired", "cancelled"}
+        while batch.get("status") not in terminal:
+            time.sleep(self.batch_poll_seconds)
+            st = requests.get(
+                f"{self.base_url}/batches/{batch_id}",
+                headers=self._headers(api_key), timeout=self.timeout,
+            )
+            st.raise_for_status()
+            batch = st.json()
+            print(f"{tag} {batch_id} status={batch.get('status')} "
+                  f"counts={batch.get('request_counts') or {}} "
+                  f"elapsed={time.monotonic() - started:.0f}s", flush=True)
+
+        gens = [JudgeGeneration(text="", truncated=False) for _ in conversations]
+        if batch.get("status") != "completed":
+            print(f"{tag} {batch_id} ended as {batch.get('status')}: "
+                  f"{str(batch.get('errors'))[:500]}")
+            return gens
+
+        # 4. Download and demux results by custom_id.
+        out_id = batch.get("output_file_id")
+        if not out_id:
+            print(f"{tag} {batch_id} completed with no output file")
+            return gens
+        content = requests.get(
+            f"{self.base_url}/files/{out_id}/content", headers=auth, timeout=self.timeout,
+        )
+        content.raise_for_status()
+        n_ok = 0
+        for line in content.text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+                choice = rec["response"]["body"]["choices"][0]
+                gens[int(rec["custom_id"])] = JudgeGeneration(
+                    text=self._text_from_choice(choice),
+                    truncated=choice.get("finish_reason") == "length",
+                )
+                n_ok += 1
+            except Exception as e:
+                print(f"{tag} unparsable batch result line: {e!r}")
+        print(f"{tag} {batch_id} returned {n_ok}/{len(conversations)} results "
+              f"in {time.monotonic() - started:.0f}s")
         return gens
 
 
@@ -597,7 +955,7 @@ class LLMJudge:
     Backend-independent: builds the system+user judge prompt, runs the two
     position-swapped games per prompt, parses the 5-point verdict, and maps the
     labels to weighted battles via ``battles_from_game_labels`` (matching
-    ``show_result.py``). The ``backend`` (``OpenRouterBackend`` or
+    ``show_result.py``). The ``backend`` (``OpenAICompatibleBackend`` or
     ``VLLMBackend``) only turns chat conversations + ``JudgeGenParams`` into
     completion strings, so switching API <-> local vLLM leaves the protocol,
     metrics, and generation-param handling unchanged. ``phase`` is inherited from

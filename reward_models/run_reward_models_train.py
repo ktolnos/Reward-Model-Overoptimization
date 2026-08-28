@@ -84,6 +84,42 @@ training_args.max_length = _max_conv_tokens
 training_args.remove_unused_columns = False
 training_args.ddp_find_unused_parameters = False
 
+# Run manifest + provenance, written before training so the RM's wandb run and
+# slurm job are recoverable from its checkpoints dir alone. This is what lets a
+# downstream GRPO/eval run turn "--training_rm_path .../logs/checkpoint-142"
+# into a link back to the run that trained it (run_provenance.related_run_fields
+# reads this file; it searches the checkpoint dir and its parent, so a manifest
+# in the logs dir is found from any checkpoint-N inside it).
+# wandb is initialized here rather than by the trainer's WandbCallback so the
+# run id lands in the same write; the callback reuses an already-active run.
+if os.environ.get("RANK", "0") == "0":
+    from data_utils import write_run_manifest
+    from run_provenance import (
+        attach_to_wandb, manifest_slurm_fields, slurm_fields, wandb_manifest_fields,
+    )
+    _wandb_fields = {}
+    if "wandb" in (training_args.report_to or []):
+        import wandb
+        if wandb.run is None:
+            wandb.init(
+                project=os.environ.get("WANDB_PROJECT", "huggingface"),
+                name=training_args.run_name,
+            )
+        _wandb_fields = wandb_manifest_fields()
+        attach_to_wandb(slurm_fields())
+    write_run_manifest(training_args.output_dir, {
+        **_wandb_fields,
+        **manifest_slurm_fields(),
+        "component": "reward_model",
+        "base_model": script_args.base_model,
+        "datasets": list(dataset_list),
+        "seed": training_args.seed,
+        "learning_rate": training_args.learning_rate,
+        "use_lora": script_args.use_lora,
+        "length_config": script_args.length_config,
+        "max_length": training_args.max_length,
+    })
+
 device = Accelerator().local_process_index
 
 # Load the tokenizer.

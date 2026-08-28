@@ -10,10 +10,12 @@ components in this package:
   ``GenerationResult`` so the evaluator path is reused unchanged.
 - ``run_chosen_only``: the ``--evaluate_chosen_responses`` code path.
 - ``run_deferred_phase``: calls deferred evaluators after the policy vLLM is torn down.
-- ``restrict_deferred_cache``/``selected_checkpoint_*``: the
-  ``--judge_selected_checkpoint_only`` code path — judge one checkpoint only.
-- ``run_load_generations``: the ``--load_generations`` code path — judge cached
-  policy responses from a prior run (no vLLM, no RMs).
+- ``restrict_deferred_cache``/``checkpoints_to_judge``/``selected_checkpoint_*``:
+  the ``--judge_selected_checkpoint_only`` code path — judge the selected (and,
+  by default, the final) checkpoint instead of all of them.
+- ``run_load_generations``/``resolve_load_generations_source``: the
+  ``--load_generations`` code path — judge cached policy responses from a prior
+  run (no vLLM, no RMs), on that run's wandb run.
 
 Keeping these out of ``evaluate_policy.py`` makes the entry point easy to read
 and these helpers testable in isolation.
@@ -26,7 +28,7 @@ import hashlib
 import json
 import os
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 import wandb
@@ -727,19 +729,49 @@ def selected_checkpoint_from_cache(load_dir: str) -> int:
     return ckpt
 
 
+def checkpoints_to_judge(
+    selected: int, available: Iterable[int], args,
+) -> List[int]:
+    """The checkpoints the deferred judge runs on: ``{selected} | {final}``.
+
+    The *selected* checkpoint (sibling-RM argmax) is the one whose judge numbers
+    are reported, and is what makes runs comparable to each other. The *final*
+    checkpoint is judged alongside it (``--judge_final_checkpoint``, on by
+    default) because the pair answers a question neither point answers alone: if
+    the gold RM ranks the final checkpoint at or above the selected one but the
+    judge ranks it below, the gold RM itself was overoptimized. That costs one
+    extra judged checkpoint out of ~20, not the whole sweep.
+
+    Collapses to a single checkpoint when the selected one *is* the last.
+    """
+    available = set(available)
+    keep = {selected}
+    if args.judge_final_checkpoint and available:
+        keep.add(max(available))
+    return sorted(keep)
+
+
 def restrict_deferred_cache(
-    deferred_cache: Dict[Tuple[str, int], GenerationResult], ckpt: int,
+    deferred_cache: Dict[Tuple[str, int], GenerationResult],
+    keep: Iterable[int],
 ) -> Dict[Tuple[str, int], GenerationResult]:
-    """Keep only ``ckpt``'s generations, so deferred evaluators judge it alone."""
-    kept = {k: v for k, v in deferred_cache.items() if k[1] == ckpt}
-    if not kept:
+    """Keep only ``keep``'s generations, so deferred evaluators judge those alone.
+
+    ``keep`` is the checkpoint set chosen by ``checkpoints_to_judge``.
+    """
+    wanted = set(keep)
+    kept = {k: v for k, v in deferred_cache.items() if k[1] in wanted}
+    cached = {n for _, n in deferred_cache}
+    missing = sorted(wanted - cached)
+    if missing:
         raise ValueError(
-            f"--judge_selected_checkpoint_only: selected checkpoint-{ckpt} has no generations "
-            f"to judge (cached checkpoints: {sorted({n for _, n in deferred_cache})})."
+            f"--judge_selected_checkpoint_only: checkpoint(s) "
+            f"{', '.join(f'checkpoint-{n}' for n in missing)} have no generations "
+            f"to judge (cached checkpoints: {sorted(cached)})."
         )
-    skipped = sorted({n for _, n in deferred_cache} - {ckpt})
-    print(f"[judge] judging checkpoint-{ckpt} only; skipping {len(skipped)} other "
-          f"checkpoint(s): {skipped}")
+    skipped = sorted(cached - wanted)
+    print(f"[judge] judging checkpoint(s) {sorted(wanted)} only; skipping "
+          f"{len(skipped)} other checkpoint(s): {skipped}")
     return kept
 
 
@@ -930,6 +962,76 @@ def find_latest_generations_dir(
     return chosen
 
 
+def wandb_run_id_from_generations_dir(load_dir: str) -> Optional[str]:
+    """The wandb run id of the eval that produced ``load_dir``, if recorded.
+
+    ``write_manifest`` stamps the live run id into ``_manifest.json``. Manifests
+    written before that (and runs with wandb disabled) have no top-level id; fall
+    back to the resumed id in the recorded args, which is set only when *that*
+    run was itself a resume. Returns ``None`` when nothing is recoverable.
+    """
+    path = os.path.join(load_dir, "_manifest.json")
+    try:
+        with open(path) as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[load_generations] no usable manifest at {path} ({e})")
+        return None
+    return manifest.get("wandb_run_id") or (manifest.get("args") or {}).get("wandb_run_id")
+
+
+def resolve_load_generations_source(args, benchmarks) -> Optional[str]:
+    """Pin the cached-generations dir and inherit its wandb run, before wandb init.
+
+    A judge-only pass (``--load_generations``) scores a *previous* eval's
+    responses, so its metrics belong on that eval's wandb run — otherwise the
+    judge numbers land in a second run that shares neither the RM curves nor the
+    selection metric they have to be read against. Resolving the source dir here
+    rather than inside ``run_load_generations`` is what makes that possible: the
+    run id has to be known before ``init_wandb``.
+
+    Writes the resolved dir back into ``args.load_generations_dir`` so the later
+    load uses exactly this dir (no second auto-discovery). An explicit
+    ``--wandb_run_id`` always wins; ``--disable_wandb`` skips the inheritance.
+    Returns the dir, or ``None`` when discovery is left to
+    ``run_load_generations`` (which raises the actionable error).
+    """
+    benchmark_names = [b.name for b in benchmarks if b.deferred_evaluators]
+    if not benchmark_names:
+        return None  # run_load_generations explains what's missing
+
+    from .persistence import resolve_per_example_dir
+
+    if args.load_generations_dir:
+        load_dir = args.load_generations_dir
+    else:
+        try:
+            load_dir = find_latest_generations_dir(
+                args,
+                exclude_dir=resolve_per_example_dir(args),
+                benchmark_names=benchmark_names,
+            )
+        except FileNotFoundError as e:
+            print(f"[load_generations] {e}")
+            return None
+        args.load_generations_dir = load_dir
+
+    if args.disable_wandb or args.wandb_run_id:
+        return load_dir
+
+    run_id = wandb_run_id_from_generations_dir(load_dir)
+    if run_id:
+        args.wandb_run_id = run_id
+        print(f"[load_generations] resuming wandb run {run_id} (from "
+              f"{os.path.join(load_dir, '_manifest.json')}) so the judge metrics "
+              "land on the run that generated these responses")
+    else:
+        print("[load_generations] generating run's wandb id not recorded; judge "
+              "metrics will go to a NEW run. Pass --wandb_run_id to attach them "
+              "to the original eval.")
+    return load_dir
+
+
 def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: str) -> None:
     """Judge cached policy generations from a previous run — no vLLM, no RMs.
 
@@ -974,7 +1076,12 @@ def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: s
 
     if args.judge_selected_checkpoint_only:
         deferred_cache = restrict_deferred_cache(
-            deferred_cache, selected_checkpoint_from_cache(load_dir),
+            deferred_cache,
+            checkpoints_to_judge(
+                selected_checkpoint_from_cache(load_dir),
+                {n for _, n in deferred_cache},
+                args,
+            ),
         )
 
     # The preference judge reads its baseline from example metadata; inject it

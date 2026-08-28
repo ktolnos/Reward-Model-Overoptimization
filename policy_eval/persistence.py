@@ -279,19 +279,42 @@ def write_recorder(
     return path
 
 
-def write_manifest(per_example_dir: str, args, benchmarks) -> None:
+def redacted_args_dict(args) -> Dict[str, Any]:
+    """``ScriptArguments`` as a dict with API keys blanked out.
+
+    The manifest and the wandb run config both serialise every flag, so a key
+    passed on the command line (rather than through its env var) would otherwise
+    be written to disk and to the wandb project, where it is visible to anyone
+    with read access to the run.
+    """
+    out = dataclasses.asdict(args)
+    for k, v in out.items():
+        if k.endswith("_api_key") and v:
+            out[k] = "<redacted>"
+    return out
+
+
+def write_manifest(
+    per_example_dir: str, args, benchmarks, *, wandb_run_id: Optional[str] = None,
+) -> None:
     """Write a small JSON manifest describing the run, for later joins.
 
     Captures the inputs that determine what the scores *mean* (dataset, split,
     RM identities, decoding budgets) so re-aggregation knows the provenance even
     after the checkpoints and the wandb run are gone.
+
+    ``wandb_run_id`` is the *live* run id (which differs from ``args`` whenever
+    this run created a run rather than resuming one). A later judge-only pass
+    over these generations reads it back to log onto the same run —
+    ``resolve_load_generations_source``.
     """
     os.makedirs(per_example_dir, exist_ok=True)
     manifest: Dict[str, Any] = {
         "git": _git_info(),
+        "wandb_run_id": wandb_run_id,
         # The complete ScriptArguments — every flag the eval ran with, so the run
-        # is fully reproducible from the manifest alone.
-        "args": dataclasses.asdict(args),
+        # is fully reproducible from the manifest alone (API keys excepted).
+        "args": redacted_args_dict(args),
         "benchmarks": {
             b.name: {
                 "evaluators": [e.name for e in b.evaluators],

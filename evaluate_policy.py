@@ -40,6 +40,7 @@ from policy_eval import wandb_utils
 from policy_eval.benchmarks import build_benchmarks
 from policy_eval.eval_utils import (
     apply_run_manifest_defaults,
+    checkpoints_to_judge,
     chosen_responses_as_generation,
     fetch_base_checkpoint_metrics,
     fetch_training_history,
@@ -47,6 +48,7 @@ from policy_eval.eval_utils import (
     lookup_train_metrics,
     make_baseline_responses,
     require_selection_available,
+    resolve_load_generations_source,
     restrict_deferred_cache,
     rms_required_by,
     run_chosen_only,
@@ -195,24 +197,92 @@ class ScriptArguments:
         default=False,
         metadata={"help": "Run the LLM-as-judge evaluators (the deferred phase: the "
                           "preference judge and any arena_hard 'llm:<model>' judge) on the "
-                          "selected checkpoint only — the argmax of the sibling-RM selection "
-                          "metric — instead of every checkpoint. The judge is the most "
-                          "expensive evaluator and only the selected checkpoint's judge "
-                          "numbers are reported; everything cheap (RM scores, IFEval, KL) "
-                          "still runs for all checkpoints. Requires the 'select' benchmark in "
-                          "this run; under --load_generations the selection score is "
-                          "recomputed from the cached 'select' per-example logs."},
+                          "selected checkpoint — the argmax of the sibling-RM selection "
+                          "metric — plus the final one (--judge_final_checkpoint), instead "
+                          "of every checkpoint. The judge is the most expensive evaluator "
+                          "(~2.8k games ≈ 28 min per checkpoint against a hosted judge) and "
+                          "only those checkpoints' judge numbers are read; everything cheap "
+                          "(RM scores, IFEval, KL) still runs for all checkpoints. Requires "
+                          "the 'select' benchmark in this run; under --load_generations the "
+                          "selection score is recomputed from the cached 'select' "
+                          "per-example logs."},
+    )
+    judge_final_checkpoint: Optional[bool] = field(
+        default=True,
+        metadata={"help": "With --judge_selected_checkpoint_only, also judge the LAST "
+                          "checkpoint, not just the selected one. The pair is what "
+                          "separates 'the sibling RM picked well' from 'the gold RM was "
+                          "itself overoptimized': if the gold RM ranks the final "
+                          "checkpoint at or above the selected one but the judge ranks it "
+                          "below, the gold signal degraded over training. Costs one extra "
+                          "judged checkpoint out of ~20. No effect when the selected "
+                          "checkpoint is already the last one."},
     )
     llm_judge_backend: str = field(
-        default="api",
-        metadata={"help": "'api' (OpenRouter) or 'vllm' (local model, deferred phase)"},
+        default="vector",
+        metadata={"help": "'vector' (the Vector Institute proxy), 'openrouter', or "
+                          "'vllm' (local model). The hosted backends share one "
+                          "OpenAI-compatible implementation and differ only by provider "
+                          "(endpoint, key env var, reasoning dialect, Batch-API support); "
+                          "see OPENAI_PROVIDERS. All backends are deferred, so "
+                          "--judge_selected_checkpoint_only and --load_generations apply "
+                          "to every one of them."},
     )
     llm_judge_model_name: Optional[str] = field(
         default="google/gemma-7b-it",
-        metadata={"help": "LLM judge model name (OpenRouter id or HF path)"},
+        metadata={"help": "LLM judge model name (OpenRouter id, Vector proxy model id "
+                          "such as 'gpt-oss-120b', or HF path for the vllm backend)"},
     )
-    openrouter_api_key: Optional[str] = field(
-        default=None, metadata={"help": "OpenRouter API key (falls back to env)"},
+    llm_judge_api_key: Optional[str] = field(
+        default=None,
+        metadata={"help": "API key for the hosted judge backends. Empty falls back to "
+                          "the provider's env var "
+                          "(OPENROUTER_API_KEY / VECTOR_INFERENCE_API_KEY), which is the "
+                          "normal way to supply it — prefer the env var so the key never "
+                          "lands in the wandb run config or a shell history."},
+    )
+    llm_judge_base_url: str = field(
+        default="",
+        metadata={"help": "Override the judge provider's OpenAI-compatible base URL "
+                          "(e.g. a self-hosted vLLM server). Empty = the provider's "
+                          "default."},
+    )
+    llm_judge_max_parallel: int = field(
+        default=8,
+        metadata={"help": "In-flight requests for the hosted judge backends. Raising this "
+                          "past what --llm_judge_requests_per_minute allows buys nothing: "
+                          "the rate limiter is the real throttle."},
+    )
+    llm_judge_requests_per_minute: float = field(
+        default=-1.0,
+        metadata={"help": "Client-side request pacing for the hosted judge backends. "
+                          "Negative = the provider's own default (Vector proxy: 100, "
+                          "under its observed 120 RPM project-wide cap; OpenRouter: "
+                          "unpaced). 0 disables pacing. Pacing beats discovering a shared "
+                          "RPM budget through 429s, since a rejected request still costs "
+                          "a round-trip."},
+    )
+    llm_judge_reasoning_effort: str = field(
+        default="auto",
+        metadata={"help": "Reasoning effort for the hosted judge backends: 'auto' derives "
+                          "it from --llm_judge_enable_thinking (high when on, low when "
+                          "off), 'low'/'medium'/'high' pin it, 'none' omits the field. "
+                          "gpt-oss models always reason (harmony format) — 'low' is as "
+                          "close to non-thinking as the API allows."},
+    )
+    llm_judge_use_batch_api: bool = field(
+        default=False,
+        metadata={"help": "Route the judge through the provider's async OpenAI Batch API "
+                          "(/v1/files + /v1/batches) instead of live requests: upload all "
+                          "games as one JSONL, poll, then demux by custom_id. Runs against "
+                          "the batch quota rather than the live RPM budget, so it suits a "
+                          "whole-run judge pass at the cost of latency (completion window "
+                          "up to 24h). Supported by the 'vector' provider; OpenRouter has "
+                          "no Batch API and rejects this at startup."},
+    )
+    llm_judge_batch_poll_seconds: float = field(
+        default=30.0,
+        metadata={"help": "Poll interval for --llm_judge_use_batch_api."},
     )
     baseline_model_path: Optional[str] = field(
         default=None, metadata={"help": "Path to the baseline model for judge comparison"},
@@ -411,8 +481,10 @@ def main():
     # run's manifest (written by my_grpo.py). Explicit CLI flags win. Applied
     # before wandb init so the run config records the resolved values.
     apply_run_manifest_defaults(args)
-    wandb_utils.init_wandb(args)
 
+    # Benchmarks are built before wandb init (they only read args) so that a
+    # judge-only pass can resolve its cached-generations dir first and resume
+    # the wandb run that produced them — the run id must be known by init_wandb.
     benchmarks = build_benchmarks(args)
     if not benchmarks:
         raise ValueError(
@@ -422,6 +494,11 @@ def main():
     print(f"Benchmarks: {[b.name for b in benchmarks]}")
     for b in benchmarks:
         print(f"  - {b.name}: evaluators={[e.name for e in b.evaluators]}")
+
+    if args.load_generations:
+        resolve_load_generations_source(args, benchmarks)
+
+    wandb_utils.init_wandb(args)
 
     # Selection requires the sibling RM to share the training RM's base model.
     if any(b.name == "select" for b in benchmarks):
@@ -434,7 +511,8 @@ def main():
     # ----- Per-example persistence (always on) ------------------------------
     per_example_dir = resolve_per_example_dir(args)
     print(f"Per-example logs -> {per_example_dir}/ (format={args.per_example_format})")
-    write_manifest(per_example_dir, args, benchmarks)
+    write_manifest(per_example_dir, args, benchmarks,
+                   wandb_run_id=wandb_utils.current_run_id())
 
     # ----- Lazily load the reward models actually used by evaluators --------
     # Skipped in --load_generations mode: only the LLM judge runs there, and it
@@ -634,7 +712,12 @@ def main():
 
         if deferred_cache and args.judge_selected_checkpoint_only:
             deferred_cache = restrict_deferred_cache(
-                deferred_cache, selected_checkpoint_from_rows(results_rows),
+                deferred_cache,
+                checkpoints_to_judge(
+                    selected_checkpoint_from_rows(results_rows),
+                    {n for _, n in deferred_cache},
+                    args,
+                ),
             )
 
         if deferred_cache:

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
+import os
 import torch
 from transformers import HfArgumentParser
 
@@ -77,6 +78,37 @@ def post_process_sft_dataset(ds, tokenizer, *, length_config, skip_length_valida
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
+
+    # Run manifest + provenance, written before anything can fail, so the SFT
+    # run and its slurm job stay recoverable from the checkpoints dir alone.
+    # GRPO records this dir as model_name_or_path, so eval links back to this
+    # run as related/base_policy. wandb is initialized here (not by the
+    # trainer's WandbCallback) so the run id lands in the same write.
+    if os.environ.get("RANK", "0") == "0":
+        from data_utils import write_run_manifest
+        from run_provenance import (
+            attach_to_wandb, manifest_slurm_fields, slurm_fields,
+            wandb_manifest_fields,
+        )
+        _wandb_fields = {}
+        if "wandb" in (training_args.report_to or []):
+            import wandb
+            if wandb.run is None:
+                wandb.init(
+                    project=os.environ.get("WANDB_PROJECT", "huggingface"),
+                    name=training_args.run_name,
+                )
+            _wandb_fields = wandb_manifest_fields()
+            attach_to_wandb(slurm_fields())
+        write_run_manifest(training_args.output_dir, {
+            **_wandb_fields,
+            **manifest_slurm_fields(),
+            "component": "sft",
+            "model_name_or_path": model_args.model_name_or_path,
+            "dataset_path": script_args.dataset_path,
+            "length_config": script_args.length_config,
+        })
+
     
     ################
     # Model & Tokenizer

@@ -38,9 +38,10 @@ from .evaluators import (
     RewardModelEvaluator,
 )
 from .judges import (
+    OPENAI_PROVIDERS,
     JudgeGenParams,
     LLMJudge,
-    OpenRouterBackend,
+    OpenAICompatibleBackend,
     RMJudge,
     VLLMBackend,
 )
@@ -153,8 +154,20 @@ def _make_judge_backend(args, model_name: str):
     cached = _JUDGE_BACKEND_CACHE.get(key)
     if cached is not None:
         return cached
-    if args.llm_judge_backend == "api":
-        backend = OpenRouterBackend(model_name, api_key=args.openrouter_api_key)
+    if args.llm_judge_backend in OPENAI_PROVIDERS:
+        backend = OpenAICompatibleBackend(
+            model_name,
+            provider=args.llm_judge_backend,
+            api_key=args.llm_judge_api_key,
+            base_url=args.llm_judge_base_url or None,
+            max_parallel=args.llm_judge_max_parallel,
+            # Negative = let the provider decide (see OPENAI_PROVIDERS.default_rpm).
+            requests_per_minute=(None if args.llm_judge_requests_per_minute < 0
+                                 else args.llm_judge_requests_per_minute),
+            reasoning_effort=args.llm_judge_reasoning_effort,
+            use_batch_api=args.llm_judge_use_batch_api,
+            batch_poll_seconds=args.llm_judge_batch_poll_seconds,
+        )
     elif args.llm_judge_backend == "vllm":
         # Judge prompt = question + both answers + its own (possibly thinking)
         # generation; size to the larger of the preference / arena_hard budgets.
@@ -169,7 +182,10 @@ def _make_judge_backend(args, model_name: str):
             gpu_memory_utilization=args.llm_judge_gpu_memory_utilization,
         )
     else:
-        raise ValueError(f"Unknown llm_judge_backend: {args.llm_judge_backend}")
+        raise ValueError(
+            f"Unknown llm_judge_backend {args.llm_judge_backend!r}. Known: "
+            f"{sorted(OPENAI_PROVIDERS) + ['vllm']}."
+        )
     _JUDGE_BACKEND_CACHE[key] = backend
     return backend
 
