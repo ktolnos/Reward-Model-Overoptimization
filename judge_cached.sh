@@ -74,5 +74,6 @@ REPO=/nas/ucb/eop/Reward-Model-Overoptimization
 
 # --llm_judge_on_cached implies: --load_generations, --with_llm_judge,
 # benchmarks=preference,arena_hard, no secondary RM (see evaluate_policy.sh).
-# --vector_judge selects the hosted proxy backend and its recommended model.
-exec bash "$REPO/evaluate_policy.sh" --llm_judge_on_cached --vector_judge "$@"
+# The judge backend is the proxy by default, which is the whole premise of this
+# job asking for no GPU -- pass --vllm_judge only if you also add --gres.
+exec bash "$REPO/evaluate_policy.sh" --llm_judge_on_cached "$@"
