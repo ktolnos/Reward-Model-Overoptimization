@@ -345,9 +345,9 @@ if __name__ == "__main__":
                     name=training_args.run_name,
                 )
             wandb_fields = wandb_manifest_fields()
-            # This job under the same field name every stage uses, plus links
-            # to the SFT run and the RM runs this one consumes, so the eval run
-            # is never the only place the chain is visible.
+            # This job under the field name every stage uses, plus links to the
+            # SFT and RM runs it consumes, so the eval run is never the only
+            # place the chain is visible.
             provenance = dict(slurm_fields())
             provenance.update(
                 related_run_fields("base_policy", model_args.model_name_or_path))

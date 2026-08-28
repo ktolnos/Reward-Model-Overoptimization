@@ -6,11 +6,10 @@ Two implementations:
     - ``RMJudge``: score each answer with a reward model; winner has the higher
       score. One battle per prompt.
     - ``LLMJudge``: ask an LLM -- locally via ``VLLMBackend``, or over any
-      OpenAI-compatible API via ``OpenAICompatibleBackend`` (one backend for
-      every hosted provider; ``OPENAI_PROVIDERS`` holds the per-provider
-      endpoint, key env var, reasoning dialect and Batch-API support) -- using
-      the Arena-Hard-Auto v2.0 prompt template. Runs 2 games per prompt with
-      position swap; each game's label is mapped (with
+      OpenAI-compatible API via ``OpenAICompatibleBackend`` (``OPENAI_PROVIDERS``
+      holds each provider's endpoint, key env var, reasoning dialect and
+      Batch-API support) -- using the Arena-Hard-Auto v2.0 prompt template. Runs
+      2 games per prompt with position swap; each game's label is mapped (with
       weighting) to one or more {0.0, 0.5, 1.0} battles, matching ``show_result.py``
       exactly so that scores produced here match the official leaderboard when the
       same judge/baseline are used.
@@ -351,7 +350,7 @@ class JudgeGenParams:
 
     ``enable_thinking`` is honored in full by the local vLLM backend (chat
     template + ``"My final verdict is [["`` prefill); ``OpenAICompatibleBackend``
-    maps it to whatever reasoning dialect its provider speaks.
+    maps it to its provider's reasoning dialect.
     """
     temperature: float
     top_p: float
@@ -369,16 +368,14 @@ class OpenAIProvider:
     name: str
     base_url: str
     api_key_env: str
-    # How reasoning is requested or suppressed; see ``_reasoning_fields``:
+    # How reasoning is requested or suppressed (``_reasoning_fields``):
     #   "toggle" - OpenRouter's native {"reasoning": {"enabled"|"effort": ...}}
-    #   "model"  - derived from the model: gpt-oss (harmony) takes
-    #              reasoning_effort, vLLM-served models take
-    #              chat_template_kwargs.enable_thinking
+    #   "model"  - from the model: gpt-oss (harmony) takes reasoning_effort,
+    #              vLLM-served models chat_template_kwargs.enable_thinking
     reasoning_style: str
-    # Whether the provider implements the async OpenAI Batch API
-    # (/v1/files + /v1/batches). OpenRouter does not.
+    # Async OpenAI Batch API (/v1/files + /v1/batches). OpenRouter has none.
     supports_batch: bool = False
-    # Default client-side pacing. 0 = unpaced; set only where the provider
+    # Default client-side pacing; 0 = unpaced. Set only where the provider
     # actually enforces a request-per-minute budget.
     default_rpm: float = 0.0
 
@@ -395,12 +392,11 @@ OPENAI_PROVIDERS: Dict[str, OpenAIProvider] = {
         base_url="https://proxy.vectorinstitute.ai/v1",
         api_key_env="VECTOR_INFERENCE_API_KEY",
         # The proxy fronts on-prem vLLM servers and hosted models alike, so the
-        # reasoning control depends on the model rather than the endpoint.
+        # reasoning control depends on the model, not the endpoint.
         reasoning_style="model",
         supports_batch=True,
-        # The proxy enforces a project-wide RPM budget that is SHARED with
-        # everyone else on the project; 100 leaves headroom under the observed
-        # 120 cap.
+        # Its RPM budget is SHARED with everyone else on the project; 100 leaves
+        # headroom under the observed 120 cap.
         default_rpm=100.0,
     ),
 }
@@ -409,9 +405,9 @@ OPENAI_PROVIDERS: Dict[str, OpenAIProvider] = {
 class _RateLimiter:
     """Thread-safe pacer keeping request starts under a per-minute cap.
 
-    Pacing beats discovering a published RPM ceiling through 429s: a rejected
-    request still costs a round-trip and its retry lands in the same saturated
-    window. ``requests_per_minute<=0`` disables pacing.
+    Pacing beats discovering the ceiling through 429s: a rejected request still
+    costs a round-trip and its retry lands in the same saturated window.
+    ``requests_per_minute<=0`` disables pacing.
     """
 
     def __init__(self, requests_per_minute: Optional[float]):
@@ -425,9 +421,9 @@ class _RateLimiter:
         with self._lock:
             now = time.monotonic()
             wait = max(0.0, self._next_at - now)
-            # Reserve this slot before releasing the lock so concurrent workers
-            # queue up behind each other rather than all sleeping to the same
-            # instant and then firing as one burst.
+            # Reserve the slot before releasing the lock, so workers queue
+            # behind each other instead of all sleeping to the same instant and
+            # then firing as one burst.
             self._next_at = max(now, self._next_at) + self.min_interval
         if wait:
             time.sleep(wait)
@@ -436,26 +432,26 @@ class _RateLimiter:
 class OpenAICompatibleBackend:
     """Generate judge completions from any OpenAI ``/chat/completions`` endpoint.
 
-    The endpoint is a ``provider`` entry (``OPENAI_PROVIDERS``); everything else
-    -- fan-out in request order, pacing, retry/backoff, verdict extraction -- is
-    shared, so a fix reaches every provider at once.
+    Only the endpoint is per-provider (``OPENAI_PROVIDERS``); fan-out, pacing,
+    retry/backoff and verdict extraction are shared, so a fix reaches every
+    provider at once.
 
     Non-obvious behaviour:
 
-      - Reasoning is controlled per provider (``_reasoning_fields``). A server
-        that rejects those extras with HTTP 400 is retried once without them:
-        losing the thinking toggle beats losing the run.
+      - Reasoning is per provider (``_reasoning_fields``). A server that rejects
+        those extras with HTTP 400 is retried once without them: losing the
+        thinking toggle beats losing the run.
       - Verdict text falls back to the reasoning channel when ``content`` is
         empty, so a model that stops inside its reasoning still parses.
-      - 401/403 raises ``JudgeAccessError`` instead of retrying -- it is identical
-        for every request, so retrying only delays a doomed run and would report a
-        bad key as "every prompt dropped".
+      - 401/403 raises ``JudgeAccessError`` rather than retrying -- it is
+        identical for every request, so retrying only delays a doomed run and
+        would report a bad key as "every prompt dropped".
 
-    Unlike ``VLLMBackend`` the no-thinking path cannot prefill the assistant turn,
-    so the model emits the whole ``"My final verdict is [[X]]"`` line itself --
-    which is what ``ARENA_HARD_NO_THINKING_SYSTEM_PROMPT`` asks for.
+    Unlike ``VLLMBackend`` this cannot prefill the assistant turn, so the model
+    emits the whole ``"My final verdict is [[X]]"`` line itself -- which is what
+    ``ARENA_HARD_NO_THINKING_SYSTEM_PROMPT`` asks for.
 
-    ``phase`` is "deferred" (= after all generation) despite needing no GPU:
+    ``phase`` is "deferred" despite needing no GPU:
     ``--judge_selected_checkpoint_only`` trims the *deferred* cache and
     ``--load_generations`` runs *only* deferred evaluators, so an online judge
     would silently judge every checkpoint instead of the selected one.
@@ -498,7 +494,7 @@ class OpenAICompatibleBackend:
             provider.default_rpm if requests_per_minute is None else requests_per_minute
         )
         # "auto" derives the effort from JudgeGenParams.enable_thinking; an
-        # explicit low/medium/high pins it regardless of the thinking flag.
+        # explicit low/medium/high pins it regardless.
         self.reasoning_effort = reasoning_effort
         if use_batch_api and not provider.supports_batch:
             raise ValueError(
@@ -510,8 +506,8 @@ class OpenAICompatibleBackend:
         self.batch_poll_seconds = batch_poll_seconds
         self.batch_completion_window = batch_completion_window
         self._limiter = _RateLimiter(self.requests_per_minute)
-        # Set once a request proves the server rejects our reasoning/thinking
-        # extras, so the remaining ~2N requests skip the doomed first attempt.
+        # Set once a request proves the server rejects our reasoning extras, so
+        # the remaining ~2N requests skip the doomed first attempt.
         self._strip_extras = False
 
     # -- request construction ------------------------------------------------
@@ -542,8 +538,8 @@ class OpenAICompatibleBackend:
         if style == "toggle":
             if effort not in ("auto", "none"):
                 return {"reasoning": {"effort": effort}}
-            # Only deviate from the model's default reasoning behaviour when
-            # thinking is explicitly disabled (a no-op for models without it).
+            # Only deviate from the model's default when thinking is explicitly
+            # disabled (a no-op for models without it).
             return {} if params.enable_thinking else {"reasoning": {"enabled": False}}
 
         if style == "model":
@@ -577,7 +573,7 @@ class OpenAICompatibleBackend:
 
         Reasoning models return the analysis separately (``reasoning_content`` on
         vLLM, ``reasoning`` on OpenRouter); a model that stops inside it leaves
-        ``content`` empty, and the verdict may still be in there.
+        ``content`` empty with the verdict still in there.
         """
         msg = choice.get("message") or {}
         text = msg.get("content") or ""
@@ -624,9 +620,8 @@ class OpenAICompatibleBackend:
                     )
                 if resp.status_code == 400 and not self._strip_extras and \
                         self._reasoning_fields(params):
-                    # Most likely the server rejected the reasoning fields. Drop
-                    # them for this and every later request, then retry at once --
-                    # losing the thinking toggle beats losing the run.
+                    # Most likely the reasoning fields. Drop them for this and
+                    # every later request, then retry at once.
                     print(
                         f"[{self.provider.name}] HTTP 400 from {self.model_name}; "
                         f"retrying without the reasoning/thinking fields. "
@@ -686,7 +681,7 @@ class OpenAICompatibleBackend:
     def _generate_batch(
         self, conversations: List[List[dict]], params: "JudgeGenParams", api_key: str,
     ) -> List["JudgeGeneration"]:
-        """Upload one JSONL request per game, poll, demux results by ``custom_id``.
+        """Upload one JSONL request per game, poll, demux by ``custom_id``.
 
         Trades latency for throughput: the batch runs against a separate quota
         rather than the live RPM budget. Dropped requests come back as empty
@@ -715,12 +710,11 @@ class OpenAICompatibleBackend:
             timeout=self.timeout,
         )
         if not up.ok:
-            # A provider can advertise the Batch API (GET /v1/files and
-            # /v1/batches answer) while its upstream implements no file
-            # endpoint, so the surface looks present until the first upload.
-            # Measured on the Vector proxy: 502 "Upstream file upload failed:
-            # 404". Say so plainly -- the raw HTTPError lands after the whole
-            # generation phase and reads like a transient blip.
+            # A provider can advertise the Batch API while its upstream
+            # implements no file endpoint, so the surface looks present until the
+            # first upload (measured on the Vector proxy: 502 "Upstream file
+            # upload failed: 404"). Say so plainly -- the raw HTTPError lands
+            # after the whole generation phase and reads like a transient blip.
             raise RuntimeError(
                 f"{self.provider.name} rejected the batch file upload "
                 f"(HTTP {up.status_code}: {up.text[:200]}). Its Batch API is not "

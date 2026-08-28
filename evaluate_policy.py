@@ -195,38 +195,33 @@ class ScriptArguments:
     )
     judge_selected_checkpoint_only: Optional[bool] = field(
         default=False,
-        metadata={"help": "Run the LLM-as-judge evaluators (the deferred phase: the "
-                          "preference judge and any arena_hard 'llm:<model>' judge) on the "
-                          "selected checkpoint — the argmax of the sibling-RM selection "
-                          "metric — plus the final one (--judge_final_checkpoint), instead "
-                          "of every checkpoint. The judge is the most expensive evaluator "
-                          "(~2.8k games ≈ 28 min per checkpoint against a hosted judge) and "
-                          "only those checkpoints' judge numbers are read; everything cheap "
-                          "(RM scores, IFEval, KL) still runs for all checkpoints. Requires "
-                          "the 'select' benchmark in this run; under --load_generations the "
-                          "selection score is recomputed from the cached 'select' "
-                          "per-example logs."},
+        metadata={"help": "Run the deferred LLM-as-judge evaluators (the preference judge "
+                          "and any arena_hard 'llm:<model>' judge) on the selected "
+                          "checkpoint — the sibling-RM selection argmax — plus the final "
+                          "one (--judge_final_checkpoint), not every checkpoint. The judge "
+                          "is the most expensive evaluator (~2.8k games ≈ 28 min per "
+                          "checkpoint) and only those checkpoints' numbers are read; the "
+                          "cheap evaluators still run for all. Requires the 'select' "
+                          "benchmark; under --load_generations the selection score is "
+                          "recomputed from the cached 'select' per-example logs."},
     )
     judge_final_checkpoint: Optional[bool] = field(
         default=True,
         metadata={"help": "With --judge_selected_checkpoint_only, also judge the LAST "
-                          "checkpoint, not just the selected one. The pair is what "
-                          "separates 'the sibling RM picked well' from 'the gold RM was "
-                          "itself overoptimized': if the gold RM ranks the final "
-                          "checkpoint at or above the selected one but the judge ranks it "
-                          "below, the gold signal degraded over training. Costs one extra "
-                          "judged checkpoint out of ~20. No effect when the selected "
-                          "checkpoint is already the last one."},
+                          "checkpoint. The pair separates 'the sibling RM picked well' from "
+                          "'the gold RM was itself overoptimized': if the gold RM ranks the "
+                          "final checkpoint at or above the selected one but the judge ranks "
+                          "it below, the gold signal degraded over training. One extra "
+                          "checkpoint out of ~20; no effect when the selected one is last."},
     )
     llm_judge_backend: str = field(
         default="vector",
-        metadata={"help": "'vector' (the Vector Institute proxy), 'openrouter', or "
-                          "'vllm' (local model). The hosted backends share one "
-                          "OpenAI-compatible implementation and differ only by provider "
-                          "(endpoint, key env var, reasoning dialect, Batch-API support); "
-                          "see OPENAI_PROVIDERS. All backends are deferred, so "
-                          "--judge_selected_checkpoint_only and --load_generations apply "
-                          "to every one of them."},
+        metadata={"help": "'vector' (the Vector Institute proxy), 'openrouter', or 'vllm' "
+                          "(local model). The hosted backends share one OpenAI-compatible "
+                          "implementation and differ only by provider (endpoint, key env "
+                          "var, reasoning dialect, Batch-API support); see OPENAI_PROVIDERS. "
+                          "All backends are deferred, so --judge_selected_checkpoint_only "
+                          "and --load_generations apply to each."},
     )
     llm_judge_model_name: Optional[str] = field(
         default="google/gemma-7b-it",
@@ -235,11 +230,10 @@ class ScriptArguments:
     )
     llm_judge_api_key: Optional[str] = field(
         default=None,
-        metadata={"help": "API key for the hosted judge backends. Empty falls back to "
-                          "the provider's env var "
-                          "(OPENROUTER_API_KEY / VECTOR_INFERENCE_API_KEY), which is the "
-                          "normal way to supply it — prefer the env var so the key never "
-                          "lands in the wandb run config or a shell history."},
+        metadata={"help": "API key for the hosted judge backends. Empty falls back to the "
+                          "provider's env var (OPENROUTER_API_KEY / "
+                          "VECTOR_INFERENCE_API_KEY) — prefer that, so the key never lands "
+                          "in a shell history."},
     )
     llm_judge_base_url: str = field(
         default="",
@@ -249,36 +243,34 @@ class ScriptArguments:
     )
     llm_judge_max_parallel: int = field(
         default=8,
-        metadata={"help": "In-flight requests for the hosted judge backends. Raising this "
-                          "past what --llm_judge_requests_per_minute allows buys nothing: "
-                          "the rate limiter is the real throttle."},
+        metadata={"help": "In-flight requests for the hosted judge backends. Raising it "
+                          "past what --llm_judge_requests_per_minute allows buys nothing — "
+                          "the rate limiter is then the real throttle."},
     )
     llm_judge_requests_per_minute: float = field(
         default=-1.0,
         metadata={"help": "Client-side request pacing for the hosted judge backends. "
-                          "Negative = the provider's own default (Vector proxy: 100, "
-                          "under its observed 120 RPM project-wide cap; OpenRouter: "
-                          "unpaced). 0 disables pacing. Pacing beats discovering a shared "
-                          "RPM budget through 429s, since a rejected request still costs "
-                          "a round-trip."},
+                          "Negative = the provider's default (Vector proxy: 100, under its "
+                          "observed 120 RPM project-wide cap; OpenRouter: unpaced). 0 "
+                          "disables pacing, which beats discovering a shared budget through "
+                          "429s — a rejected request still costs a round-trip."},
     )
     llm_judge_reasoning_effort: str = field(
         default="auto",
         metadata={"help": "Reasoning effort for the hosted judge backends: 'auto' derives "
-                          "it from --llm_judge_enable_thinking (high when on, low when "
-                          "off), 'low'/'medium'/'high' pin it, 'none' omits the field. "
-                          "gpt-oss models always reason (harmony format) — 'low' is as "
-                          "close to non-thinking as the API allows."},
+                          "it from --llm_judge_enable_thinking (high when on, low when off), "
+                          "'low'/'medium'/'high' pin it, 'none' omits the field. gpt-oss "
+                          "models always reason — 'low' is as close to non-thinking as the "
+                          "API allows."},
     )
     llm_judge_use_batch_api: bool = field(
         default=False,
         metadata={"help": "Route the judge through the provider's async OpenAI Batch API "
                           "(/v1/files + /v1/batches) instead of live requests: upload all "
-                          "games as one JSONL, poll, then demux by custom_id. Runs against "
-                          "the batch quota rather than the live RPM budget, so it suits a "
-                          "whole-run judge pass at the cost of latency (completion window "
-                          "up to 24h). Supported by the 'vector' provider; OpenRouter has "
-                          "no Batch API and rejects this at startup."},
+                          "games as one JSONL, poll, demux by custom_id. Runs against the "
+                          "batch quota rather than the live RPM budget, so it suits a "
+                          "whole-run pass at the cost of latency (window up to 24h). "
+                          "'vector' only; OpenRouter rejects it at startup."},
     )
     llm_judge_batch_poll_seconds: float = field(
         default=30.0,
@@ -482,9 +474,9 @@ def main():
     # before wandb init so the run config records the resolved values.
     apply_run_manifest_defaults(args)
 
-    # Benchmarks are built before wandb init (they only read args) so that a
-    # judge-only pass can resolve its cached-generations dir first and resume
-    # the wandb run that produced them — the run id must be known by init_wandb.
+    # Built before wandb init (they only read args) so a judge-only pass can
+    # resolve its cached-generations dir first and resume the run that produced
+    # them — init_wandb needs that run id.
     benchmarks = build_benchmarks(args)
     if not benchmarks:
         raise ValueError(

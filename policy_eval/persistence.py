@@ -283,9 +283,8 @@ def redacted_args_dict(args) -> Dict[str, Any]:
     """``ScriptArguments`` as a dict with API keys blanked out.
 
     The manifest and the wandb run config both serialise every flag, so a key
-    passed on the command line (rather than through its env var) would otherwise
-    be written to disk and to the wandb project, where it is visible to anyone
-    with read access to the run.
+    passed on the command line rather than through its env var would land on disk
+    and in the wandb project, readable by anyone with access to the run.
     """
     out = dataclasses.asdict(args)
     for k, v in out.items():
@@ -303,10 +302,10 @@ def write_manifest(
     RM identities, decoding budgets) so re-aggregation knows the provenance even
     after the checkpoints and the wandb run are gone.
 
-    ``wandb_run_id`` is the *live* run id (which differs from ``args`` whenever
-    this run created a run rather than resuming one). A later judge-only pass
-    over these generations reads it back to log onto the same run —
-    ``resolve_load_generations_source``.
+    ``wandb_run_id`` is the *live* run id, which differs from ``args`` whenever
+    this run created a run rather than resuming one. A later judge-only pass over
+    these generations reads it back to log onto the same run
+    (``resolve_load_generations_source``).
     """
     os.makedirs(per_example_dir, exist_ok=True)
     manifest: Dict[str, Any] = {

@@ -79,11 +79,11 @@ if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_into_dataclasses()
 
-    # Run manifest + provenance, written before anything can fail, so the SFT
-    # run and its slurm job stay recoverable from the checkpoints dir alone.
-    # GRPO records this dir as model_name_or_path, so eval links back to this
-    # run as related/base_policy. wandb is initialized here (not by the
-    # trainer's WandbCallback) so the run id lands in the same write.
+    # Run manifest + provenance, written before anything can fail, so this run
+    # and its slurm job stay recoverable from the checkpoints dir alone. GRPO
+    # records that dir as model_name_or_path, so eval links back here as
+    # related/base_policy. wandb is initialized here rather than by the trainer's
+    # WandbCallback so the run id lands in the same write.
     if os.environ.get("RANK", "0") == "0":
         from data_utils import write_run_manifest
         from run_provenance import (

@@ -1,20 +1,20 @@
 """Analyse a `vector_judge_probe.py` sweep: rank judges and test the winner.
 
 Reads the per-game dumps a sweep wrote (``--dump_dir``) and answers the two
-questions a judge choice actually turns on:
+questions a judge choice turns on:
 
   1. Is each judge better than a coin flip at all?
-  2. Is the best judge significantly better than *every* other candidate, and is
-     its chosen thinking mode significantly better than the alternative?
+  2. Is the best judge significantly better than *every* other candidate, and its
+     chosen thinking mode better than the alternative?
 
-Every model judges the same prompt sample, so comparisons are **paired** over
-prompts: each bootstrap resample draws prompts (not judgments), which cancels
-prompt difficulty and is far tighter than treating two runs as independent.
+Every model judges the same prompt sample, so comparisons are **paired**: each
+bootstrap resample draws prompts, not judgments, which cancels prompt difficulty
+and is far tighter than treating two runs as independent.
 
-Comparing the winner against N rivals is N simultaneous tests, so the
-family-wise error rate is controlled with a Holm-Bonferroni step-down over the
-paired bootstrap p-values -- otherwise "significant vs all 5" would be roughly a
-1-in-4 coin flip at alpha=0.05 rather than 1-in-20.
+Comparing the winner against N rivals is N simultaneous tests, so the family-wise
+error rate is controlled with a Holm-Bonferroni step-down over the paired
+bootstrap p-values -- otherwise "significant vs all 5" is roughly a 1-in-4 coin
+flip at alpha=0.05 rather than 1-in-20.
 
 Usage:
     python analyze_judge_sweep.py --sweep_dir <dir with dumps/ and results.jsonl>

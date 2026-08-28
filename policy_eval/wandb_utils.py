@@ -74,27 +74,24 @@ def init_wandb(args) -> Optional[object]:
 def eval_provenance_fields(args) -> dict:
     """Slurm jobs and links to the runs this eval depends on.
 
-    Logged as config so a run can be *found* by them (filter on
-    ``slurm/job_id``) and so every upstream artifact is one click away:
+    Logged as config so a run can be *found* by them (filter on ``slurm/job_id``)
+    and every upstream artifact is one click away:
 
-      - ``slurm/*``        this eval job (or ``slurm/judge/*`` for a judge-only
-                           pass, which resumes the generating eval's run and
-                           must not overwrite its job id)
-      - ``slurm/judge/*``  the judge pass queued by evaluate_policy.sh, known
-                           here because the shell submits it before starting
-                           python and exports its id
+      - ``slurm/*``        this eval job (``slurm/judge/*`` for a judge-only
+                           pass, which resumes the generating eval's run and must
+                           not overwrite its job id)
+      - ``slurm/judge/*``  the judge pass evaluate_policy.sh queued before
+                           starting python, whose id it exports
       - ``related/*``      the GRPO run being evaluated, the SFT/base policy it
-                           started from, and the RMs — resolved from each one's
-                           run manifest, so they carry wandb urls and their own
-                           slurm jobs
+                           started from, and the RMs — from each one's run
+                           manifest, so they carry wandb urls and slurm jobs
 
-    Best-effort throughout: missing manifests and running off slurm just mean
-    fewer fields.
+    Best-effort: missing manifests or running off slurm just mean fewer fields.
     """
     own_prefix = "slurm/judge" if args.load_generations else "slurm"
     fields = dict(slurm_fields(prefix=own_prefix))
-    # Only when the shell actually queued one: slurm_fields falls back to *this*
-    # process's job id, which would label the eval job as the judge job.
+    # Only when the shell actually queued one -- slurm_fields would otherwise
+    # fall back to this process's id, labelling the eval job as the judge job.
     queued_judge = os.environ.get("JUDGE_SLURM_JOB_ID")
     if queued_judge:
         fields.update(slurm_fields(prefix="slurm/judge", job_id=queued_judge))

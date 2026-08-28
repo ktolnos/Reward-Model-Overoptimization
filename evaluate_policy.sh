@@ -34,45 +34,37 @@
 # Arbitrary benchmark subset:
 #     sbatch evaluate_policy.sh --benchmarks ifeval,preference,arena_hard
 #
-# The LLM judge runs through the Vector Institute inference proxy by default (no
-# GPU used by the judge; needs VECTOR_INFERENCE_API_KEY, exported from ~/.bashrc
-# which this script sources), on gpt-oss-120b in non-thinking mode -- see
-# LLM_JUDGE_MODEL below for why, and note thinking mode is measurably not better
-# and much slower. Judge inline in THIS job instead of the auto-queued one, pick
-# another proxy model, or fall back to a local vLLM judge:
-#     sbatch evaluate_policy.sh --vector_judge
-#     sbatch evaluate_policy.sh --vector_judge --judge_thinking
+# The judge runs through the Vector proxy on gpt-oss-120b, non-thinking (needs
+# VECTOR_INFERENCE_API_KEY; see LLM_JUDGE_MODEL below). Judge inline in THIS job
+# rather than the auto-queued one, pick another model, or go local:
+#     sbatch evaluate_policy.sh --vector_judge [--judge_thinking]
 #     sbatch evaluate_policy.sh --judge_model Qwen3_5-122B-A10B
 #     sbatch evaluate_policy.sh --vllm_judge --judge_model google/gemma-4-31B-it
 #
-# The proxy's RPM budget is shared across the whole project, so the judge paces
-# itself (--judge_rpm, default 100 under the observed 120 cap). For a whole-run
-# judge pass, the async Batch API trades latency for freedom from that budget:
+# The proxy's RPM budget is project-wide, so the judge paces itself (--judge_rpm,
+# default 100 under the observed 120 cap). The async Batch API runs against a
+# separate quota instead, trading latency for it:
 #     sbatch evaluate_policy.sh --vector_judge --judge_batch_api
 #
-# Judge only cached generations through the proxy (no regeneration, no RMs):
-#     sbatch evaluate_policy.sh --llm_judge_on_cached --vector_judge
+# Judge only cached generations (no regeneration, no RMs):
+#     sbatch evaluate_policy.sh --llm_judge_on_cached
 #
 # Other overrides (all optional): --run_name, --checkpoint, --kl_base_model_path,
 # --ifeval_thinking, --evaluate_chosen_responses, --no_secondary_rm,
 # --with_training_rm, --with_llm_judge, --vllm_judge, --judge_all_checkpoints,
 # --judge_reasoning_effort, --judge_max_parallel, --judge_max_new_tokens.
 #
-# The LLM judge runs on the SELECTED checkpoint (sibling-RM argmax) plus the
-# FINAL one by default, rather than on all ~20: those are the only checkpoints
-# whose judge numbers are read, and the pair is what would expose an
-# overoptimized gold RM. To narrow or widen that set:
+# The judge runs on the SELECTED checkpoint (sibling-RM argmax) plus the FINAL
+# one, not all ~20: those are the only ones whose judge numbers are read, and the
+# pair is what would expose an overoptimized gold RM. To narrow or widen:
 #     sbatch evaluate_policy.sh --with_llm_judge --judge_no_final
 #     sbatch evaluate_policy.sh --with_llm_judge --judge_all_checkpoints
 #
-# The judge is NOT run inside this job by default. This job queues
-# judge_cached.sh -- GPU-free, inheriting this job's qos/partition/account,
-# chained afterok on it, and serialized against other judge jobs -- so a plain
-#     sbatch evaluate_policy.sh
-# gets you generation + RM/IFEval/KL here and the judge in its own CPU job right
-# after, with its metrics on this same wandb run. Suppress with --no_auto_judge;
-# to judge inline in this job instead, pass --with_llm_judge (which also skips
-# the auto-submission).
+# The judge is NOT run inside this job by default: this job queues
+# judge_cached.sh (GPU-free, chained afterok, serialized against other judge
+# jobs), so a plain `sbatch evaluate_policy.sh` gets generation + RM/IFEval/KL
+# here and the judge in its own CPU job right after, on this same wandb run.
+# Suppress with --no_auto_judge; --with_llm_judge judges inline instead.
 #
 # Debug mode (subsamples examples, only the first checkpoint, and suffixes
 # outputs / the wandb run name with _debug):
@@ -108,47 +100,39 @@ SIBLING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/2
 #GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Qwen3-8B"
 GOLD_RM_NAME="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 
-# LLM judge. Used for the preference benchmark and, together with the gold RM,
-# for arena_hard. The same model serves both benchmarks (loaded once).
-#
-# Two backends:
-#   vector - Vector Institute inference proxy (https://proxy.vectorinstitute.ai/v1),
-#            OpenAI-compatible. Needs VECTOR_INFERENCE_API_KEY in the environment
-#            (it is exported from ~/.bashrc, which this script sources). THE
-#            DEFAULT: no GPU is used by the judge at all, so it neither competes
-#            with the policy for the node nor spends minutes loading a large
-#            model, and the judge pass can run as its own GPU-free job.
-#   vllm   - local open-weight model on this node's GPU (no API quota, but it
-#            has to share the node and load a large model). Select with
-#            --vllm_judge.
+# LLM judge, serving the preference benchmark and (with the gold RM) arena_hard.
+#   vector - Vector proxy (https://proxy.vectorinstitute.ai/v1), OpenAI-compatible.
+#            THE DEFAULT: uses no GPU, so it neither competes with the policy for
+#            the node nor spends minutes loading a model, and the judge pass can
+#            run as its own GPU-free job. Needs VECTOR_INFERENCE_API_KEY.
+#   vllm   - local model on this node's GPU (no API quota, but shares the node).
+#            Select with --vllm_judge.
 LLM_JUDGE_BACKEND="vector"
 
-# The judge model, for whichever backend is selected -- there is deliberately no
-# per-backend default, so switching backends never silently switches the judge
-# too. This is a proxy model id; --vllm_judge needs an HF path, so pass
-# --judge_model with it.
-# See llm_judge_config_eval.md. On 500 deduped helpsteer3-qwen35_annotated_human
-# validation prompts the top four models are statistically INDISTINGUISHABLE on
-# agreement with the human labels, so the pick is made on the other axes:
-# gpt-oss-120b drops 0/500 prompts, has the highest throughput, and -- decisively
-# -- is from a different model family than the Qwen policies and RMs, so it
-# cannot self-prefer policy rollouts the way a Qwen judge might. It is ~0.03
-# weaker on non-English prompts than the Qwen judges, which is the known cost.
+# One model for whichever backend is selected, so switching backends never
+# silently switches the judge too. This is a proxy model id; --vllm_judge needs
+# an HF path, so pass --judge_model with it.
+#
+# Why gpt-oss-120b (llm_judge_config_eval.md): on 500 deduped
+# helpsteer3-qwen35_annotated_human validation prompts the top four models are
+# statistically INDISTINGUISHABLE on agreement with the human labels, so the pick
+# is made on the other axes -- 0/500 dropped, highest throughput, and decisively a
+# different model family from the Qwen policies and RMs, so it cannot self-prefer
+# policy rollouts. Costs ~0.03 on non-English prompts vs the Qwen judges.
 # Do NOT use Nemotron-3-Nano-Omni-30B-A3B: it decides 57% of prompts by answer
-# position rather than content (and is fast with zero drops, so speed and
-# failure counters both endorse it -- only the flip rate catches it).
+# position rather than content, which only the flip rate catches -- it is fast
+# with zero drops, so speed and failure counters both endorse it.
 LLM_JUDGE_MODEL="gpt-oss-120b"
 # Client-side pacing, overriding the provider's default with --judge_rpm.
 # Empty = the provider decides (Vector proxy: 100/min, under its observed
 # 120 project-wide cap; OpenRouter: unpaced). 0 disables pacing.
 LLM_JUDGE_RPM=""
 # Measured (llm_judge_config_eval.md): the judge is concurrency-bound, not
-# rate-limit-bound -- at 8 the 100 RPM budget is never reached. 8 -> 32 buys
-# +10% throughput on a fast judge and +61% on a slow one. The cost is that the
-# server queues: per-request latency grows ~linearly with concurrency once
-# saturated (gpt-oss 5.4s -> 19.6s mean), and the budget is shared with the rest
-# of the project. Lower this to 16 (most of the gain, half the latency) if the
-# proxy is busy or requests start timing out.
+# rate-limit-bound -- at 8 the 100 RPM budget is never reached, and 8 -> 32 buys
+# +10% throughput on a fast judge, +61% on a slow one. The cost is server-side
+# queueing: latency grows ~linearly with concurrency once saturated (gpt-oss
+# 5.4s -> 19.6s mean). Drop to 16 (most of the gain, half the latency) if the
+# proxy is busy or requests time out.
 LLM_JUDGE_MAX_PARALLEL="32"
 # auto = derive from the thinking flag (high when thinking, low when not).
 # gpt-oss models always reason (harmony format); 'low' is as close to
@@ -190,23 +174,20 @@ EVAL_TEMPERATURE=""
 # Turn off with --judge_all_checkpoints (e.g. --only_arena_hard --with_llm_judge).
 JUDGE_SELECTED_ONLY=1
 
-# Judge the FINAL checkpoint alongside the selected one (one extra judged
-# checkpoint out of ~20). The pair is what separates "the sibling RM picked a
-# good checkpoint" from "the gold RM was itself overoptimized": if the gold RM
-# ranks the final checkpoint at or above the selected one but the LLM judge
-# ranks it below, the gold signal degraded over training. No-op when the
-# selected checkpoint already is the last. Turn off with --judge_no_final.
+# Judge the FINAL checkpoint alongside the selected one -- one extra checkpoint
+# out of ~20. The pair separates "the sibling RM picked well" from "the gold RM
+# was itself overoptimized": if the gold RM ranks the final checkpoint at or
+# above the selected one but the judge ranks it below, the gold signal degraded
+# over training. No-op when the selected one is already last (--judge_no_final).
 JUDGE_FINAL=1
 
-# Auto-submit the GPU-free LLM-judge pass (judge_cached.sh) over this run's
-# cached generations, chained afterok on this job. On by default so the normal
-# workflow is "sbatch evaluate_policy.sh" and nothing else: the judge then runs
-# in its own CPU-only job, inherits this job's qos/partition, and serializes
-# against other judge jobs (--dependency=singleton) because the proxy's RPM
-# budget is shared project-wide while the client-side pacing is per-process.
-# Skipped automatically when the judge already ran inline (--with_llm_judge),
-# when this IS the judge pass (--load_generations), or off slurm.
-# Turn off with --no_auto_judge.
+# Auto-submit the GPU-free judge pass (judge_cached.sh) over this run's cached
+# generations, chained afterok on this job, so the normal workflow is just
+# "sbatch evaluate_policy.sh". It inherits this job's qos/partition and
+# serializes against other judge jobs (--dependency=singleton), because the
+# proxy's RPM budget is project-wide while the pacing is per-process. Skipped
+# when the judge already ran inline (--with_llm_judge), when this IS the judge
+# pass (--load_generations), or off slurm. Turn off with --no_auto_judge.
 AUTO_JUDGE=1
 
 # Debug mode: subsamples examples, uses only the first checkpoint, and
@@ -236,23 +217,21 @@ while [[ "$#" -gt 0 ]]; do
         --no_secondary_rm) NO_SECONDARY_RM=1 ;;
         --with_training_rm) WITH_TRAINING_RM=1 ;;
         --with_llm_judge) WITH_LLM_JUDGE=1 ;;
-        # Judge through the Vector proxy (the default backend) in THIS job rather
-        # than in the auto-queued one. Implies --with_llm_judge.
+        # Judge in THIS job rather than the auto-queued one. Implies
+        # --with_llm_judge; the backend is already the default.
         --vector_judge) WITH_LLM_JUDGE=1; LLM_JUDGE_BACKEND="vector" ;;
-        # Judge with a local open-weight model on this job's GPU instead of the
-        # proxy. Implies --with_llm_judge, and needs --judge_model with an HF
-        # path, since LLM_JUDGE_MODEL above is a proxy model id.
+        # Judge locally on this job's GPU. Implies --with_llm_judge, and needs
+        # --judge_model with an HF path (LLM_JUDGE_MODEL is a proxy model id).
         --vllm_judge) WITH_LLM_JUDGE=1; LLM_JUDGE_BACKEND="vllm" ;;
-        # Pick the judge model for whichever backend is selected, e.g.
-        # --judge_model Qwen3_5-122B-A10B.
+        # e.g. --judge_model Qwen3_5-122B-A10B
         --judge_model) WITH_LLM_JUDGE=1; LLM_JUDGE_MODEL="$2"; shift ;;
         --judge_thinking) JUDGE_THINKING=1 ;;
         --judge_reasoning_effort) LLM_JUDGE_REASONING_EFFORT="$2"; shift ;;
         --judge_rpm) LLM_JUDGE_RPM="$2"; shift ;;
         --judge_max_parallel) LLM_JUDGE_MAX_PARALLEL="$2"; shift ;;
         --judge_max_new_tokens) LLM_JUDGE_MAX_NEW_TOKENS="$2"; shift ;;
-        # Async OpenAI-style Batch API instead of live requests: runs against the
-        # batch quota rather than the live RPM budget, at the cost of latency.
+        # Async Batch API: runs against the batch quota rather than the live
+        # RPM budget, at the cost of latency.
         --judge_batch_api) JUDGE_BATCH_API=1 ;;
         --judge_all_checkpoints) JUDGE_SELECTED_ONLY="" ;;
         # Judge the selected checkpoint alone, without the final one.
@@ -274,13 +253,10 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# arena_hard is scored by the gold RM, plus the LLM judge when --with_llm_judge
-# is passed (both judges run on the same arena_hard responses).
-# In --load_generations mode no RM is loaded, so arena_hard is judged by the LLM
-# judge alone.
-# A judge-only pass over cached generations loads no reward model and no policy
-# vLLM, so unless the judge itself is local vLLM there is nothing to put on a
-# GPU -- see judge_cached.sh, which submits exactly this without --gres.
+# arena_hard is scored by the gold RM, plus the LLM judge under --with_llm_judge
+# (both on the same responses). Under --load_generations no RM is loaded, so the
+# LLM judge scores it alone -- and with no RM and no policy vLLM there is nothing
+# to put on a GPU unless the judge itself is local (see judge_cached.sh).
 DEVICE="cuda"
 if [ -n "${LOAD_GENERATIONS:-}" ] && [ "$LLM_JUDGE_BACKEND" != "vllm" ]; then
     DEVICE="cpu"
@@ -308,14 +284,12 @@ echo "WandB Run ID (resume): ${WANDB_RUN_ID:-<new run>}"
 echo "Benchmarks: $BENCHMARKS"
 echo "Arena-Hard judges: $ARENA_HARD_JUDGES"
 echo "LLM judge: $([ -n "${WITH_LLM_JUDGE:-}" ] && echo "enabled ($LLM_JUDGE_BACKEND: $LLM_JUDGE_MODEL)" || echo disabled)"
-if [ "$LLM_JUDGE_BACKEND" = "vector" ] && [ -n "${WITH_LLM_JUDGE:-}" ]; then
+if [ "$LLM_JUDGE_BACKEND" = "vector" ] && [ -n "${WITH_LLM_JUDGE:-}${AUTO_JUDGE:-}" ]; then
     echo "  Vector proxy: rpm=${LLM_JUDGE_RPM:-<provider default: 100>} max_parallel=$LLM_JUDGE_MAX_PARALLEL reasoning_effort=$LLM_JUDGE_REASONING_EFFORT"
     echo "  Judge thinking: $([ -n "${JUDGE_THINKING:-}" ] && echo enabled || echo disabled)"
     echo "  Batch API: $([ -n "${JUDGE_BATCH_API:-}" ] && echo enabled || echo disabled)"
-    # Only when the proxy judge runs in THIS process. A run that merely queues
-    # the judge job must not die over a key it never uses; the queued job comes
-    # back through here with --llm_judge_on_cached and fails its own check. The
-    # auto-judge block below warns at submit time so that is not a surprise.
+    # Fail now rather than in the queued judge job hours from now, after the GPU
+    # work is already paid for.
     if [ -z "${VECTOR_INFERENCE_API_KEY:-}" ]; then
         echo "ERROR: the vector judge needs VECTOR_INFERENCE_API_KEY in the environment." >&2
         exit 1
@@ -325,35 +299,27 @@ echo "Judge selected checkpoint only: $([ -n "${JUDGE_SELECTED_ONLY:-}" ] && ech
 echo "Load cached generations: $([ -n "${LOAD_GENERATIONS:-}" ] && echo "enabled (${LOAD_GENERATIONS_DIR:-auto-discover})" || echo disabled)"
 echo "Debug mode: ${DEBUG_MODE:+enabled}${DEBUG_MODE:-disabled}"
 
-# Per-example log dir. Derived exactly as evaluate_policy.py would, but pinned
-# here and passed explicitly so the auto-submitted judge job can be pointed at
-# this run's generations with no chance of the two derivations drifting.
+# Derived exactly as evaluate_policy.py would, but pinned here and passed
+# explicitly so the auto-submitted judge job can be aimed at this run's
+# generations with no chance of the two derivations drifting.
 PER_EXAMPLE_DIR="${OUTPUT_FILE%.csv}$([ -n "${DEBUG_MODE:-}" ] && echo _debug)_per_example"
 
 # ---------------------------------------------------------------------------
-# Queue the GPU-free judge pass over this run's generations (see AUTO_JUDGE).
-# Submitted BEFORE python starts so its job id can be logged into the eval's
-# wandb run (slurm/judge/job_id) rather than only existing in this log.
-# --kill-on-invalid-dep: if this eval fails, afterok is never satisfied and the
-# queued judge job is cancelled instead of sitting pending forever.
+# Queue the GPU-free judge pass (see AUTO_JUDGE). Submitted BEFORE python starts
+# so its job id reaches the eval's wandb run (slurm/judge/job_id) rather than
+# only this log. --kill-on-invalid-dep: if this eval fails, afterok is never
+# satisfied and the queued job is cancelled rather than pending forever.
 # ---------------------------------------------------------------------------
 JUDGE_SLURM_JOB_ID=""
 if [ -n "${AUTO_JUDGE:-}" ] && [ -z "${LOAD_GENERATIONS:-}" ] \
    && [ -z "${WITH_LLM_JUDGE:-}" ] && [ -n "${SLURM_JOB_ID:-}" ] \
    && command -v sbatch >/dev/null 2>&1; then
-    # The queued job judges through the proxy, so a key it cannot see is a
-    # failure hours from now, after the GPU work is already paid for.
-    if [ "$LLM_JUDGE_BACKEND" = "vector" ] && [ -z "${VECTOR_INFERENCE_API_KEY:-}" ]; then
-        echo "WARNING: VECTOR_INFERENCE_API_KEY is not set; the queued judge job will" >&2
-        echo "  fail on it. Export it in ~/.bashrc, or pass --no_auto_judge." >&2
-    fi
     JUDGE_ARGS=(--checkpoint "$CHECKPOINTS_DIR" --load_generations_dir "$PER_EXAMPLE_DIR")
     [ -z "${JUDGE_SELECTED_ONLY:-}" ] && JUDGE_ARGS+=(--judge_all_checkpoints)
     [ -z "${JUDGE_FINAL:-}" ] && JUDGE_ARGS+=(--judge_no_final)
     [ -n "${DEBUG_MODE:-}" ] && JUDGE_ARGS+=(--debug)
-    # Inherit this job's scheduling context so the judge lands in the same
-    # place in the queue policy instead of falling back to judge_cached.sh's
-    # defaults.
+    # Inherit this job's scheduling context so the judge lands in the same place
+    # in the queue policy, not on judge_cached.sh's defaults.
     SBATCH_OPTS=(--parsable
                  --dependency="singleton,afterok:${SLURM_JOB_ID}"
                  --kill-on-invalid-dep=yes)

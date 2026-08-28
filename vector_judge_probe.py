@@ -1,15 +1,14 @@
 """Probe the Vector Institute inference proxy as an LLM-as-judge backend.
 
-Answers the questions you need settled before committing an eval sweep to it:
-how fast is it, does the model behave in thinking *and* non-thinking mode, and
-does it actually pick the right answer?
+Settles what you need before committing an eval sweep to it: how fast is it, does
+the model behave in thinking *and* non-thinking mode, does it pick the right
+answer?
 
 The material is real preference data: each prompt's dataset ``chosen`` response
-is judged against its ``rejected`` one, through the same ``LLMJudge``
-(Arena-Hard 2-game position swap + verdict parse) that ``evaluate_policy.py``
-uses. Because the dataset already tells us which response is preferred, the
-judge's agreement with it is a direct accuracy read -- a judge that scores ~0.5
-is guessing, and one below 0.5 has its positions crossed.
+is judged against its ``rejected`` one, through the same ``LLMJudge`` (Arena-Hard
+2-game position swap + verdict parse) ``evaluate_policy.py`` uses. Since the
+dataset already says which is preferred, agreement with it reads as accuracy
+directly -- ~0.5 is guessing, below 0.5 has the positions crossed.
 
 Usage (needs VECTOR_INFERENCE_API_KEY in the environment):
 

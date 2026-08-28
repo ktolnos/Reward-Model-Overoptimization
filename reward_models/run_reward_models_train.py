@@ -84,14 +84,13 @@ training_args.max_length = _max_conv_tokens
 training_args.remove_unused_columns = False
 training_args.ddp_find_unused_parameters = False
 
-# Run manifest + provenance, written before training so the RM's wandb run and
-# slurm job are recoverable from its checkpoints dir alone. This is what lets a
-# downstream GRPO/eval run turn "--training_rm_path .../logs/checkpoint-142"
-# into a link back to the run that trained it (run_provenance.related_run_fields
-# reads this file; it searches the checkpoint dir and its parent, so a manifest
-# in the logs dir is found from any checkpoint-N inside it).
-# wandb is initialized here rather than by the trainer's WandbCallback so the
-# run id lands in the same write; the callback reuses an already-active run.
+# Run manifest + provenance, written before training so this RM's wandb run and
+# slurm job are recoverable from its checkpoints dir alone -- what lets a
+# downstream GRPO/eval run turn "--training_rm_path .../logs/checkpoint-142" into
+# a link back here (related_run_fields searches the checkpoint dir and its
+# parent, so a manifest in the logs dir is found from any checkpoint-N).
+# wandb is initialized here rather than by the trainer's WandbCallback so the run
+# id lands in the same write; the callback reuses an already-active run.
 if os.environ.get("RANK", "0") == "0":
     from data_utils import write_run_manifest
     from run_provenance import (

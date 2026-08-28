@@ -14,8 +14,8 @@ components in this package:
   the ``--judge_selected_checkpoint_only`` code path — judge the selected (and,
   by default, the final) checkpoint instead of all of them.
 - ``run_load_generations``/``resolve_load_generations_source``: the
-  ``--load_generations`` code path — judge cached policy responses from a prior
-  run (no vLLM, no RMs), on that run's wandb run.
+  ``--load_generations`` code path — judge a prior run's cached responses (no
+  vLLM, no RMs), on that run's wandb run.
 
 Keeping these out of ``evaluate_policy.py`` makes the entry point easy to read
 and these helpers testable in isolation.
@@ -735,12 +735,11 @@ def checkpoints_to_judge(
     """The checkpoints the deferred judge runs on: ``{selected} | {final}``.
 
     The *selected* checkpoint (sibling-RM argmax) is the one whose judge numbers
-    are reported, and is what makes runs comparable to each other. The *final*
-    checkpoint is judged alongside it (``--judge_final_checkpoint``, on by
-    default) because the pair answers a question neither point answers alone: if
-    the gold RM ranks the final checkpoint at or above the selected one but the
-    judge ranks it below, the gold RM itself was overoptimized. That costs one
-    extra judged checkpoint out of ~20, not the whole sweep.
+    are reported, and what makes runs comparable. The *final* one is judged
+    alongside it (``--judge_final_checkpoint``) because the pair answers what
+    neither answers alone: if the gold RM ranks the final checkpoint at or above
+    the selected one but the judge ranks it below, the gold RM was itself
+    overoptimized. One extra checkpoint out of ~20, not the whole sweep.
 
     Collapses to a single checkpoint when the selected one *is* the last.
     """
@@ -966,9 +965,8 @@ def wandb_run_id_from_generations_dir(load_dir: str) -> Optional[str]:
     """The wandb run id of the eval that produced ``load_dir``, if recorded.
 
     ``write_manifest`` stamps the live run id into ``_manifest.json``. Manifests
-    written before that (and runs with wandb disabled) have no top-level id; fall
-    back to the resumed id in the recorded args, which is set only when *that*
-    run was itself a resume. Returns ``None`` when nothing is recoverable.
+    predating that (and runs with wandb disabled) have no top-level id; fall back
+    to the recorded args' id, set only when *that* run was itself a resume.
     """
     path = os.path.join(load_dir, "_manifest.json")
     try:
@@ -984,17 +982,15 @@ def resolve_load_generations_source(args, benchmarks) -> Optional[str]:
     """Pin the cached-generations dir and inherit its wandb run, before wandb init.
 
     A judge-only pass (``--load_generations``) scores a *previous* eval's
-    responses, so its metrics belong on that eval's wandb run — otherwise the
-    judge numbers land in a second run that shares neither the RM curves nor the
-    selection metric they have to be read against. Resolving the source dir here
-    rather than inside ``run_load_generations`` is what makes that possible: the
-    run id has to be known before ``init_wandb``.
+    responses, so its metrics belong on that eval's run — otherwise they land in
+    a second run holding neither the RM curves nor the selection metric they have
+    to be read against. Hence resolving the dir here rather than in
+    ``run_load_generations``: the run id must be known before ``init_wandb``.
 
-    Writes the resolved dir back into ``args.load_generations_dir`` so the later
-    load uses exactly this dir (no second auto-discovery). An explicit
-    ``--wandb_run_id`` always wins; ``--disable_wandb`` skips the inheritance.
-    Returns the dir, or ``None`` when discovery is left to
-    ``run_load_generations`` (which raises the actionable error).
+    Writes the dir back into ``args.load_generations_dir`` so the later load uses
+    exactly it (no second auto-discovery). An explicit ``--wandb_run_id`` wins;
+    ``--disable_wandb`` skips the inheritance. ``None`` leaves discovery to
+    ``run_load_generations``, which raises the actionable error.
     """
     benchmark_names = [b.name for b in benchmarks if b.deferred_evaluators]
     if not benchmark_names:

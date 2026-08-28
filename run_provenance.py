@@ -1,26 +1,23 @@
 """Cross-component run provenance: slurm job ids and links between wandb runs.
 
-Every stage of the pipeline — SFT → RM training → GRPO → policy eval → the
-judge pass — runs as its own slurm job and opens its own wandb run, so a number
-in an eval run is the product of half a dozen jobs whose logs live in half a
-dozen ``slurm-<id>.out`` files. Reconstructing that chain from timestamps is
-exactly the kind of thing that goes wrong quietly.
+Every pipeline stage — SFT → RM training → GRPO → policy eval → the judge pass —
+is its own slurm job with its own wandb run, so a number in an eval run is the
+product of half a dozen jobs whose logs sit in half a dozen ``slurm-<id>.out``
+files. Reconstructing that chain from timestamps goes wrong quietly.
 
 So every stage records the same two things:
 
   1. **Its own slurm job**, under the *same* wandb field name in every project —
-     ``slurm/job_id`` (plus ``slurm/log``, the resolved StdOut path) — see
-     ``slurm_fields``. A stage that resumes another stage's run namespaces
-     itself instead of clobbering the original (the judge pass logs under
-     ``slurm/judge``).
-  2. **The same ids in the run manifest** it writes next to its checkpoints
-     (``manifest_slurm_fields``), so a *downstream* stage holding only a
-     checkpoint path can turn it back into a link to the run and job that
-     produced it — ``related_run_fields``.
+     ``slurm/job_id`` plus ``slurm/log`` (``slurm_fields``). A stage resuming
+     another's run namespaces itself instead of clobbering the original (the
+     judge pass logs under ``slurm/judge``).
+  2. **The same ids in the run manifest** next to its checkpoints
+     (``manifest_slurm_fields``), so a downstream stage holding only a checkpoint
+     path can turn it back into a link to the run that produced it
+     (``related_run_fields``).
 
-Everything here is best-effort: off slurm, with wandb disabled, or against a
-legacy run that predates the manifest, the helpers return empty dicts rather
-than raising. Provenance is never worth failing a training run over.
+All best-effort: off slurm, with wandb disabled, or against a legacy run with no
+manifest, these return empty dicts. Provenance is never worth failing a run over.
 """
 from __future__ import annotations
 
@@ -28,8 +25,7 @@ import os
 import subprocess
 from typing import Dict, Optional
 
-# The wandb field every stage logs its own slurm job under. Keep this stable:
-# its whole value is that one filter works across grpo / rm / sft / eval runs.
+# Keep stable: the whole value is that one filter works across every stage.
 SLURM_PREFIX = "slurm"
 RELATED_PREFIX = "related"
 
@@ -42,11 +38,10 @@ def slurm_job_id() -> Optional[str]:
 def slurm_log_path(job_id: Optional[str] = None) -> Optional[str]:
     """The StdOut path of a slurm job, via ``scontrol``.
 
-    Answers "where are the full logs" directly, instead of leaving the reader to
-    guess which ``slurm-<id>.out`` in which submit directory. Works for pending
-    jobs too, so a queued judge job can be linked before it starts. Returns None
-    when scontrol is unavailable (off-cluster) or the job has aged out of the
-    controller's memory.
+    Answers "where are the full logs" directly instead of leaving the reader to
+    guess which ``slurm-<id>.out`` in which submit dir. Works for pending jobs,
+    so a queued judge job can be linked before it starts. None when scontrol is
+    unavailable (off-cluster) or the job aged out of the controller's memory.
     """
     job_id = job_id or slurm_job_id()
     if not job_id:
@@ -69,9 +64,9 @@ def slurm_fields(
 ) -> Dict[str, str]:
     """Wandb fields describing a slurm job: ``<prefix>/job_id``, ``<prefix>/log``.
 
-    Default prefix/job are "this run's own job", which is what every stage logs.
-    Pass a prefix (``slurm/judge``) and an id to point at a *different* job —
-    e.g. the queued judge pass — without overwriting the run's own.
+    The defaults are this run's own job, which is what every stage logs. Pass a
+    prefix and an id to point at a *different* job — the queued judge pass —
+    without overwriting the run's own.
     """
     job_id = job_id or slurm_job_id()
     if not job_id:
@@ -86,9 +81,8 @@ def slurm_fields(
 def manifest_slurm_fields(job_id: Optional[str] = None) -> Dict[str, str]:
     """The same ids in run-manifest spelling (no slashes), for ``write_run_manifest``.
 
-    This is what makes ``related_run_fields`` work downstream: the manifest is
-    the only thing that survives next to the checkpoints once the shell's
-    environment is gone.
+    What makes ``related_run_fields`` work downstream: the manifest is the only
+    thing surviving next to the checkpoints once the shell's environment is gone.
     """
     job_id = job_id or slurm_job_id()
     if not job_id:
@@ -124,10 +118,9 @@ def wandb_manifest_fields() -> Dict[str, str]:
 def related_run_fields(label: str, path: Optional[str]) -> Dict[str, str]:
     """Fields linking to the run that produced ``path``.
 
-    ``path`` is a checkpoints dir (or a ``checkpoint-N`` inside one) belonging to
-    an *earlier* stage; its run manifest supplies the wandb url and slurm job.
-    The path itself is always recorded — for legacy runs with no manifest that
-    is still the one fact worth having.
+    ``path`` is an earlier stage's checkpoints dir (or a ``checkpoint-N`` inside
+    one); its run manifest supplies the wandb url and slurm job. The path itself
+    is always recorded — for a legacy run with no manifest it is all there is.
     """
     if not path:
         return {}
@@ -150,7 +143,7 @@ def attach_to_wandb(fields: Dict[str, str]) -> None:
     """Merge provenance fields into the live wandb run's config.
 
     ``allow_val_change`` because a resumed run (the judge pass) legitimately
-    re-writes fields the original run already set. No-op when wandb is off.
+    rewrites fields the original set. No-op when wandb is off.
     """
     if not fields:
         return

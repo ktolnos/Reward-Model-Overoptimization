@@ -1,16 +1,14 @@
 """--judge_selected_checkpoint_only: the judge runs on two checkpoints (L6).
 
-The deferred (LLM-judge) phase is the expensive one (~2.8k games per checkpoint
-against a hosted judge), and only a couple of checkpoints' judge numbers are
-read, so the flag trims the deferred cache to the sibling-RM argmax — resolved
-from this run's metric rows, or (under --load_generations) recomputed from the
-cached ``select`` per-example logs — plus the final checkpoint, which is what
-would expose an overoptimized gold RM.
+The deferred (LLM-judge) phase is the expensive one (~2.8k games per checkpoint),
+and only a couple of checkpoints' numbers are read, so the flag trims the
+deferred cache to the sibling-RM argmax — from this run's metric rows, or under
+--load_generations recomputed from the cached ``select`` per-example logs — plus
+the final checkpoint, which is what would expose an overoptimized gold RM.
 
-Also covers ``resolve_load_generations_source``: a judge-only pass has to pin
-its source dir and inherit the generating run's wandb id *before* wandb init,
-or its metrics land on a run that holds none of the curves they are read
-against.
+Also covers ``resolve_load_generations_source``: a judge-only pass must pin its
+source dir and inherit the generating run's wandb id *before* wandb init, or its
+metrics land on a run holding none of the curves they are read against.
 """
 import json
 import os
