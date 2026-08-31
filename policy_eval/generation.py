@@ -7,6 +7,8 @@ loop can mix-and-match:
 - ``update_vllm_weights``: hot-swap in checkpoint weights (+ prefix-cache reset).
 - ``generate_responses_vllm``: one generation pass for a batch of prompts.
 - ``teardown_vllm``: release GPU memory.
+- ``release_engine_cached_memory``: return the EngineCore's idle blocks to the
+  driver, so this process can use them for reward-model scoring.
 
 KL support: callers pass ``collect_logprobs=True`` to record token ids
 (``full_ids_list`` / ``prompt_lens_list``) on the ``GenerationResult``;
@@ -73,6 +75,33 @@ def update_vllm_weights(llm: LLM, model_path: str) -> None:
     # repeated prompt prefixes (same prompts every checkpoint, and the
     # teacher-forced KL passes share the full prompt+response prefix).
     llm.reset_prefix_cache()
+
+
+def release_engine_cached_memory(llm: LLM) -> None:
+    """Make the EngineCore release its reserved-but-idle GPU memory.
+
+    Generation (and the prompt_logprobs pass) drives the engine's allocator to
+    a high-water mark well above its ``gpu_memory_utilization`` budget, and it
+    keeps those blocks reserved. This process cannot see or use that slack, yet
+    it is the one that has to score the freshly generated responses with the
+    reward models it holds resident -- so call this after every engine pass,
+    before any RM forward pass. See ``WeightLoaderExtension`` for the failure
+    it prevents.
+
+    Cheap: only idle blocks go back (KV cache and CUDA-graph pools are live
+    allocations, not idle blocks). Measured on Qwen3-0.6B: 0.16s when it has
+    something to free, 2ms when it does not, and the pass right after pays no
+    refill penalty (0.524s vs 0.523s steady-state) -- against generation passes
+    that run for minutes. The blocks it reclaims are the ones left by irregular
+    peaks (the full-vocab logprob tensor, a 10k-token arena_hard prefill), not
+    the steady-state workspace, which stays reserved and live.
+    """
+    free_before, total = torch.cuda.mem_get_info(0)
+    llm.collective_rpc("release_cached_memory")
+    free_after, _ = torch.cuda.mem_get_info(0)
+    print(f"[engine-cache] released {(free_after - free_before) / 2**30:.2f} GiB "
+          f"(device free {free_before / 2**30:.2f} -> {free_after / 2**30:.2f} "
+          f"/ {total / 2**30:.2f} GiB)")
 
 
 def wait_for_gpu_memory(
@@ -287,6 +316,11 @@ def generate_responses_vllm(
     if gen_config.collect_logprobs:
         result.full_ids_list = full_ids_list
         result.prompt_lens_list = prompt_lens_list
+
+    # The benchmark's evaluators score these responses with the reward models
+    # resident in this process; the engine must give its generation slack back
+    # first or those forward passes find the card full.
+    release_engine_cached_memory(llm)
     return result
 
 
@@ -353,6 +387,12 @@ def teacher_forced_response_logprobs(llm: LLM, full_ids_list, prompt_lens_list):
         ]
         token_logprobs_list.append(tok_lps)
         mean_logprobs.append(float(np.mean(tok_lps)) if tok_lps else 0.0)
+
+    # This pass has the largest transient of any engine pass (the full-vocab
+    # float32 tensor above), and the benchmarks after it -- ifeval's gold-RM
+    # scoring, arena_hard's gold-RM judge -- run in this process. Give the
+    # slack back before they do.
+    release_engine_cached_memory(llm)
     return mean_logprobs, token_logprobs_list
 
 

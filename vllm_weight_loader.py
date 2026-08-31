@@ -36,5 +36,28 @@ class WeightLoaderExtension:
                 f"Missing (up to 10): {sorted(missing)[:10]}"
             )
         del hf_model, weights
+        self.release_cached_memory()
+
+    def release_cached_memory(self):
+        """Hand this worker's reserved-but-idle GPU blocks back to the driver.
+
+        The EngineCore's caching allocator keeps every block it ever reserved,
+        including the transients that sit outside gpu_memory_utilization: the
+        prompt_logprobs full-vocab tensor of the KL pass, and the prefill
+        activations for arena_hard's ~10k-token contexts. Reserved-but-idle
+        memory in this process is invisible to the parent, which keeps the
+        reward models resident for the whole checkpoint loop and scores each
+        benchmark right after generating it -- so without this the engine
+        ratchets up across a checkpoint and the parent's gold-RM forward pass
+        OOMs with the card full and nothing of its own left to free
+        (slurm-1186967: engine 43.84 GiB against a 23.72 GiB budget, parent
+        35.25 GiB of weights, 46 MiB free). Mirror image of the
+        ``empty_cache()`` in ``teacher_forced_response_logprobs``, which
+        releases the parent's cache so this process can grow.
+
+        The KV cache and the captured CUDA-graph pools are live allocations,
+        not idle cached blocks, so they are untouched: the engine keeps its
+        capacity and only the high-water slack goes back.
+        """
         gc.collect()
         torch.cuda.empty_cache()
