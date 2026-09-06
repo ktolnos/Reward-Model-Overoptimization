@@ -149,9 +149,6 @@ DATASET_NAME=""
 # Uncomment and set this if evaluating LoRA checkpoints
 #BASE_MODEL_NAME="Qwen/Qwen3-0.6B"
 
-# Output file
-OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).csv"
-
 # WandB settings
 WANDB_PROJECT="policy-evaluation"
 WANDB_RUN_NAME="policy_evaluation_$(date +%Y%m%d_%H%M%S)"
@@ -252,6 +249,14 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# Output file (and, below, the per-example dir derived from it). Named after the
+# run being evaluated, so this has to come AFTER the parse loop: derived up top it
+# would carry the default CHECKPOINTS_DIR into the filenames of every run launched
+# with --checkpoint. One timestamp for the CSV, the per-example dir, and the saved
+# eval dataset, so a run's artifacts share a stem instead of drifting by a second.
+RUN_STAMP="$(date +%Y%m%d_%H%M%S)"
+OUTPUT_FILE="evaluation_results${CHECKPOINTS_DIR##*/}_${RUN_STAMP}.csv"
 
 # arena_hard is scored by the gold RM, plus the LLM judge under --with_llm_judge
 # (both on the same responses). Under --load_generations no RM is loaded, so the
@@ -377,7 +382,7 @@ python evaluate_policy.py \
     $([ -n "${DATASET_NAME:-}" ] && echo "--dataset_name $DATASET_NAME") \
     $([ -n "${KL_BASE_MODEL_PATH:-}" ] && echo "--kl_base_model_path $KL_BASE_MODEL_PATH") \
     $([ -n "${EVAL_TEMPERATURE:-}" ] && echo "--eval_temperature $EVAL_TEMPERATURE") \
-    --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_$(date +%Y%m%d_%H%M%S).jsonl" \
+    --save_eval_dataset_path "evaluation_dataset_${CHECKPOINTS_DIR##*/}_${RUN_STAMP}.jsonl" \
     $([ -n "${DEBUG_MODE:-}" ] && echo "--debug True") \
     $([ ! -z "${BASE_MODEL_NAME:-}" ] && echo "--base_model_name $BASE_MODEL_NAME") \
     $([ ! -z "${SKIP_VALIDATION:-}" ] && echo "--skip_validation True") \

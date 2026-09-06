@@ -408,5 +408,8 @@ Confirmed **correct** (no action): BT RM scoring tokenization (BOS-strip +
 evaluator (k1 + k3 estimators vs configurable SFT base); Arena-Hard API judge
 upstream-compatibility.
 
-
-Proposed LLM judge: google/gemma-4-31B-it.
+Open questions:
+Temp 0 or 1 eval?
+- 0 is higher performance
+- but 1 can have new (lower prob) ways of reward hacking
+- but using 1 would overestimate the policies with collapsed entropy 

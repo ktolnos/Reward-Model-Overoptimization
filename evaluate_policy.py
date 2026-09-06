@@ -330,7 +330,7 @@ class ScriptArguments:
     max_length: Optional[int] = field(default=1024, metadata={"help": "Max prompt length"})
     max_new_tokens: Optional[int] = field(default=1024, metadata={"help": "Max new tokens"})
     eval_temperature: float = field(
-        default=1.0,
+        default=0.0,
         metadata={"help": "Policy sampling temperature for all policy generations "
                   "(preference/select/ifeval/arena_hard). Fixed across runs and "
                   "independent of the training temperature — higher temperature "
