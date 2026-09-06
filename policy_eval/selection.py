@@ -5,7 +5,8 @@ the selection split (``select/sibling_rm/mean``). After the main loop has
 produced per-checkpoint metrics on the validation/test split, this module:
 
     1. picks the checkpoint with the highest sibling-RM selection score, and
-    2. reports that checkpoint's main metrics (the numbers that go in a paper):
+    2. reports that checkpoint's main metrics -- and the final checkpoint's, for
+       comparison -- (the numbers that go in a paper):
        per-category Arena-Hard win_rate/sc_score, the macro-averaged Arena-Hard
        sc_score, the official strict IFEval accuracies, and the preference-split
        RM win-rate / style-controlled scores.
@@ -227,17 +228,58 @@ def build_selected_summary(row: dict, args) -> Dict[str, float]:
     }
 
 
+def log_role_summary(
+    role: str,
+    ckpt: int,
+    summary: Dict[str, float],
+    *,
+    selection_score: Optional[float] = None,
+) -> None:
+    """Write one checkpoint's headline metrics to the wandb run summary as ``<role>/*``.
+
+    ``role`` is ``selected`` or ``final``. Summary values, unlike the history
+    logged against the ``checkpoint`` axis, are per-run scalars: they are what
+    wandb's runs table and cross-run bar charts read, so these keys are what make
+    several training runs comparable on the checkpoint that actually gets
+    reported. Merges into whatever is already there, so a later judge-only pass
+    can add its metrics to the roles the full eval wrote. No-op without a run.
+    """
+    import wandb
+    if wandb.run is None:
+        return
+    wandb.run.summary[f"{role}/checkpoint"] = ckpt
+    if selection_score is not None:
+        wandb.run.summary[f"{role}/{SELECTION_METRIC}"] = float(selection_score)
+    for k, v in summary.items():
+        wandb.run.summary[f"{role}/{k}"] = v
+
+
 def report_selection(results_rows: List[dict], args) -> Optional[Dict]:
     """Pick the best checkpoint and report its headline metrics.
 
-    Logs the summary to the wandb run summary (prefixed ``selected/``), prints a
-    table, and writes ``<output_stem>_selected_summary.json``. No-op (returns
-    None) when the selection metric is absent from every row.
+    Logs two sets of run-summary values -- ``selected/*`` (the sibling-RM argmax)
+    and ``final/*`` (the last checkpoint) -- prints them side by side, and writes
+    ``<output_stem>_selected_summary.json``. Both roles are reported because the
+    pair is what exposes an overoptimized gold RM, and because a run-level scalar
+    per role is what makes several runs comparable. ``final/*`` needs no selection
+    signal, so it is logged even for a run without the ``select`` benchmark (which
+    returns None and writes no summary json, there being nothing to select).
     """
+    # Logged before the selection guard below: the last checkpoint is well defined
+    # with or without a selection signal, and the chained judge pass writes its
+    # `final/*` unconditionally too -- gating this would leave a run judged
+    # without 'select' with a half-populated role.
+    final_row = max(results_rows, key=lambda r: int(r["checkpoint"]))
+    final_ckpt = int(final_row["checkpoint"])
+    final_summary = build_selected_summary(final_row, args)
+    log_role_summary("final", final_ckpt, final_summary,
+                     selection_score=final_row.get(SELECTION_METRIC))
+
     picked = select_best_checkpoint(results_rows)
     if picked is None:
-        print(f"[selection] '{SELECTION_METRIC}' not found in any row; "
-              f"skipping checkpoint selection (was the 'select' benchmark run?).")
+        print(f"[selection] '{SELECTION_METRIC}' not found in any row; skipping "
+              f"checkpoint selection and reporting 'final/*' (checkpoint-"
+              f"{final_ckpt}) only (was the '{SELECTION_BENCHMARK}' benchmark run?).")
         return None
 
     ckpt, score, row = picked
@@ -248,27 +290,31 @@ def report_selection(results_rows: List[dict], args) -> Optional[Dict]:
           f"({SELECTION_METRIC}={score:.4f}, argmax over "
           f"{sum(1 for r in results_rows if SELECTION_METRIC in r)} checkpoints)")
     print("-" * 70)
-    print("Main metrics for the selected checkpoint:")
-    width = max((len(k) for k in summary), default=0)
-    for k in sorted(summary):
-        print(f"  {k:<{width}}  {summary[k]:.4f}")
+    print(f"Main metrics: selected (checkpoint-{ckpt}) vs final (checkpoint-{final_ckpt})")
+    keys = sorted(set(summary) | set(final_summary))
+    width = max((len(k) for k in keys), default=0)
+    print(f"  {'metric':<{width}}  {'selected':>10}  {'final':>10}")
+    for k in keys:
+        sel = f"{summary[k]:.4f}" if k in summary else "-"
+        fin = f"{final_summary[k]:.4f}" if k in final_summary else "-"
+        print(f"  {k:<{width}}  {sel:>10}  {fin:>10}")
     print("=" * 70 + "\n")
 
-    # wandb run summary: single headline values for the selected checkpoint.
-    import wandb
-    if wandb.run is not None:
-        wandb.run.summary["selected/checkpoint"] = ckpt
-        wandb.run.summary[f"selected/{SELECTION_METRIC}"] = score
-        for k, v in summary.items():
-            wandb.run.summary[f"selected/{k}"] = v
+    # wandb run summary: one headline value per role. The per-checkpoint curves
+    # live on the `checkpoint` axis and are NOT comparable across runs (each
+    # run's argmax lands on a different step, and runs differ in length); these
+    # role-keyed summary values are what a cross-run table or bar chart reads.
+    log_role_summary("selected", ckpt, summary, selection_score=score)
 
     payload = {
         "selected_checkpoint": ckpt,
+        "final_checkpoint": final_ckpt,
         "selection_metric": SELECTION_METRIC,
         "selection_score": score,
         "split": getattr(args, "split", None),
         "selection_split": getattr(args, "selection_split", None),
         "metrics": summary,
+        "final_metrics": final_summary,
     }
     out_stem = os.path.splitext(args.output_file)[0] if args.output_file else "evaluation_results"
     summary_path = f"{out_stem}_selected_summary.json"

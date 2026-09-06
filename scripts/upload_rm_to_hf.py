@@ -5,14 +5,21 @@ before uploading so from_pretrained works on any machine.
 
 Run on cluster: python scripts/upload_rm_to_hf.py
 """
+import getpass
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from huggingface_hub import HfApi
 
-RECOVERED_DIR = "/nas/ucb/eop/cache/alpaca_farm_models/reward-model-human"
+# Must match MODELS_DIR in scripts/recover_on_cluster.sh, which writes to the
+# 60-day-TTL share by default. Override with ALPACA_FARM_DIR.
+_ALPACA_FARM_DIR = os.environ.get(
+    "ALPACA_FARM_DIR", os.environ.get("NAS_TTL", f"/nas/ttl=60d/{getpass.getuser()}")
+)
+RECOVERED_DIR = f"{_ALPACA_FARM_DIR}/alpaca_farm_models/reward-model-human"
 REPO_ID = "ktolnos/alpaca-farm-reward-model-human"
 
 # Create a temporary copy with patched config

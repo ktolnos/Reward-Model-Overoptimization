@@ -212,8 +212,9 @@ assert np.allclose(df["ifeval/aggregate/strict_acc"],
 
 **Selection summary (`<stem>_selected_summary.json`):**
 - [ ] File exists; `selected_checkpoint` == argmax of `select/sibling_rm/mean`
-      over the CSV rows.
-- [ ] Every value in `metrics` matches that checkpoint's row in the CSV
+      over the CSV rows, and `final_checkpoint` == max checkpoint.
+- [ ] Every value in `metrics` (and in `final_metrics`, against the final row)
+      matches that checkpoint's row in the CSV
       (arena per-category win_rate/sc_score for hard_prompt + creative_writing,
       `arena_hard/aggregate/sc_score`, the two ifeval strict accs +
       `ifeval/aggregate/strict_acc`, and `{secondary_rm,gold_rm}/{sc_score,
@@ -225,15 +226,33 @@ import json, pandas as pd
 s = json.load(open("<stem>_selected_summary.json"))
 df = pd.read_csv("<output_file>.csv")
 assert s["selected_checkpoint"] == int(df.loc[df["select/sibling_rm/mean"].idxmax(), "checkpoint"])
-row = df[df["checkpoint"] == s["selected_checkpoint"]].iloc[0]
-for k, v in s["metrics"].items():
-    assert abs(row[k] - v) < 1e-9, k
+assert s["final_checkpoint"] == int(df["checkpoint"].max())
+for ckpt, metrics in ((s["selected_checkpoint"], s["metrics"]),
+                      (s["final_checkpoint"], s["final_metrics"])):
+    row = df[df["checkpoint"] == ckpt].iloc[0]
+    for k, v in metrics.items():
+        assert abs(row[k] - v) < 1e-9, (ckpt, k)
 ```
 
 **wandb run summary (cross-run comparison):**
-- [ ] `selected/checkpoint`, `selected/select/sibling_rm/mean`, and one
-      `selected/<metric>` per summary key appear in the run's summary (visible as
-      runs-table columns; usable in a cross-run Bar Chart panel).
+- [ ] `<role>/checkpoint`, `<role>/select/sibling_rm/mean`, and one
+      `<role>/<metric>` per summary key appear in the run's summary for BOTH
+      roles, `selected` and `final` (visible as runs-table columns; usable in a
+      cross-run Bar Chart panel).
+- [ ] After the chained judge pass (`judge_cached.sh`) finishes, the same run's
+      summary has gained `selected/<judge>/…` and `final/<judge>/…` keys — the
+      judge metrics are written by the judge job, not the eval job, so this is
+      the check that the two halves land on one run. Non-judge `selected/*`
+      values must be unchanged (the judge pass merges, never rewrites).
+- [ ] With `--judge_no_final`, no `final/<judge>/…` key is written and the eval
+      job's `final/*` values survive (the pass skips roles it did not judge).
+- [ ] A run without `select` (`--only_arena_hard`) still gets `final/*` (it needs
+      no selection signal) and no `selected/*`.
+- [ ] The judge pass aborts up front, before any judge call, if the cache's last
+      checkpoint is not the run's last one (`AssertionError`, "'final/\*' would
+      not describe the final checkpoint"). Force it by pointing
+      `--load_generations_dir` at a cache with the last `checkpoint-*` logs
+      removed.
 
 **Selector wiring:**
 - [ ] `--benchmarks` containing `select` with `--sibling_rm_path` unset/`none`
@@ -243,4 +262,5 @@ for k, v in s["metrics"].items():
       size/layers/vocab) raises before any model loads. A same-base, different-seed
       sibling passes (prints `sibling/training base match OK`).
 - [ ] `--only_ifeval` / `--only_arena_hard` / `--only_preference` drop `select`
-      and the run completes without a selection summary (prints a skip note).
+      and the run completes without a selection summary json (prints a skip note
+      naming the final checkpoint it reported instead).

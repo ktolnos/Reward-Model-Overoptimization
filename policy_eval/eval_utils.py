@@ -44,6 +44,8 @@ from .selection import (
     SELECTION_BENCHMARK,
     SELECTION_METRIC,
     SELECTION_SCORE_COLUMN,
+    build_selected_summary,
+    log_role_summary,
     select_best_checkpoint,
 )
 from .types import Benchmark, EvalContext, Example, GenerationResult
@@ -707,25 +709,24 @@ def selected_checkpoint_from_cache(load_dir: str) -> int:
     cached = _list_cached_checkpoints(load_dir, SELECTION_BENCHMARK)
     if not cached:
         raise FileNotFoundError(
-            f"--judge_selected_checkpoint_only: no cached '{SELECTION_BENCHMARK}' per-example "
-            f"logs in {load_dir}, so the selected checkpoint cannot be recovered. Re-run the "
-            f"generating eval with '{SELECTION_BENCHMARK}' in --benchmarks, or pass "
-            "--judge_selected_checkpoint_only False to judge every checkpoint."
+            f"no cached '{SELECTION_BENCHMARK}' per-example logs in {load_dir}, so the "
+            f"selected checkpoint cannot be recovered. Re-run the generating eval with "
+            f"'{SELECTION_BENCHMARK}' in --benchmarks."
         )
     best: Optional[Tuple[int, float]] = None
     for ckpt_num, path in cached:
         df = pd.read_json(path, lines=True) if path.endswith(".jsonl") else pd.read_parquet(path)
         if SELECTION_SCORE_COLUMN not in df.columns:
             raise ValueError(
-                f"--judge_selected_checkpoint_only: {path} has no '{SELECTION_SCORE_COLUMN}' "
-                "column; the cached run scored no sibling RM on the selection split."
+                f"{path} has no '{SELECTION_SCORE_COLUMN}' column; the cached run "
+                "scored no sibling RM on the selection split."
             )
         score = float(pd.to_numeric(df[SELECTION_SCORE_COLUMN]).mean())
         if best is None or score > best[1]:
             best = (ckpt_num, score)
     ckpt, score = best
-    print(f"[judge] selected checkpoint-{ckpt} ({SELECTION_METRIC}={score:.4f}, argmax over "
-          f"{len(cached)} cached checkpoints in {load_dir})")
+    print(f"[selection] selected checkpoint-{ckpt} ({SELECTION_METRIC}={score:.4f}, argmax "
+          f"over {len(cached)} cached checkpoints in {load_dir})")
     return ckpt
 
 
@@ -1028,6 +1029,34 @@ def resolve_load_generations_source(args, benchmarks) -> Optional[str]:
     return load_dir
 
 
+def log_judged_role_summaries(
+    results_rows: List[dict], args, selected_ckpt: Optional[int], final_ckpt: int,
+) -> None:
+    """``selected/*`` / ``final/*`` run-summary values from a judge-only pass.
+
+    The full eval writes these in ``report_selection``; this pass adds the judge
+    metrics to that same run afterwards, so it has to write the same keys or the
+    judge numbers stay invisible to a cross-run comparison. Only the roles this
+    pass actually judged are written -- a role it skipped (``--judge_no_final``,
+    or a cache restricted to one checkpoint) keeps whatever the eval left there
+    rather than being overwritten with holes.
+    """
+    rows_by_ckpt = {int(r["checkpoint"]): r for r in results_rows}
+    roles = [("final", final_ckpt)]
+    if selected_ckpt is not None:
+        roles.insert(0, ("selected", selected_ckpt))
+    for role, num in roles:
+        row = rows_by_ckpt.get(num)
+        if row is None:
+            print(f"[selection] {role} checkpoint-{num} was not judged in this pass; "
+                  f"no '{role}/*' summary values written")
+            continue
+        summary = build_selected_summary(row, args)
+        log_role_summary(role, num, summary)
+        print(f"[selection] wrote {len(summary)} '{role}/*' run-summary value(s) "
+              f"from checkpoint-{num}")
+
+
 def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: str) -> None:
     """Judge cached policy generations from a previous run — no vLLM, no RMs.
 
@@ -1070,14 +1099,44 @@ def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: s
             f"benchmarks {benchmark_names}."
         )
 
+    # Resolved once, over the FULL cache and before any restriction: the
+    # selection argmax and the last cached checkpoint name the two roles whose
+    # headline metrics this pass writes to the run summary (see below). Only
+    # --judge_selected_checkpoint_only actually needs the argmax, so a missing
+    # 'select' cache is fatal there and merely skips the summary otherwise.
+    all_cached_ckpts = {n for _, n in deferred_cache}
+    final_ckpt = max(all_cached_ckpts)
+    # 'final' here is the last *cached* checkpoint, while the eval job's `final/*`
+    # was the last *evaluated* one. An incomplete cache would silently make them
+    # disagree, and this pass would then stamp `final/checkpoint` with one
+    # checkpoint's number over another checkpoint's metrics.
+    ckpt_names, single_path, _ = list_checkpoints(args)
+    if single_path is None:  # a real checkpoint-* sweep, not a single-model run
+        last_on_disk = max(int(n.split("-")[1]) for n in ckpt_names)
+        assert final_ckpt == last_on_disk, (
+            f"the last checkpoint with cached generations is checkpoint-{final_ckpt}, "
+            f"but the run's last checkpoint is checkpoint-{last_on_disk}, so "
+            f"'final/*' would not describe the final checkpoint. Cached: "
+            f"{sorted(all_cached_ckpts)} in {load_dir} -- the cache is incomplete; "
+            f"re-run the generating eval, or point --load_generations_dir at a "
+            f"complete cache."
+        )
+    try:
+        selected_ckpt: Optional[int] = selected_checkpoint_from_cache(load_dir)
+    except (FileNotFoundError, ValueError) as e:
+        if args.judge_selected_checkpoint_only:
+            raise ValueError(
+                f"--judge_selected_checkpoint_only needs the selection signal: {e} "
+                "Or pass --judge_selected_checkpoint_only False to judge every "
+                "checkpoint."
+            ) from e
+        selected_ckpt = None
+        print(f"[selection] no 'selected/*' run-summary values from this pass: {e}")
+
     if args.judge_selected_checkpoint_only:
         deferred_cache = restrict_deferred_cache(
             deferred_cache,
-            checkpoints_to_judge(
-                selected_checkpoint_from_cache(load_dir),
-                {n for _, n in deferred_cache},
-                args,
-            ),
+            checkpoints_to_judge(selected_ckpt, all_cached_ckpts, args),
         )
 
     # The preference judge reads its baseline from example metadata; inject it
@@ -1114,5 +1173,12 @@ def run_load_generations(args, benchmarks, bench_examples, *, per_example_dir: s
             out = out.replace(".csv", "_debug.csv")
         pd.DataFrame(results_rows).to_csv(out, index=False)
         print(f"\nResults saved to {out}")
+
+    # report_selection() cannot run here -- these rows carry judge metrics only,
+    # not the selection metric -- so write the same `selected/*` / `final/*`
+    # summary keys directly, onto the generating run this pass resumed. Without
+    # this the judge numbers never reach the cross-run comparison, since the
+    # judge is exactly the part the full eval no longer runs itself.
+    log_judged_role_summaries(results_rows, args, selected_ckpt, final_ckpt)
 
     wandb_utils.finish()
