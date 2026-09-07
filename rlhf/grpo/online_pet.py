@@ -11,6 +11,7 @@ import random
 import wandb
 import gc
 
+from data_utils import set_pad_token_id
 from reward_models.load_datasets import load_train_eval_dataset
 from reward_utils import get_reward
 
@@ -96,7 +97,7 @@ class OnlinePETCallback(TrainerCallback):
                 )
                 lora_wrapped_rms = []
                 for rm in self.reward_models:
-                    rm.config.pad_token_id = self.policy_tokenizer.pad_token_id
+                    set_pad_token_id(rm, self.policy_tokenizer)
                     peft_model = get_peft_model(rm, lora_config)
                     lora_wrapped_rms.append(peft_model)
                     peft_model.print_trainable_parameters()

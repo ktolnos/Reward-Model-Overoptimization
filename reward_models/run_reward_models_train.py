@@ -15,7 +15,7 @@ from transformers import (
 from trl import RewardTrainer, RewardConfig
 import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
 from load_datasets import load_train_eval_dataset, build_dataset
-from data_utils import setup_tokenizer, get_length_config, DATASET_LENGTH_CONFIGS
+from data_utils import setup_tokenizer, set_pad_token_id, get_length_config, DATASET_LENGTH_CONFIGS
 from utils import (
     print_trainable_parameters,
     freeze_trainable_parameters,
@@ -190,7 +190,7 @@ if script_args.freeze_pretrained:
 
 model.config.num_labels = 1
 model.resize_token_embeddings(len(tokenizer))
-model.config.pad_token_id = tokenizer.pad_token_id
+set_pad_token_id(model, tokenizer)
 print_trainable_parameters(model)
 
 # Define the trainer parameters

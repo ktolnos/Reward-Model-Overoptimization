@@ -245,10 +245,8 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
     text_config = model.config.get_text_config() if hasattr(model.config, "get_text_config") else model.config
     if len(tokenizer) > text_config.vocab_size:
         model.resize_token_embeddings(len(tokenizer))
-    model.config.pad_token_id = tokenizer.pad_token_id
-    text_config.pad_token_id = tokenizer.pad_token_id
+    set_pad_token_id(model, tokenizer)
     if hasattr(model, "generation_config"):
-        model.generation_config.pad_token_id = tokenizer.pad_token_id
         # base_model_name, not the adapter dir: a LoRA checkpoint ships no
         # generation_config.json, and its vocab is the base model's anyway.
         model.generation_config.eos_token_id = get_generation_stop_token_ids(
@@ -256,6 +254,30 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
         )
 
     return model, tokenizer
+
+
+def set_pad_token_id(model, tokenizer):
+    """Propagate the tokenizer's pad id to every config transformers reads.
+
+    Nested configs (Qwen3.5's Qwen3_5Config, Gemma 4) keep ``pad_token_id`` on
+    ``text_config``, and that is the one transformers' sequence-classification
+    pooling reads (``config.get_text_config().pad_token_id`` in
+    modeling_layers.py). Setting only the top level leaves it ``None`` there,
+    which raises "Cannot handle batch sizes > 1 if no padding token is defined."
+    Shared by policy loading, RM training and RM scoring so the pooled position
+    is the same everywhere.
+    """
+    if getattr(tokenizer, "pad_token_id", None) is None:
+        return
+    text_config = (
+        model.config.get_text_config()
+        if hasattr(model.config, "get_text_config")
+        else model.config
+    )
+    model.config.pad_token_id = tokenizer.pad_token_id
+    text_config.pad_token_id = tokenizer.pad_token_id
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
 
 def strip_bos_if_present(text, tokenizer):

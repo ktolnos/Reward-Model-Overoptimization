@@ -178,7 +178,7 @@ def load_reward_model(
         AutoTokenizer,
     )
     import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
-    from data_utils import setup_tokenizer, setup_alpacafarm_gold_chat_template
+    from data_utils import setup_tokenizer, set_pad_token_id, setup_alpacafarm_gold_chat_template
     from rlhf.grpo.qrm_gemma_tokenizer import TokenizerWrapper
 
     if device is None:
@@ -225,8 +225,7 @@ def load_reward_model(
         )
         if use_device_map:
             model = model.to(device)
-        if getattr(tokenizer, "pad_token_id", None) is not None:
-            model.config.pad_token_id = tokenizer.pad_token_id
+        set_pad_token_id(model, tokenizer)
         model.eval()
         return model, tokenizer
 
@@ -257,8 +256,7 @@ def load_reward_model(
         model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
     else:
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **kwargs)
-    if getattr(tokenizer, "pad_token_id", None) is not None:
-        model.config.pad_token_id = tokenizer.pad_token_id
+    set_pad_token_id(model, tokenizer)
     _patch_grm_device_mismatch(model)
     model.eval()
     return model, tokenizer
