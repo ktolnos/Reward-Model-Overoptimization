@@ -28,7 +28,6 @@ import torch
 from vllm import LLM, SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel
 
-import qwen35_vllm_patch  # noqa: F401 — must be imported before any vLLM code
 from data_utils import (
     _get_lora_base_model_path,
     _is_lora_checkpoint,

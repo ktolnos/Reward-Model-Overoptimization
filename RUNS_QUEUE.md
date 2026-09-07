@@ -119,9 +119,9 @@ re-discovering a known breakage.
 - [ ] **C-vllm-loader** — vLLM weight loader accepts Gemma layout
   - Check: `vllm_weight_loader.load_weights_from_path` handles Gemma checkpoints
     (currently assumes Qwen3.5 `language_model.*` layout)
-- [ ] **C-patch-guard** — `qwen35_vllm_patch` is a no-op for non-Qwen3.5
-  - Check: it's imported unconditionally at
-    [generation.py:26](policy_eval/generation.py#L26); guard so it can't error on Gemma
+- [x] **C-patch-guard** — done by deletion: vLLM 0.28 registers `Qwen3_5ForCausalLM`
+  natively, so `qwen35_vllm_patch` was removed; there is no Qwen3.5-specific patching
+  left to guard for Gemma
 - [ ] **C-chat-template** — empty-assistant-suffix round-trip holds for Gemma
   - Check: `_format_conversation` prefix assertion passes for Gemma
     `<start_of_turn>`/`<end_of_turn>`

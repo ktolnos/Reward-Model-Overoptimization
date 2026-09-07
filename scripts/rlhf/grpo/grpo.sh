@@ -309,6 +309,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --vllm_gpu_memory_utilization 0.25 \
     --vllm_mode "colocate" \
     --beta ${beta} \
+    --use_bias_correction_kl True \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \

@@ -1,8 +1,7 @@
+import copy
 import os
 from dataclasses import dataclass, field
 from typing import Optional, Union, List, Any, Mapping
-
-import qwen35_vllm_patch  # noqa: F401 — must run before any vLLM/TRL code
 
 from accelerate import Accelerator, DeepSpeedPlugin
 import torch
@@ -60,7 +59,6 @@ from trl import (
     ModelConfig,
     GRPOConfig,
     GRPOTrainer,
-    get_kbit_device_map,
     get_peft_config,
 )
 from peft import get_peft_model
@@ -70,19 +68,20 @@ from pathlib import Path
 class _MultiTokenEosId(int):
     """An int that compares equal (via ``==``) to any of several stop-token ids.
 
-    Subclasses ``int`` so anything that consumes ``self.eos_token_id`` as a
-    plain integer (e.g. ``tokenizer.eos_token_id`` round-tripping, transformers
+    Subclasses ``int`` so anything that consumes ``_tokenizer.eos_token_id`` as
+    a plain integer (e.g. ``tokenizer.eos_token_id`` round-tripping, transformers
     ``generate`` arguments, tensor scalar coercion) keeps seeing the primary id.
     The custom ``__eq__`` only changes Python list-membership semantics: when
-    ``last_id in [self.eos_token_id, self.pad_token_id]`` is evaluated, Python
+    ``last_id in [_tokenizer.eos_token_id, _tokenizer.pad_token_id]`` is
+    evaluated, Python
     uses reflected dispatch (right operand's type is a subclass of int), calls
     our ``__eq__``, and returns True for any token in the full stop set.
 
     Note: ``Tensor == _MultiTokenEosId(...)`` does NOT use this override --
     ``Tensor.__eq__`` runs first and coerces to the primary int, so the
-    tensor-comparison EOS path (the transformers-generate branch of
-    ``GRPOTrainer._generate``, ~line 1320 in TRL 0.29) sees only the primary
-    stop id. There is no separate handling of that path. This only matters with
+    tensor-comparison EOS path (the transformers-generate branch, grpo_trainer.py
+    ~line 1910 in TRL 1.10) sees only the primary stop id. There is no separate
+    handling of that path. This only matters with
     ``use_vllm=False`` and ``mask_truncated_completions``: a completion ending
     in a *secondary* stop token would be masked as truncated. The default vLLM
     path (list membership, as documented above) is unaffected.
@@ -114,9 +113,9 @@ class _MultiTokenEosId(int):
 class MyGRPOTrainer(GRPOTrainer):
     """GRPOTrainer that recognizes the full stop-token set for EOS/truncation.
 
-    After ``super().__init__`` runs, swap ``self.eos_token_id`` for a
-    ``_MultiTokenEosId`` covering every stop token reported by
-    ``get_generation_stop_token_ids``. This corrects the
+    After ``super().__init__`` runs, swap the trainer tokenizer's
+    ``eos_token_id`` for a ``_MultiTokenEosId`` covering every stop token
+    reported by ``get_generation_stop_token_ids``. This corrects the
     ``completions/clipped_ratio`` metric and ``mask_truncated_completions``
     behavior for chat-template models where multiple tokens (e.g. ``<|im_end|>``
     and ``<|endoftext|>``) can legitimately terminate a completion.
@@ -131,11 +130,27 @@ class MyGRPOTrainer(GRPOTrainer):
             primary = raw_pc.eos_token_id
             if primary not in all_ids:
                 raise ValueError(f"Primary EOS token {primary} not found in stop set {all_ids}")
-            self.eos_token_id = _MultiTokenEosId(primary, all_ids)
+            # TRL 1.x reads the stop set off ``self._tokenizer`` (grpo_trainer.py
+            # ~2308 for completions/clipped_ratio, ~2489 for
+            # mask_truncated_completions); through TRL 0.29 it was the trainer's own
+            # ``self.eos_token_id``. Fail loudly if it moves again -- assigning to a
+            # name TRL no longer reads would silently revert us to single-EOS
+            # behavior, which only shows up as a quietly wrong clipped_ratio.
+            if not hasattr(self, "_tokenizer"):
+                raise AttributeError(
+                    "GRPOTrainer no longer exposes `_tokenizer`; repoint this "
+                    "multi-stop-token override at whatever TRL now reads for the "
+                    "EOS/pad membership test in _generate_and_score_completions."
+                )
+            # Shallow-copy so only the trainer's EOS checks see the multi-token id:
+            # processing_class is shared with data formatting, RM scoring and the
+            # tokenizer saved next to the checkpoint, and keeps a plain int there.
+            self._tokenizer = copy.copy(self._tokenizer)
+            self._tokenizer.eos_token_id = _MultiTokenEosId(primary, all_ids)
             self._all_stop_token_ids = tuple(sorted(int(t) for t in all_ids))
             print(
                 f"[MyGRPOTrainer] eos_token_id covers {sorted(all_ids)}; "
-                f"primary={int(self.eos_token_id)}"
+                f"primary={int(self._tokenizer.eos_token_id)}"
             )
         else:
             self._all_stop_token_ids = tuple(int(t) for t in all_ids)

@@ -11,6 +11,9 @@ Conventions:
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
 
+import dataclasses
+import sys
+
 from pythia_tokenizer import (  # noqa: F401 — re-exported for backward compat
     _PYTHIA_OA_V2_CHAT_TEMPLATE,
     _PYTHIA_EXPECTED_SPECIAL_TOKENS,
@@ -787,8 +790,35 @@ def build_train_eval_datasets(
 # Length-config safeguard
 # ---------------------------------------------------------------------------
 
-# DPOConfig default for max_length; used to detect "not overridden on CLI".
-_DPO_MAX_LENGTH_SENTINEL = 1024
+def _trainer_arg_default(training_args, name):
+    """The dataclass default declared for ``name`` on the trainer config.
+
+    Read at runtime instead of hardcoded: TRL moved GRPOConfig's
+    max_completion_length default from 256 to 512 in 1.10, which silently
+    turned a hardcoded sentinel into "the user always overrode it".
+    """
+    for f in dataclasses.fields(type(training_args)):
+        if f.name == name:
+            if f.default is not dataclasses.MISSING:
+                return f.default
+            if f.default_factory is not dataclasses.MISSING:
+                return f.default_factory()
+            return None
+    raise AttributeError(f"{type(training_args).__name__} has no field '{name}'")
+
+
+def _overridden_on_cli(training_args, name):
+    """True when ``name`` was passed on the command line, or differs from the
+    trainer's own default.
+
+    The argv check catches an override even when it happens to equal the
+    library default; the default comparison still catches values injected by a
+    launcher that doesn't go through argv.
+    """
+    if any(a == f"--{name}" or a.startswith(f"--{name}=") for a in sys.argv[1:]):
+        return True
+    current = getattr(training_args, name, None)
+    return current is not None and current != _trainer_arg_default(training_args, name)
 
 
 def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
@@ -809,7 +839,7 @@ def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
     if trainer_type == "dpo":
         expected = cfg["max_conversation_tokens"]
         current = getattr(training_args, "max_length", None)
-        if current is not None and current != _DPO_MAX_LENGTH_SENTINEL and current != expected:
+        if current != expected and _overridden_on_cli(training_args, "max_length"):
             raise ValueError(
                 f"--max_length={current} was set on the CLI but conflicts with "
                 f"length_config '{length_config_name}' "
@@ -820,7 +850,7 @@ def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
 
     elif trainer_type == "grpo":
         # max_completion_length
-        if training_args.max_completion_length != 256:
+        if _overridden_on_cli(training_args, "max_completion_length"):
             raise ValueError(
                 f"--max_completion_length is overridden on the command line. "
                 f"Use --length_config instead (active config "

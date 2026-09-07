@@ -144,6 +144,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --uwo_use_variance True \
     --uwo_lambda "${uwo_lambda}" \
     --beta "${beta}" \
+    --use_bias_correction_kl True \
     --num_generations 16 \
     --num_train_epochs 1 \
     --temperature 1.0 \

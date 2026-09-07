@@ -9,11 +9,11 @@ Benchmarks: **GSM8K** (100), **MATH-500** (100), **AIME-2025** (full 30).
 
 ## 0. Why these choices (read once)
 
-- **HF backend, not vLLM.** Our Qwen3.5 SFT checkpoints are `Qwen3_5ForCausalLM`, which
-  isn't in the vLLM registry — only the GRPO/policy_eval path loads them (via
-  `qwen35_vllm_patch.py` + `vllm_weight_loader.py` prefix remap). lm-eval's plain vLLM
-  backend would mis-load the weights, so use `--model hf`. (Linear attention falls back to a
-  slow torch impl; fine for ~230 prompts.)
+- **HF backend, not vLLM.** Kept for continuity with earlier runs: our Qwen3.5 SFT
+  checkpoints are `Qwen3_5ForCausalLM`, which older vLLM did not register (they needed
+  `qwen35_vllm_patch.py`, since deleted). vLLM 0.28 registers that architecture natively,
+  so lm-eval's plain vLLM backend would now load them correctly — switch only if you
+  re-baseline. (Linear attention falls back to a slow torch impl; fine for ~230 prompts.)
 - **These are reasoning models.** Qwen3.5 base/SFT emit `<think>…</think>` and answer in
   `\boxed{}` *by default* (it's a Qwen pretraining prior, not taught by HelpSteer3 SFT). The
   chat template's `enable_thinking` switch controls this. Gemma uses `<|think|>` and defaults

@@ -11,11 +11,12 @@ class WeightLoaderExtension:
     def load_weights_from_path(self, path: str):
         hf_model = load_causal_lm(path, device_map="cpu")
         model = self.model_runner.model
-        # vLLM may wrap the language model under a multimodal container: Qwen3.5's
-        # Qwen3_5ForConditionalGeneration exposes the LM at language_model.model.*,
-        # while HF names those params model.*. Only remap when the loaded vLLM
-        # model actually uses that layout — a dense pre-3.5 Qwen3ForCausalLM keeps
-        # its params at model.* and would break if we prefixed them.
+        # vLLM may wrap the language model under a multimodal container, which
+        # exposes the LM at language_model.model.* while HF names those params
+        # model.*. Only remap when the loaded vLLM model actually uses that layout
+        # — a text-only model (our Qwen3.5 checkpoints load as Qwen3_5ForCausalLM
+        # since vLLM 0.28 registered that architecture) keeps its params at model.*
+        # and would break if we prefixed them.
         remap = hasattr(model, "language_model")
         weights = [
             ("language_model." + n if remap and n.startswith("model.") else n, p.data)
