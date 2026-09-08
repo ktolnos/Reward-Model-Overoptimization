@@ -15,7 +15,10 @@ from transformers import (
 from trl import RewardTrainer, RewardConfig
 import gemma4_sequence_classification  # noqa: F401 -- registers Gemma4ForSequenceClassification with AutoModelForSequenceClassification
 from load_datasets import load_train_eval_dataset, build_dataset
-from data_utils import setup_tokenizer, set_pad_token_id, get_length_config, DATASET_LENGTH_CONFIGS
+from data_utils import (
+    drop_unused_vision_tower, ensure_fla_kernels, setup_tokenizer, set_pad_token_id,
+    get_length_config, DATASET_LENGTH_CONFIGS,
+)
 from utils import (
     print_trainable_parameters,
     freeze_trainable_parameters,
@@ -166,6 +169,7 @@ if len(script_args.attn_implementation):
 else:
     model_params = {}
 
+ensure_fla_kernels(script_args.base_model)
 model = AutoModelForSequenceClassification.from_pretrained(
     script_args.base_model,
     num_labels=1,
@@ -189,6 +193,7 @@ if script_args.freeze_pretrained:
     model.score = mlp_layer
 
 model.config.num_labels = 1
+drop_unused_vision_tower(model)
 model.resize_token_embeddings(len(tokenizer))
 set_pad_token_id(model, tokenizer)
 print_trainable_parameters(model)

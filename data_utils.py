@@ -172,6 +172,104 @@ def setup_tokenizer(tokenizer, model_name=None):
     return tokenizer
 
 
+_QWEN3_5_MODELING_MODULE = "transformers.models.qwen3_5.modeling_qwen3_5"
+
+
+def _uses_linear_attention(model_name_or_path, *, trust_remote_code=True):
+    """True if the model has gated-delta-net layers (Qwen3.5 and friends)."""
+    from transformers import AutoConfig
+    cfg = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+    layer_types = getattr(cfg.get_text_config(), "layer_types", None) or ()
+    return "linear_attention" in layer_types
+
+
+def ensure_fla_kernels(model_name_or_path=None, *, trust_remote_code=True):
+    """Make transformers pick up flash-linear-attention's gated-delta-rule kernels.
+
+    Qwen3.5 runs 3 of every 4 layers as linear attention (gated delta net).
+    transformers resolves that kernel with the equivalent of
+    ``getattr(getattr(fla, "ops"), "chunk_gated_delta_rule")`` on the *top-level*
+    ``fla`` package.  flash-linear-attention >= 0.4 re-exports nothing from its
+    ``__init__`` and does not import ``fla.ops`` itself, so the lookup returns
+    None and transformers *silently* falls back to
+    ``torch_chunk_gated_delta_rule`` -- a pure-PyTorch reference implementation
+    that upcasts to fp32 and launches ~15x more CUDA kernels.  Measured on an
+    A100-SXM, full-finetune BT RM training of Qwen3.5-4B-Base costs 122 s per
+    optimizer step on the fallback and 21 s with the real kernels.
+
+    Importing ``fla.ops`` binds the ``ops`` attribute on the package, which is
+    all the resolution needs.  It has to happen before transformers imports the
+    modeling module, which is what binds the implementation -- i.e. before the
+    first Qwen3.5 model is built.
+
+    Pass the model about to be loaded to turn the checks into assertions; they
+    only fire for models that actually have linear-attention layers, since the
+    slowdown is invisible at runtime and would otherwise cost a day per run.
+    Set ``ALLOW_SLOW_LINEAR_ATTENTION=1`` to downgrade them to a printed warning
+    if they ever fire for a reason that cannot be fixed.
+    """
+    import os
+    fla_was_ready = "fla.ops" in sys.modules
+    try:
+        import fla
+        import fla.ops  # noqa: F401 -- the import itself is the fix
+        reachable = getattr(getattr(fla, "ops", None), "chunk_gated_delta_rule", None) is not None
+    except ImportError:
+        reachable = False
+
+    if model_name_or_path is None or not _uses_linear_attention(
+        model_name_or_path, trust_remote_code=trust_remote_code
+    ):
+        return
+
+    problem = None
+    if not reachable:
+        problem = (
+            "flash-linear-attention does not expose fla.ops.chunk_gated_delta_rule "
+            "(installed? layout changed?), so transformers will use its pure-torch "
+            "gated-delta-rule fallback"
+        )
+    elif not fla_was_ready and _QWEN3_5_MODELING_MODULE in sys.modules:
+        problem = (
+            f"{_QWEN3_5_MODELING_MODULE} was imported before fla.ops, so it has "
+            "already bound the pure-torch gated-delta-rule fallback; call "
+            "ensure_fla_kernels() earlier"
+        )
+    if problem is None:
+        return
+
+    message = (
+        f"{model_name_or_path} has linear-attention layers but {problem}. "
+        "That path is ~6x slower to train. Set ALLOW_SLOW_LINEAR_ATTENTION=1 to "
+        "run anyway."
+    )
+    if os.environ.get("ALLOW_SLOW_LINEAR_ATTENTION") == "1":
+        print(f"[fla] WARNING: {message}")
+        return
+    raise AssertionError(message)
+
+
+def drop_unused_vision_tower(model):
+    """Detach the vision tower from a text-only sequence-classification model.
+
+    transformers builds the Qwen3.5 classification head on the *multimodal*
+    ``Qwen3_5Model``, so ``AutoModelForSequenceClassification`` carries a ~334M
+    parameter vision encoder (4.54B params instead of 4.20B) that this pipeline
+    can never reach: we only ever pass ``input_ids``, and the tower is used
+    solely by ``get_image_features(pixel_values=...)``.  Left attached it eats
+    GPU memory, adds ~0.7 GB to every checkpoint, and would trip DDP's
+    unused-parameter check on a multi-GPU run.
+
+    Assigning ``None`` to a registered submodule is the supported way to detach
+    one: ``parameters()``, ``named_modules()`` and ``state_dict()`` all skip
+    ``None`` children.
+    """
+    base = getattr(model, getattr(model, "base_model_prefix", ""), None)
+    if base is not None and getattr(base, "visual", None) is not None:
+        base.visual = None
+    return model
+
+
 def _is_lora_checkpoint(path):
     """Check if a path contains a LoRA adapter (has adapter_config.json)."""
     import os
@@ -194,7 +292,12 @@ def load_causal_lm(model_name_or_path, *, trust_remote_code=True, device_map=Non
     Otherwise loads a plain ``AutoModelForCausalLM``.
     """
     import torch
-    if _is_lora_checkpoint(model_name_or_path):
+    is_lora = _is_lora_checkpoint(model_name_or_path)
+    ensure_fla_kernels(
+        _get_lora_base_model_path(model_name_or_path) if is_lora else model_name_or_path,
+        trust_remote_code=trust_remote_code,
+    )
+    if is_lora:
         from peft import AutoPeftModelForCausalLM
         print(f"Detected LoRA adapter at {model_name_or_path}, loading and merging...")
         model = AutoPeftModelForCausalLM.from_pretrained(
