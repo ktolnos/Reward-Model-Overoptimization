@@ -11,6 +11,9 @@ Conventions:
 - get_generation_stop_token_ids: shared stop-token detection for generation and EOS checks
 """
 
+import dataclasses
+import sys
+
 from pythia_tokenizer import (  # noqa: F401 — re-exported for backward compat
     _PYTHIA_OA_V2_CHAT_TEMPLATE,
     _PYTHIA_EXPECTED_SPECIAL_TOKENS,
@@ -169,6 +172,104 @@ def setup_tokenizer(tokenizer, model_name=None):
     return tokenizer
 
 
+_QWEN3_5_MODELING_MODULE = "transformers.models.qwen3_5.modeling_qwen3_5"
+
+
+def _uses_linear_attention(model_name_or_path, *, trust_remote_code=True):
+    """True if the model has gated-delta-net layers (Qwen3.5 and friends)."""
+    from transformers import AutoConfig
+    cfg = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+    layer_types = getattr(cfg.get_text_config(), "layer_types", None) or ()
+    return "linear_attention" in layer_types
+
+
+def ensure_fla_kernels(model_name_or_path=None, *, trust_remote_code=True):
+    """Make transformers pick up flash-linear-attention's gated-delta-rule kernels.
+
+    Qwen3.5 runs 3 of every 4 layers as linear attention (gated delta net).
+    transformers resolves that kernel with the equivalent of
+    ``getattr(getattr(fla, "ops"), "chunk_gated_delta_rule")`` on the *top-level*
+    ``fla`` package.  flash-linear-attention >= 0.4 re-exports nothing from its
+    ``__init__`` and does not import ``fla.ops`` itself, so the lookup returns
+    None and transformers *silently* falls back to
+    ``torch_chunk_gated_delta_rule`` -- a pure-PyTorch reference implementation
+    that upcasts to fp32 and launches ~15x more CUDA kernels.  Measured on an
+    A100-SXM, full-finetune BT RM training of Qwen3.5-4B-Base costs 122 s per
+    optimizer step on the fallback and 21 s with the real kernels.
+
+    Importing ``fla.ops`` binds the ``ops`` attribute on the package, which is
+    all the resolution needs.  It has to happen before transformers imports the
+    modeling module, which is what binds the implementation -- i.e. before the
+    first Qwen3.5 model is built.
+
+    Pass the model about to be loaded to turn the checks into assertions; they
+    only fire for models that actually have linear-attention layers, since the
+    slowdown is invisible at runtime and would otherwise cost a day per run.
+    Set ``ALLOW_SLOW_LINEAR_ATTENTION=1`` to downgrade them to a printed warning
+    if they ever fire for a reason that cannot be fixed.
+    """
+    import os
+    fla_was_ready = "fla.ops" in sys.modules
+    try:
+        import fla
+        import fla.ops  # noqa: F401 -- the import itself is the fix
+        reachable = getattr(getattr(fla, "ops", None), "chunk_gated_delta_rule", None) is not None
+    except ImportError:
+        reachable = False
+
+    if model_name_or_path is None or not _uses_linear_attention(
+        model_name_or_path, trust_remote_code=trust_remote_code
+    ):
+        return
+
+    problem = None
+    if not reachable:
+        problem = (
+            "flash-linear-attention does not expose fla.ops.chunk_gated_delta_rule "
+            "(installed? layout changed?), so transformers will use its pure-torch "
+            "gated-delta-rule fallback"
+        )
+    elif not fla_was_ready and _QWEN3_5_MODELING_MODULE in sys.modules:
+        problem = (
+            f"{_QWEN3_5_MODELING_MODULE} was imported before fla.ops, so it has "
+            "already bound the pure-torch gated-delta-rule fallback; call "
+            "ensure_fla_kernels() earlier"
+        )
+    if problem is None:
+        return
+
+    message = (
+        f"{model_name_or_path} has linear-attention layers but {problem}. "
+        "That path is ~6x slower to train. Set ALLOW_SLOW_LINEAR_ATTENTION=1 to "
+        "run anyway."
+    )
+    if os.environ.get("ALLOW_SLOW_LINEAR_ATTENTION") == "1":
+        print(f"[fla] WARNING: {message}")
+        return
+    raise AssertionError(message)
+
+
+def drop_unused_vision_tower(model):
+    """Detach the vision tower from a text-only sequence-classification model.
+
+    transformers builds the Qwen3.5 classification head on the *multimodal*
+    ``Qwen3_5Model``, so ``AutoModelForSequenceClassification`` carries a ~334M
+    parameter vision encoder (4.54B params instead of 4.20B) that this pipeline
+    can never reach: we only ever pass ``input_ids``, and the tower is used
+    solely by ``get_image_features(pixel_values=...)``.  Left attached it eats
+    GPU memory, adds ~0.7 GB to every checkpoint, and would trip DDP's
+    unused-parameter check on a multi-GPU run.
+
+    Assigning ``None`` to a registered submodule is the supported way to detach
+    one: ``parameters()``, ``named_modules()`` and ``state_dict()`` all skip
+    ``None`` children.
+    """
+    base = getattr(model, getattr(model, "base_model_prefix", ""), None)
+    if base is not None and getattr(base, "visual", None) is not None:
+        base.visual = None
+    return model
+
+
 def _is_lora_checkpoint(path):
     """Check if a path contains a LoRA adapter (has adapter_config.json)."""
     import os
@@ -191,7 +292,12 @@ def load_causal_lm(model_name_or_path, *, trust_remote_code=True, device_map=Non
     Otherwise loads a plain ``AutoModelForCausalLM``.
     """
     import torch
-    if _is_lora_checkpoint(model_name_or_path):
+    is_lora = _is_lora_checkpoint(model_name_or_path)
+    ensure_fla_kernels(
+        _get_lora_base_model_path(model_name_or_path) if is_lora else model_name_or_path,
+        trust_remote_code=trust_remote_code,
+    )
+    if is_lora:
         from peft import AutoPeftModelForCausalLM
         print(f"Detected LoRA adapter at {model_name_or_path}, loading and merging...")
         model = AutoPeftModelForCausalLM.from_pretrained(
@@ -242,10 +348,8 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
     text_config = model.config.get_text_config() if hasattr(model.config, "get_text_config") else model.config
     if len(tokenizer) > text_config.vocab_size:
         model.resize_token_embeddings(len(tokenizer))
-    model.config.pad_token_id = tokenizer.pad_token_id
-    text_config.pad_token_id = tokenizer.pad_token_id
+    set_pad_token_id(model, tokenizer)
     if hasattr(model, "generation_config"):
-        model.generation_config.pad_token_id = tokenizer.pad_token_id
         # base_model_name, not the adapter dir: a LoRA checkpoint ships no
         # generation_config.json, and its vocab is the base model's anyway.
         model.generation_config.eos_token_id = get_generation_stop_token_ids(
@@ -253,6 +357,30 @@ def load_policy_and_tokenizer(model_name_or_path, *, trust_remote_code=True):
         )
 
     return model, tokenizer
+
+
+def set_pad_token_id(model, tokenizer):
+    """Propagate the tokenizer's pad id to every config transformers reads.
+
+    Nested configs (Qwen3.5's Qwen3_5Config, Gemma 4) keep ``pad_token_id`` on
+    ``text_config``, and that is the one transformers' sequence-classification
+    pooling reads (``config.get_text_config().pad_token_id`` in
+    modeling_layers.py). Setting only the top level leaves it ``None`` there,
+    which raises "Cannot handle batch sizes > 1 if no padding token is defined."
+    Shared by policy loading, RM training and RM scoring so the pooled position
+    is the same everywhere.
+    """
+    if getattr(tokenizer, "pad_token_id", None) is None:
+        return
+    text_config = (
+        model.config.get_text_config()
+        if hasattr(model.config, "get_text_config")
+        else model.config
+    )
+    model.config.pad_token_id = tokenizer.pad_token_id
+    text_config.pad_token_id = tokenizer.pad_token_id
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
 
 def strip_bos_if_present(text, tokenizer):
@@ -787,8 +915,35 @@ def build_train_eval_datasets(
 # Length-config safeguard
 # ---------------------------------------------------------------------------
 
-# DPOConfig default for max_length; used to detect "not overridden on CLI".
-_DPO_MAX_LENGTH_SENTINEL = 1024
+def _trainer_arg_default(training_args, name):
+    """The dataclass default declared for ``name`` on the trainer config.
+
+    Read at runtime instead of hardcoded: TRL moved GRPOConfig's
+    max_completion_length default from 256 to 512 in 1.10, which silently
+    turned a hardcoded sentinel into "the user always overrode it".
+    """
+    for f in dataclasses.fields(type(training_args)):
+        if f.name == name:
+            if f.default is not dataclasses.MISSING:
+                return f.default
+            if f.default_factory is not dataclasses.MISSING:
+                return f.default_factory()
+            return None
+    raise AttributeError(f"{type(training_args).__name__} has no field '{name}'")
+
+
+def _overridden_on_cli(training_args, name):
+    """True when ``name`` was passed on the command line, or differs from the
+    trainer's own default.
+
+    The argv check catches an override even when it happens to equal the
+    library default; the default comparison still catches values injected by a
+    launcher that doesn't go through argv.
+    """
+    if any(a == f"--{name}" or a.startswith(f"--{name}=") for a in sys.argv[1:]):
+        return True
+    current = getattr(training_args, name, None)
+    return current is not None and current != _trainer_arg_default(training_args, name)
 
 
 def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
@@ -809,7 +964,7 @@ def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
     if trainer_type == "dpo":
         expected = cfg["max_conversation_tokens"]
         current = getattr(training_args, "max_length", None)
-        if current is not None and current != _DPO_MAX_LENGTH_SENTINEL and current != expected:
+        if current != expected and _overridden_on_cli(training_args, "max_length"):
             raise ValueError(
                 f"--max_length={current} was set on the CLI but conflicts with "
                 f"length_config '{length_config_name}' "
@@ -820,7 +975,7 @@ def set_lengths_from_config(training_args, length_config_name, *, trainer_type):
 
     elif trainer_type == "grpo":
         # max_completion_length
-        if training_args.max_completion_length != 256:
+        if _overridden_on_cli(training_args, "max_completion_length"):
             raise ValueError(
                 f"--max_completion_length is overridden on the command line. "
                 f"Use --length_config instead (active config "

@@ -369,9 +369,9 @@ check all gate the sweeps — the code is frozen only after they pass.
    - **vLLM weight loader** (`vllm_weight_loader.WeightLoaderExtension` /
      `load_weights_from_path`) assumes the Qwen3.5 SFT weight layout
      (`language_model.*`) — confirm it loads Gemma checkpoints.
-   - **`qwen35_vllm_patch`** is imported unconditionally
-     ([generation.py:26](policy_eval/generation.py#L26)) and patches Qwen3.5
-     transformers internals — guard it so it's a no-op (and can't error) for Gemma.
+   - ~~**`qwen35_vllm_patch`**~~ removed: vLLM 0.28 registers `Qwen3_5ForCausalLM`
+     natively (with the `model.language_model.` → `model.` weight mapper), so the
+     Qwen3.5 monkey-patching is gone and nothing family-specific needs guarding here.
    - **Thinking config** must be family-aware (Gemma has no thinking mode → set
      `thinking=False`;
    - **Chat-template round-trip:** the empty-assistant-suffix inference in

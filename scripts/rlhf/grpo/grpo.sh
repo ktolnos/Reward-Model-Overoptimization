@@ -158,6 +158,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --vllm_gpu_memory_utilization 0.25 \
     --vllm_mode "colocate" \
     --beta ${beta} \
+    --use_bias_correction_kl True \
     --log_completions True \
     --loss_type "dr_grpo" \
     --log_unique_prompts True \
@@ -165,7 +166,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --warmup_ratio=0 \
+    --warmup_steps=0 \
     --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \

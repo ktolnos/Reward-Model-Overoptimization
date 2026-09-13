@@ -75,7 +75,7 @@ if __name__ == "__main__":
     peft_config = get_peft_config(model_args)
     model, tokenizer = load_policy_and_tokenizer(
         model_args.model_name_or_path,
-        trust_remote_code=model_args.trust_remote_code,
+        trust_remote_code=training_args.trust_remote_code,
     )
 
     if tokenizer.chat_template is None:
