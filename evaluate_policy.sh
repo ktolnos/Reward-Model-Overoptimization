@@ -92,7 +92,7 @@ TRAINING_RM_PATH=""
 # Sibling RM: an independently-seeded RM from the training RM's base model, used
 # by the 'select' benchmark to pick the best checkpoint (scored on the dataset's
 # 'select' split). Validated as a near-oracle checkpoint selector.
-SIBLING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/20_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
+SIBLING_RM_PATH="/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/84_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1098"
 
 # Name of the gold reward model
 #GOLD_RM_NAME="Ray2333/GRM-Gemma2-2B-rewardmodel-ft"
