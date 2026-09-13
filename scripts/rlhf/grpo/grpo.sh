@@ -256,7 +256,8 @@ reward_model_paths=(
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1965"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-2358"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-2751"
-    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-3144"
+    # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-3144"
+    "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/83_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1098"
     #
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/19_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
     # "/nas/ucb/eop/Reward-Model-Overoptimization/save_reward_models/20_Qwen3.5-4B-Base_len2048_fulltrain_2e-05_datahelpsteer3-qwen35_annotated_human/logs/checkpoint-1179"
@@ -317,7 +318,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --bf16 True \
     --dataset_path ${dataset_path} \
     --output_dir ${log_dir}\
-    --warmup_ratio=0 \
+    --warmup_steps=0 \
     --lr_scheduler_type=constant \
     --model_name_or_path ${base_model_name} \
     --reward_model_paths "${reward_model_paths[@]}" \

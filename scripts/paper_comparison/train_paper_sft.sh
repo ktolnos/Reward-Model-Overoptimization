@@ -64,7 +64,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --save_steps 0.1 \
     --save_only_model True \
     --learning_rate 8e-6 \
-    --warmup_ratio 0 \
+    --warmup_steps 0 \
     --lr_scheduler_type "constant" \
     --logging_steps 20 \
     --report_to "wandb" \

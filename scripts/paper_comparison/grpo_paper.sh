@@ -156,7 +156,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     --per_device_train_batch_size 1 \
     --gradient_accumulation_steps 32 \
     --learning_rate 1e-6 \
-    --warmup_ratio 0 \
+    --warmup_steps 0 \
     --lr_scheduler_type "constant" \
     --save_steps 200 \
     --save_only_model True \

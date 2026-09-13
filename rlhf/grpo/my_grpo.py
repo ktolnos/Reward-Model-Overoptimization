@@ -396,7 +396,7 @@ if __name__ == "__main__":
     for reward_model_path in script_args.reward_model_paths:
         tokenizer = AutoTokenizer.from_pretrained(
             reward_model_path,
-            trust_remote_code=model_args.trust_remote_code,
+            trust_remote_code=training_args.trust_remote_code,
         )
         setup_tokenizer(tokenizer)
         if "QRM" in reward_model_path:
@@ -412,7 +412,7 @@ if __name__ == "__main__":
     # Load only the policy tokenizer first for dataset processing.
     policy_tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
-        trust_remote_code=model_args.trust_remote_code,
+        trust_remote_code=training_args.trust_remote_code,
     )
     setup_tokenizer(policy_tokenizer)
     policy_stop_token_ids = get_generation_stop_token_ids(policy_tokenizer)
@@ -424,12 +424,12 @@ if __name__ == "__main__":
             reward_tokenizers=reward_tokenizers,
             dataset_path=script_args.dataset_path,
             output_dir=str(Path(training_args.output_dir).parent),
-            trust_remote_code=model_args.trust_remote_code,
+            trust_remote_code=training_args.trust_remote_code,
         )
 
     policy, policy_tokenizer = load_policy_and_tokenizer(
         model_args.model_name_or_path,
-        trust_remote_code=model_args.trust_remote_code,
+        trust_remote_code=training_args.trust_remote_code,
     )
 
     # Re-point tokenizer.eos_token_id to <|im_end|> when available. Chat-template-
