@@ -110,6 +110,35 @@ class _MultiTokenEosId(int):
         return int.__hash__(self)
 
 
+def _tokenizer_with_multi_eos(tokenizer, primary_id, all_stop_ids):
+    """Shallow copy of ``tokenizer`` whose ``eos_token_id`` is a ``_MultiTokenEosId``.
+
+    A plain ``tok.eos_token_id = _MultiTokenEosId(...)`` does NOT work on
+    transformers 5.x: ``SpecialTokensMixin.__setattr__`` intercepts every
+    ``*_token_id`` write, converts the id back to its token *string* and stores
+    that in ``_special_tokens_map`` (tokenization_utils_base.py ~1256 in 5.16),
+    so the very next read returns a plain int and the multi-token semantics are
+    gone. That silent swallow is what broke ``completions/clipped_ratio`` and
+    ``mask_truncated_completions``.
+
+    Install a property on a per-instance subclass instead: normal attribute
+    lookup finds it before ``__getattr__``'s ``_id``-suffix handling runs, and
+    because we never assign to the name, ``__setattr__`` never sees it.
+
+    The copy is shallow so only the trainer's EOS checks see the multi-token id:
+    ``processing_class`` is shared with data formatting, RM scoring and the
+    tokenizer saved next to the checkpoint, and keeps a plain int there.
+    """
+    multi = _MultiTokenEosId(primary_id, all_stop_ids)
+    tok = copy.copy(tokenizer)
+    tok.__class__ = type(
+        f"MultiEos{type(tok).__name__}",
+        (type(tok),),
+        {"eos_token_id": property(lambda self: multi)},
+    )
+    return tok
+
+
 class MyGRPOTrainer(GRPOTrainer):
     """GRPOTrainer that recognizes the full stop-token set for EOS/truncation.
 
@@ -131,9 +160,9 @@ class MyGRPOTrainer(GRPOTrainer):
             if primary not in all_ids:
                 raise ValueError(f"Primary EOS token {primary} not found in stop set {all_ids}")
             # TRL 1.x reads the stop set off ``self._tokenizer`` (grpo_trainer.py
-            # ~2308 for completions/clipped_ratio, ~2489 for
+            # ~2307 for completions/clipped_ratio, ~2488 for
             # mask_truncated_completions); through TRL 0.29 it was the trainer's own
-            # ``self.eos_token_id``. Fail loudly if it moves again -- assigning to a
+            # ``self.eos_token_id``. Fail loudly if it moves again -- writing to a
             # name TRL no longer reads would silently revert us to single-EOS
             # behavior, which only shows up as a quietly wrong clipped_ratio.
             if not hasattr(self, "_tokenizer"):
@@ -142,11 +171,27 @@ class MyGRPOTrainer(GRPOTrainer):
                     "multi-stop-token override at whatever TRL now reads for the "
                     "EOS/pad membership test in _generate_and_score_completions."
                 )
-            # Shallow-copy so only the trainer's EOS checks see the multi-token id:
-            # processing_class is shared with data formatting, RM scoring and the
-            # tokenizer saved next to the checkpoint, and keeps a plain int there.
-            self._tokenizer = copy.copy(self._tokenizer)
-            self._tokenizer.eos_token_id = _MultiTokenEosId(primary, all_ids)
+            self._tokenizer = _tokenizer_with_multi_eos(self._tokenizer, primary, all_ids)
+
+            # Verify with the *exact* expression TRL evaluates, rather than
+            # trusting that the assignment stuck. Writing to
+            # `tokenizer.eos_token_id` used to be silently swallowed by
+            # transformers' SpecialTokensMixin.__setattr__, which left every
+            # completion ending in a secondary stop token counted as truncated
+            # -- with mask_truncated_completions that zeroes the whole batch's
+            # loss, so it looks like a stalled run, not a metric bug.
+            eos_and_pad = [self._tokenizer.eos_token_id, self._tokenizer.pad_token_id]
+            missed = [t for t in all_ids if t not in eos_and_pad]
+            if missed:
+                raise RuntimeError(
+                    f"Multi-stop-token EOS override did not take effect: stop "
+                    f"tokens {missed} are still treated as non-terminal by TRL's "
+                    f"`ids[-1] not in [eos_token_id, pad_token_id]` check "
+                    f"(eos={int(self._tokenizer.eos_token_id)}, "
+                    f"pad={self._tokenizer.pad_token_id}). Check how transformers "
+                    f"exposes `eos_token_id` in this version."
+                )
+
             self._all_stop_token_ids = tuple(sorted(int(t) for t in all_ids))
             print(
                 f"[MyGRPOTrainer] eos_token_id covers {sorted(all_ids)}; "
@@ -549,10 +594,19 @@ if __name__ == "__main__":
     ################
     # Training
     ################
+    # Hand the trainer the tokenizer the rest of the pipeline already uses.
+    # Left unset, TRL loads a *second* tokenizer straight from the checkpoint
+    # (grpo_trainer.py ~369), which misses the <|im_end|> repointing above and
+    # every other `setup_tokenizer` adjustment -- exactly the cross-stage drift
+    # the pipeline is supposed to rule out. TRL's own load asks for
+    # truncation_side="left"; match it so prompts are trimmed at the front.
+    policy_tokenizer.truncation_side = "left"
+
     trainer = MyGRPOTrainer(
         args=training_args,
         # reward_processing_classes=reward_tokenizer,
         model=policy,
+        processing_class=policy_tokenizer,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         peft_config=peft_config,
