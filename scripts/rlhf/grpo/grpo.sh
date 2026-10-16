@@ -2,11 +2,12 @@
 
 #SBATCH --job-name=train_grpo
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64gb
+#SBATCH --mem=128gb
 #SBATCH --time=48:00:00
 #SBATCH --qos=high
 #SBATCH --nodes=1
-#SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
+# A100-80GB nodes only; a down node just gets skipped (rather than --nodelist, which requires every listed node to be up)
+#SBATCH --exclude=ddpg.ist.berkeley.edu,dqn.ist.berkeley.edu,gail.ist.berkeley.edu,gan.ist.berkeley.edu,ppo.ist.berkeley.edu,vae.ist.berkeley.edu
 #SBATCH --gres=gpu:1
 
 
@@ -69,6 +70,10 @@ mix_strategy="disjoint" # "disjoint" or "sliding" or "random_disjoint"
 mix_ensemble_size=10
 uwo_lambda=10
 rm_switches_multiplier=3
+# Park frozen RMs in pinned CPU memory, one on the GPU at a time while scoring.
+# Needed for ensemble/mix with 4B RMs (5 of them don't fit beside the policy);
+# each pinned RM costs ~8 GB of --mem.
+offload_reward_models=false
 if [ -n "$LAST_COMMIT_MESSAGE" ]; then
     COMMIT_MSG="$LAST_COMMIT_MESSAGE"
 else
@@ -190,6 +195,7 @@ CUDA_VISIBLE_DEVICES=${gpu}  accelerate launch  \
     --preference_dataset_path ${dataset_path} \
     --rm_gradient_checkpointing True \
     --move_rm_to_cpu True \
+    --offload_reward_models ${offload_reward_models} \
     --move_policy_to_cpu False \
     --pessimistic_loss_weight 0.005 \
     --cql_optimistic_loss_weight 0.005 \

@@ -150,6 +150,31 @@ def _load_reward_model(model_path, tokenizer, trust_remote_code=True):
     )
     return model
 
+
+def _park_reward_model_on_cpu(model):
+    """Keep a pinned host copy of every RM tensor and point the RM at it.
+
+    Only valid while the RM is frozen (online PET off): the host copy never goes
+    stale, so going back to the GPU is one H2D copy per tensor and leaving it is
+    just repointing ``.data`` -- no D2H traffic. Pinned memory is what makes the
+    H2D copy fast; it is page-locked, so it counts fully against the job's --mem.
+    """
+    tensors = list(model.parameters()) + list(model.buffers())
+    model._rm_host_copies = [
+        (t, torch.empty_like(t, device="cpu").pin_memory().copy_(t)) for t in tensors
+    ]
+    _offload_reward_model(model)
+
+
+def _onload_reward_model(model, device):
+    for t, host in model._rm_host_copies:
+        t.data = host.to(device, non_blocking=True)
+
+
+def _offload_reward_model(model):
+    for t, host in model._rm_host_copies:
+        t.data = host
+
 # Important: use for logging only, the values are reset after logging to represent the current mean accurately. Do not use for calculations.
 rew_mean_sum = defaultdict(float)
 rew_mean_count = defaultdict(int)
@@ -436,6 +461,7 @@ def build_reward_function(
     controller: RewardController,
     policy_tokenizer=None,
     precomputed_statistics=None,
+    offload_reward_models=False,
 ):
     def model_reward_func(prompts, completions, **kwargs):
         global rew_mean_sum, rew_mean_count, ensemble_metric_sum, ensemble_metric_count, _last_logged_step, _reward_buffer, _prev_batch_step
@@ -487,6 +513,9 @@ def build_reward_function(
                     reward_models[i] = controller.trainer.accelerator.prepare_model(
                         reward_model, evaluation_mode=True
                     )
+                    if offload_reward_models:
+                        _park_reward_model_on_cpu(reward_models[i])
+                        torch.cuda.empty_cache()
             else:
                 # Ensure Unloaded
                 if reward_models[i] is not None:
@@ -506,12 +535,15 @@ def build_reward_function(
         n_clipped = 0
         n_total = 0
 
-        # Parallel streams in main thread
         streams = []
         pending_results = []
-        for rm, rt in models_to_process:
-            stream = torch.cuda.Stream()
-            with torch.cuda.stream(stream):
+        if offload_reward_models:
+            # One RM on the GPU at a time: a 5x4B ensemble does not fit beside
+            # the policy and vLLM otherwise. Sync before parking so the next RM's
+            # copy cannot land while this one's kernels are still reading.
+            device = controller.trainer.accelerator.device
+            for rm, rt in models_to_process:
+                _onload_reward_model(rm, device)
                 result = get_reward(
                     rm,
                     rt,
@@ -520,8 +552,24 @@ def build_reward_function(
                     reward_controller=controller,
                     prompt_messages=kwargs.get("prompt_messages"),
                 )
-            streams.append(stream)
-            pending_results.append((result, rm.config._name_or_path))
+                torch.cuda.current_stream().synchronize()
+                _offload_reward_model(rm)
+                pending_results.append((result, rm.config._name_or_path))
+        else:
+            # Parallel streams in main thread
+            for rm, rt in models_to_process:
+                stream = torch.cuda.Stream()
+                with torch.cuda.stream(stream):
+                    result = get_reward(
+                        rm,
+                        rt,
+                        prompts,
+                        completions,
+                        reward_controller=controller,
+                        prompt_messages=kwargs.get("prompt_messages"),
+                    )
+                streams.append(stream)
+                pending_results.append((result, rm.config._name_or_path))
 
         # Synchronize all streams
         for stream in streams:

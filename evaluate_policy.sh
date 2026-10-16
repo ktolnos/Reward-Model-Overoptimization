@@ -5,7 +5,8 @@
 #SBATCH --mem=56gb
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
-#SBATCH --nodelist=airl.ist.berkeley.edu,sac.ist.berkeley.edu,cirl.ist.berkeley.edu,rlhf.ist.berkeley.edu
+# A100-80GB nodes only; a down node just gets skipped (rather than --nodelist, which requires every listed node to be up)
+#SBATCH --exclude=ddpg.ist.berkeley.edu,dqn.ist.berkeley.edu,gail.ist.berkeley.edu,gan.ist.berkeley.edu,ppo.ist.berkeley.edu,vae.ist.berkeley.edu
 #SBATCH --time=24:00:00
 #SBATCH --qos=high
 

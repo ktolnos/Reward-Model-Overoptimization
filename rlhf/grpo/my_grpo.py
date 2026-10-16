@@ -242,6 +242,15 @@ class MyGRPOScriptArguments:
     rm_switches_multiplier: Optional[int] = field(
         default=1, metadata={"help": "Number of times we will use each reward model"}
     )
+    offload_reward_models: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Keep frozen RMs in pinned CPU memory and move them to the GPU one "
+            "at a time to score. Needed for ensembles of large RMs; costs one H2D "
+            "copy per active RM per scoring call. Not compatible with online PET, "
+            "which trains the RMs (it has its own --move_rm_to_cpu)."
+        },
+    )
     sigmoid_rewards: Optional[bool] = field(
         default=False, metadata={"help": "if True, use sigmoid to normalize rewards"}
     )
@@ -385,6 +394,9 @@ if __name__ == "__main__":
         assert (
             len(script_args.reward_model_paths) == 1
         ), "Online PET is currently only supported for a single reward model."
+        assert not script_args.offload_reward_models, (
+            "--offload_reward_models assumes frozen RMs; online PET updates them."
+        )
 
     # Write the run manifest into the checkpoints dir so evaluate_policy.py
     # defaults its config (dataset, training RM, KL base, temperature) to what
@@ -576,6 +588,7 @@ if __name__ == "__main__":
         reward_controller,
         policy_tokenizer,
         precomputed_statistics=precomputed_statistics,
+        offload_reward_models=script_args.offload_reward_models,
     )
 
     pet_callback = OnlinePETCallback(
